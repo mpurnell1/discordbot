@@ -10,6 +10,9 @@ import asyncio
 import re
 import os
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+CENTRAL_TZ = ZoneInfo("America/Chicago")
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -27,10 +30,9 @@ STARTING_BALANCE = 100
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.1.100:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 
-# Late night callout: hours in UTC that count as "late" — adjust for your timezone
-# These defaults are 1am-5am US Central (UTC-6), so 7-11 UTC
-LATE_NIGHT_START_UTC = 7
-LATE_NIGHT_END_UTC = 11
+# Late night callout: hours in US Central time that count as "late"
+LATE_NIGHT_START = 1   # 1am Central
+LATE_NIGHT_END = 5     # 5am Central
 LATE_NIGHT_CHANCE = 0.4  # 40% chance to call someone out
 
 # Dead chat: minutes of silence before escalating
@@ -308,8 +310,8 @@ async def on_message(message):
     recent_messages[channel_id] = recent_messages[channel_id][-15:]
 
     # --- Late night callout ---
-    hour_utc = now.hour
-    if LATE_NIGHT_START_UTC <= hour_utc < LATE_NIGHT_END_UTC:
+    hour_central = now.astimezone(CENTRAL_TZ).hour
+    if LATE_NIGHT_START <= hour_central < LATE_NIGHT_END:
         today_str = now.strftime("%Y-%m-%d")
         user_key = f"{message.author.id}-{today_str}"
         if user_key not in last_late_night and random.random() < LATE_NIGHT_CHANCE:
@@ -460,9 +462,11 @@ async def daily(ctx):
     user_id = ctx.author.id
     get_balance(user_id)
     row = db.execute("SELECT last_daily FROM users WHERE user_id = ?", (user_id,)).fetchone()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(CENTRAL_TZ)
     if row and row[0]:
         last = datetime.fromisoformat(row[0])
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
         if now - last < timedelta(hours=24):
             remaining = timedelta(hours=24) - (now - last)
             h, m = divmod(int(remaining.total_seconds()) // 60, 60)
@@ -776,7 +780,7 @@ async def wyr(ctx):
 @bot.command()
 async def onthisday(ctx):
     """Get a random historical event that happened on this day."""
-    today = datetime.now()
+    today = datetime.now(CENTRAL_TZ)
     url = f"https://byabbe.se/on-this-day/{today.month}/{today.day}/events.json"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -874,7 +878,7 @@ async def quote(ctx):
         return await ctx.send("Couldn't fetch that message.")
     if not msg.content:
         return await ctx.send("That message has no text content.")
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(CENTRAL_TZ).strftime("%Y-%m-%d")
     db.execute(
         "INSERT INTO quotes (guild_id, quoted_user_id, quoted_user_name, content, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)",
         (ctx.guild.id, msg.author.id, msg.author.display_name, msg.content, ctx.author.id, now)
