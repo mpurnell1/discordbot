@@ -8,6 +8,7 @@ import sqlite3
 import random
 import asyncio
 import json
+import re
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -585,11 +586,21 @@ async def stand(ctx):
 # ---------------------------------------------------------------------------
 # WEATHER
 # ---------------------------------------------------------------------------
+LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
+
 @bot.command()
-async def weather(ctx, *, city: str):
+
+async def weather(ctx, *, city: str = "Champaign"):
     """Get the weather for a city."""
+    cleaned = city.strip()
+    # Assume IL for local cities
+    if cleaned.lower() in LOCAL_CITIES:
+        cleaned = cleaned + ",IL,US"
+    # If input looks like "City, ST" (two-letter state), assume US
+    elif re.match(r'^.+,\s*[A-Za-z]{2}$', cleaned):
+        cleaned = cleaned + ",US"
     url = "https://api.openweathermap.org/data/2.5/weather"
-    params = {"q": city, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
+    params = {"q": cleaned, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
     async with aiohttp.ClientSession() as session:
         async with session.get(url, params=params) as resp:
             if resp.status != 200:
@@ -813,7 +824,7 @@ async def help(ctx):
         "`!slots <amt>` — Slot machine\n"
         "`!blackjack <amt>` — Play 21"
     ), inline=False)
-    embed.add_field(name="🌤️ Weather", value="`!weather <city>` — Current weather", inline=False)
+    embed.add_field(name="🌤️ Weather", value="`!weather [city]` — Current weather (defaults to Champaign)", inline=False)
     embed.add_field(name="🐾 Animals", value="`!cat` / `!dog` — Random pics", inline=False)
     embed.add_field(name="🎉 Fun", value=(
         "`!wyr` — Would You Rather\n"
