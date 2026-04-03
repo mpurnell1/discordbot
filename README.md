@@ -64,6 +64,8 @@ journalctl -u discord-bot -f
 | `!onthisday` | Historical event today |
 | `!changenick @user <name>` | Rename someone for 24h (2000 coins) |
 | `!ask <question>` | Ask the AI (needs Ollama running) |
+| `!quote` | Reply to a message to save it |
+| `!quotes` | Show recent quotes |
 | `!help` | Show all commands |
 
 ## Configuration

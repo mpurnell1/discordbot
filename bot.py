@@ -62,6 +62,17 @@ def init_db():
             expires_at TEXT
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS quotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER,
+            quoted_user_id INTEGER,
+            quoted_user_name TEXT,
+            content TEXT,
+            saved_by INTEGER,
+            saved_at TEXT
+        )
+    """)
     db.commit()
     return db
 
@@ -769,7 +780,58 @@ async def restore_nicknames():
     db.commit()
 
 # ---------------------------------------------------------------------------
-# LEADERBOARD
+# QUOTES
+# ---------------------------------------------------------------------------
+def format_quote(content, name, date, prefix=""):
+    year = date[2:4] if date else "??"
+    short = content[:80] + "..." if len(content) > 80 else content
+    return f'{prefix}> "{short}"\n\\- {name} 2k{year}'
+
+@bot.command()
+async def quote(ctx):
+    """Save a quote by replying to a message."""
+    if not ctx.message.reference:
+        return await ctx.send("Reply to a message with `!quote` to save it.")
+    try:
+        msg = ctx.message.reference.resolved or await ctx.channel.fetch_message(ctx.message.reference.message_id)
+    except Exception:
+        return await ctx.send("Couldn't fetch that message.")
+    if not msg.content:
+        return await ctx.send("That message has no text content.")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    db.execute(
+        "INSERT INTO quotes (guild_id, quoted_user_id, quoted_user_name, content, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (ctx.guild.id, msg.author.id, msg.author.display_name, msg.content, ctx.author.id, now)
+    )
+    db.commit()
+    await ctx.send(format_quote(msg.content, msg.author.mention, now))
+
+@bot.command()
+async def quotes(ctx, flag: str = ""):
+    """Show recent quotes. Admin can use !quotes ids to show IDs."""
+    show_ids = flag.lower() == "ids" and ctx.author.id == ADMIN_ID
+    rows = db.execute(
+        "SELECT id, quoted_user_name, content, saved_at FROM quotes WHERE guild_id = ? ORDER BY id DESC LIMIT 10",
+        (ctx.guild.id,)
+    ).fetchall()
+    if not rows:
+        return await ctx.send("No quotes saved yet.")
+    prefix_fn = lambda qid: f"**#{qid}** " if show_ids else ""
+    lines = [format_quote(content, name, date, prefix_fn(qid)) for qid, name, content, date in rows]
+    await ctx.send("\n".join(lines))
+
+@bot.command()
+async def unquote(ctx, quote_id: int):
+    """Delete a quote by ID (admin only)."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    row = db.execute("SELECT id FROM quotes WHERE id = ? AND guild_id = ?", (quote_id, ctx.guild.id)).fetchone()
+    if not row:
+        return await ctx.send(f"Quote #{quote_id} not found.")
+    db.execute("DELETE FROM quotes WHERE id = ?", (quote_id,))
+    db.commit()
+    await ctx.send(f"Quote #{quote_id} deleted.")
+
 # ---------------------------------------------------------------------------
 # ADMIN
 # ---------------------------------------------------------------------------
@@ -783,6 +845,9 @@ async def give(ctx, member: discord.Member, amount: int):
     update_balance(member.id, amount)
     new_bal = get_balance(member.id)
     await ctx.send(f"Gave **{amount}** coins to {member.mention}. New balance: **{new_bal}**")
+
+# ---------------------------------------------------------------------------
+# LEADERBOARD
 # ---------------------------------------------------------------------------
 @bot.command(aliases=["lb", "top"])
 async def leaderboard(ctx):
@@ -833,6 +898,10 @@ async def help(ctx):
     ), inline=False)
     embed.add_field(name="🤖 AI", value=(
         "`!ask <question>` — Ask the AI (needs desktop on)"
+    ), inline=False)
+    embed.add_field(name="💬 Quotes", value=(
+        "`!quote` — Reply to a message to save it\n"
+        "`!quotes` — Show recent quotes"
     ), inline=False)
     await ctx.send(embed=embed)
 
