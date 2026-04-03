@@ -7,7 +7,6 @@ import aiohttp
 import sqlite3
 import random
 import asyncio
-import json
 import re
 import os
 from datetime import datetime, timedelta, timezone
@@ -40,6 +39,8 @@ DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 
 # Unsolicited opinions: chance the bot sends a message to Ollama for commentary
 UNSOLICITED_CHANCE = 0.12  # ~12% of messages get evaluated
+
+ADMIN_ID = REDACTED_ADMIN_ID
 
 # ---------------------------------------------------------------------------
 # DATABASE SETUP
@@ -108,10 +109,6 @@ def update_balance(user_id: int, amount: int):
     db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
     db.commit()
 
-def set_balance(user_id: int, amount: int):
-    get_balance(user_id)
-    db.execute("UPDATE users SET balance = ? WHERE user_id = ?", (amount, user_id))
-    db.commit()
 
 def make_embed(title, description, color=0x5865F2):
     return discord.Embed(title=title, description=description, color=color)
@@ -600,7 +597,6 @@ async def stand(ctx):
 LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
 
 @bot.command()
-
 async def weather(ctx, *, city: str = "Champaign"):
     """Get the weather for a city."""
     cleaned = city.strip()
@@ -835,8 +831,6 @@ async def unquote(ctx, quote_id: int):
 # ---------------------------------------------------------------------------
 # ADMIN
 # ---------------------------------------------------------------------------
-ADMIN_ID = REDACTED_ADMIN_ID
-
 @bot.command()
 async def give(ctx, member: discord.Member, amount: int):
     """Admin only: add coins to a user."""
@@ -909,13 +903,23 @@ async def help(ctx):
 # ---------------------------------------------------------------------------
 # ERROR HANDLER
 # ---------------------------------------------------------------------------
-COMMAND_USAGE = {'coinflip': 'Usage: `!coinflip <amount>`', 'slots': 'Usage: `!slots <amount>`', 'blackjack': 'Usage: `!blackjack <amount>`', 'weather': 'Usage: `!weather <city>`', 'changenick': 'Usage: `!changenick @user <nickname>`', 'ask': 'Usage: `!ask <question>`'}
+COMMAND_USAGE = {
+    'coinflip': '<amount>',
+    'slots': '<amount>',
+    'blackjack': '<amount>',
+    'weather': '<city>',
+    'changenick': '@user <nickname>',
+    'ask': '<question>',
+    'unquote': '<id>',
+    'give': '@user <amount>',
+}
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
-        usage = COMMAND_USAGE.get(ctx.command.name, f"Check `!help` for usage.")
-        await ctx.send(usage)
+        command = ctx.command.name
+        args = COMMAND_USAGE.get(command)
+        await ctx.send(f"Usage: `!{command} {args}`" if args else "Check `!help` for usage.")
     elif isinstance(error, commands.CommandNotFound):
         pass
     else:
