@@ -760,6 +760,19 @@ async def restore_nicknames():
 # ---------------------------------------------------------------------------
 # LEADERBOARD
 # ---------------------------------------------------------------------------
+# ADMIN
+# ---------------------------------------------------------------------------
+ADMIN_ID = REDACTED_ADMIN_ID
+
+@bot.command()
+async def give(ctx, member: discord.Member, amount: int):
+    """Admin only: add coins to a user."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    update_balance(member.id, amount)
+    new_bal = get_balance(member.id)
+    await ctx.send(f"Gave **{amount}** coins to {member.mention}. New balance: **{new_bal}**")
+# ---------------------------------------------------------------------------
 @bot.command(aliases=["lb", "top"])
 async def leaderboard(ctx):
     """Show the richest users in the server."""
@@ -811,6 +824,22 @@ async def help(ctx):
         "`!ask <question>` — Ask the AI (needs desktop on)"
     ), inline=False)
     await ctx.send(embed=embed)
+
+
+# ---------------------------------------------------------------------------
+# ERROR HANDLER
+# ---------------------------------------------------------------------------
+COMMAND_USAGE = {'coinflip': 'Usage: `!coinflip <amount>`', 'slots': 'Usage: `!slots <amount>`', 'blackjack': 'Usage: `!blackjack <amount>`', 'weather': 'Usage: `!weather <city>`', 'changenick': 'Usage: `!changenick @user <nickname>`', 'ask': 'Usage: `!ask <question>`'}
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
+        usage = COMMAND_USAGE.get(ctx.command.name, f"Check `!help` for usage.")
+        await ctx.send(usage)
+    elif isinstance(error, commands.CommandNotFound):
+        pass
+    else:
+        raise error
 
 # ---------------------------------------------------------------------------
 # RUN
