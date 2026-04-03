@@ -42,6 +42,11 @@ UNSOLICITED_CHANCE = 0.12  # ~12% of messages get evaluated
 
 ADMIN_ID = 393568333644955648
 
+# --- Lucky guess config ---
+LUCKY_GUESS_RANGE = 10       # Guess 1-N
+LUCKY_GUESS_REWARD = 1       # Coins awarded on correct guess
+LUCKY_GUESS_MAX_DAILY = 3    # Max attempts per day
+
 # ---------------------------------------------------------------------------
 # DATABASE SETUP
 # ---------------------------------------------------------------------------
@@ -51,9 +56,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             balance INTEGER DEFAULT 0,
-            last_daily TEXT DEFAULT ''
+            last_daily TEXT DEFAULT '',
+            guess_date TEXT DEFAULT '',
+            guess_count INTEGER DEFAULT 0
         )
     """)
+    # Migrate existing databases missing the guess columns
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN guess_date TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN guess_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     db.execute("""
         CREATE TABLE IF NOT EXISTS nick_changes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -373,6 +389,67 @@ async def ask(ctx, *, question: str):
     if len(response) > 1900:
         response = response[:1900] + "..."
     await ctx.send(response)
+
+# ---------------------------------------------------------------------------
+# ECONOMY: LUCKY GUESS
+# ---------------------------------------------------------------------------
+@bot.command()
+async def guess(ctx, number: int):
+    """Guess a number 1-{LUCKY_GUESS_RANGE} for a free coin (up to {LUCKY_GUESS_MAX_DAILY}x/day)."""
+    user_id = ctx.author.id
+    bal = get_balance(user_id)
+
+    if bal > 0:
+        await ctx.send(embed=make_embed("🚫 Not Broke Enough", f"You still have **{bal}** coins! Guess is only for when you're at **0**.", 0xED4245))
+        return
+
+    if number < 1 or number > LUCKY_GUESS_RANGE:
+        await ctx.send(embed=make_embed("❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", 0xED4245))
+        return
+
+    now = datetime.now(CENTRAL_TZ)
+    today = now.strftime("%Y-%m-%d")
+    row = db.execute(
+        "SELECT guess_date, guess_count FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    guess_date = row[0] if row else ""
+    guess_count = row[1] if row else 0
+
+    if guess_date == today and guess_count >= LUCKY_GUESS_MAX_DAILY:
+        await ctx.send(embed=make_embed(
+            "🚫 No Guesses Left",
+            f"You've used all **{LUCKY_GUESS_MAX_DAILY}** guesses today. Try again tomorrow!",
+            0xED4245))
+        return
+
+    # Reset count if it's a new day
+    if guess_date != today:
+        guess_count = 0
+
+    guess_count += 1
+    db.execute(
+        "UPDATE users SET guess_date = ?, guess_count = ? WHERE user_id = ?",
+        (today, guess_count, user_id))
+    db.commit()
+
+    answer = random.randint(1, LUCKY_GUESS_RANGE)
+    remaining = LUCKY_GUESS_MAX_DAILY - guess_count
+
+    if number == answer:
+        update_balance(user_id, LUCKY_GUESS_REWARD)
+        bal = get_balance(user_id)
+        await ctx.send(embed=make_embed(
+            f"🎯 Correct! The number was **{answer}**!",
+            f"You won **{LUCKY_GUESS_REWARD}** coin!\n"
+            f"Balance: **{bal}** | Guesses left today: **{remaining}**",
+            0x57F287))
+    else:
+        bal = get_balance(user_id)
+        await ctx.send(embed=make_embed(
+            f"❌ Nope! The number was **{answer}**.",
+            f"Better luck next time!\n"
+            f"Balance: **{bal}** | Guesses left today: **{remaining}**",
+            0xED4245))
 
 # ---------------------------------------------------------------------------
 # ECONOMY: DAILY
@@ -878,6 +955,7 @@ async def help(ctx):
     embed = discord.Embed(title="📖 Bot Commands", color=0x5865F2)
     embed.add_field(name="💰 Economy", value=(
         "`!daily` — Claim daily coins\n"
+        "`!guess <1-10>` — Guess for a free coin (3x/day)\n"
         "`!balance` — Check balance\n"
         "`!leaderboard` — Top 10 richest"
     ), inline=False)
@@ -907,6 +985,7 @@ async def help(ctx):
 # ERROR HANDLER
 # ---------------------------------------------------------------------------
 COMMAND_USAGE = {
+    'guess': '<number 1-10>',
     'coinflip': '<amount>',
     'slots': '<amount>',
     'blackjack': '<amount>',
