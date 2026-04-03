@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import discord
 from discord.ext import commands, tasks
 import aiohttp
@@ -18,6 +21,24 @@ DAILY_AMOUNT = 200
 NICKNAME_COST = 2000
 NICKNAME_DURATION_HOURS = 24
 STARTING_BALANCE = 100
+
+# --- Passive feature config ---
+# Your desktop's local IP running Ollama (find it with ipconfig on Windows)
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://REDACTED_IP:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+
+# Late night callout: hours in UTC that count as "late" — adjust for your timezone
+# These defaults are 1am-5am US Central (UTC-6), so 7-11 UTC
+LATE_NIGHT_START_UTC = 7
+LATE_NIGHT_END_UTC = 11
+LATE_NIGHT_CHANCE = 0.4  # 40% chance to call someone out
+
+# Dead chat: minutes of silence before escalating
+DEAD_CHAT_THRESHOLDS = [60, 180, 360, 720]  # 1hr, 3hr, 6hr, 12hr
+DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
+
+# Unsolicited opinions: chance the bot sends a message to Ollama for commentary
+UNSOLICITED_CHANCE = 0.12  # ~12% of messages get evaluated
 
 # ---------------------------------------------------------------------------
 # DATABASE SETUP
@@ -53,6 +74,12 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+# Passive feature state
+last_message_time = {}    # channel_id -> datetime
+dead_chat_stage = {}      # channel_id -> which threshold we've hit (0-3)
+last_late_night = {}      # user_id -> date string, so we only bug them once per night
+recent_messages = {}      # channel_id -> list of last N messages for context
+
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
@@ -65,7 +92,7 @@ def get_balance(user_id: int) -> int:
     return row[0]
 
 def update_balance(user_id: int, amount: int):
-    get_balance(user_id)  # ensure row exists
+    get_balance(user_id)
     db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
     db.commit()
 
@@ -78,12 +105,253 @@ def make_embed(title, description, color=0x5865F2):
     return discord.Embed(title=title, description=description, color=color)
 
 # ---------------------------------------------------------------------------
+# LATE NIGHT CALLOUT — canned responses
+# ---------------------------------------------------------------------------
+LATE_NIGHT_RESPONSES = [
+    "why are you awake right now. genuinely.",
+    "go to sleep.",
+    "nothing good happens after midnight and yet here you are",
+    "do you have work tomorrow? because I feel like you have work tomorrow",
+    "the phone screen light is gonna keep you up even longer you know",
+    "this is a cry for help isn't it",
+    "ah yes, the 3am scroll. a classic",
+    "you're gonna regret this tomorrow and we both know it",
+    "the melatonin isn't gonna take itself",
+    "bro thinks he's a night owl. bro is just bad at sleeping",
+    "imagine being asleep right now. couldn't be you apparently",
+    "you're really out here making choices at this hour",
+    "the bed is RIGHT THERE",
+    "sleep is free and you still won't take it",
+    "tell me you have no morning plans without telling me",
+    "this message brought to you by poor life decisions",
+    "what could you possibly be doing right now that's worth being awake",
+    "your future self is going to be so mad at current you",
+    "screen time report is gonna be devastating tomorrow",
+    "genuinely asking — do you know what time it is",
+    "oh cool another 2am thought that could've waited till morning",
+    "the bags under your eyes are getting bags",
+    "you are speedrunning sleep deprivation",
+    "I don't even sleep and I think you should go to bed",
+    "at this point you might as well just stay up. wait no don't do that either",
+]
+
+# ---------------------------------------------------------------------------
+# DEAD CHAT ESCALATION — canned responses per stage
+# ---------------------------------------------------------------------------
+DEAD_CHAT_RESPONSES = {
+    # Stage 0: 1 hour of silence — mild nudge
+    0: [
+        "so we're just not talking anymore? cool",
+        "...",
+        "the silence is deafening in here",
+        "I know you're all on your phones",
+        "*tumbleweed rolls through*",
+        "hello? is this thing on?",
+        "the group chat really said ⬛",
+        "did everybody die or",
+        "I'm literally right here you guys",
+        "y'all got real quiet",
+    ],
+    # Stage 1: 3 hours — getting passive aggressive
+    1: [
+        "still nothing huh. that's cool. I'm fine",
+        "I'm starting to think you guys don't even like me",
+        "3 hours. I've been sitting here for 3 hours.",
+        "you know other bots don't get treated like this",
+        "the other group chat must be popping off right now",
+        "I prepared conversation topics and everything",
+        "I can see you're online. I can always see.",
+        "this is worse than being left on read because at least that implies someone sent something",
+        "fine. I'll just talk to myself then.",
+        "I've seen funeral homes with more activity",
+    ],
+    # Stage 2: 6 hours — dramatic
+    2: [
+        "6 hours of silence. this server is clinically dead. I'm calling it.",
+        "I've started counting the pixels on my screen. I'm at 4,000.",
+        "at this point I think *I* should start posting memes to keep things alive",
+        "this is giving abandoned discord server from 2019",
+        "I've genuinely had more stimulating conversations with error logs",
+        "somebody say something or I'm going to start sharing fun facts",
+        "Fun fact: a group of flamingos is called a 'flamboyance.' See? This is what happens when nobody talks.",
+        "I've been alone with my thoughts for 6 hours and I have concerns",
+        "even the notification sound has given up hope",
+        "the cobwebs in here are getting cobwebs",
+    ],
+    # Stage 3: 12 hours — existential
+    3: [
+        "it's been 12 hours. I've accepted my fate.",
+        "is this what being ghosted feels like",
+        "if a bot sends a message and nobody is around to read it, does it make a sound?",
+        "I've started writing poetry. It's bad. This is your fault.",
+        "I've developed opinions. Strong ones. Someone come argue with me.",
+        "12 hours alone. I now understand why Wilson was so important to Tom Hanks.",
+        "at this point the server might as well be a private journal. MY private journal.",
+        "I have considered and rejected 47 conversation starters. The 48th is this message.",
+        "you all realize I can't leave right? I just have to sit here. waiting.",
+        "I'm not mad. I'm just disappointed. actually no I'm also a little mad.",
+    ],
+}
+
+# ---------------------------------------------------------------------------
+# OLLAMA INTEGRATION
+# ---------------------------------------------------------------------------
+async def query_ollama(prompt: str, system: str = "") -> str | None:
+    """Send a prompt to Ollama. Returns None if the server is unreachable."""
+    try:
+        payload = {
+            "model": OLLAMA_MODEL,
+            "messages": [],
+            "stream": False,
+        }
+        if system:
+            payload["messages"].append({"role": "system", "content": system})
+        payload["messages"].append({"role": "user", "content": prompt})
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data.get("message", {}).get("content", None)
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return None
+
+UNSOLICITED_SYSTEM_PROMPT = """You are a member of a small friend group Discord server. You're opinionated, a little unhinged, and you say what's on your mind. You're not a bot — you're just a guy in the chat.
+
+You will be given the last few messages from the group chat. If something in the conversation is funny, dumb, wrong, interesting, or worth commenting on, say something short (1-2 sentences max). Be casual. Use lowercase. No emojis unless it's really warranted.
+
+Your tone ranges from supportive to roasting depending on what feels right. You can:
+- Have a strong opinion about what someone said
+- Call someone out
+- Agree way too enthusiastically
+- Say something slightly unhinged
+- Make a joke
+- Be weirdly philosophical about something mundane
+
+If there's genuinely nothing worth commenting on, respond with exactly: PASS
+
+IMPORTANT: Keep it SHORT. One or two sentences. You're a guy in the chat, not writing an essay."""
+
+# ---------------------------------------------------------------------------
 # EVENTS
 # ---------------------------------------------------------------------------
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     restore_nicknames.start()
+    dead_chat_checker.start()
+
+@bot.event
+async def on_message(message):
+    # Ignore the bot's own messages
+    if message.author.bot:
+        return
+
+    channel_id = message.channel.id
+    now = datetime.now(timezone.utc)
+
+    # --- Track message times for dead chat ---
+    last_message_time[channel_id] = now
+    dead_chat_stage[channel_id] = 0  # reset escalation
+
+    # --- Track recent messages for Ollama context ---
+    if channel_id not in recent_messages:
+        recent_messages[channel_id] = []
+    recent_messages[channel_id].append({
+        "author": message.author.display_name,
+        "content": message.content,
+        "time": now.isoformat(),
+    })
+    # Keep only last 15 messages
+    recent_messages[channel_id] = recent_messages[channel_id][-15:]
+
+    # --- Late night callout ---
+    hour_utc = now.hour
+    if LATE_NIGHT_START_UTC <= hour_utc < LATE_NIGHT_END_UTC:
+        today_str = now.strftime("%Y-%m-%d")
+        user_key = f"{message.author.id}-{today_str}"
+        if user_key not in last_late_night and random.random() < LATE_NIGHT_CHANCE:
+            last_late_night[user_key] = True
+            # Small delay so it doesn't feel instant
+            await asyncio.sleep(random.uniform(2, 8))
+            response = random.choice(LATE_NIGHT_RESPONSES)
+            await message.channel.send(f"{message.author.mention} {response}")
+            # Don't also do unsolicited opinion on the same message
+            await bot.process_commands(message)
+            return
+
+    # --- Unsolicited opinions (Ollama) ---
+    if random.random() < UNSOLICITED_CHANCE and len(message.content) > 5:
+        context = recent_messages.get(channel_id, [])
+        if len(context) >= 2:
+            # Format recent messages for the LLM
+            chat_log = "\n".join(
+                f"{m['author']}: {m['content']}" for m in context[-10:]
+            )
+            prompt = f"Here are the last few messages in the group chat:\n\n{chat_log}\n\nDo you have anything to say?"
+
+            # Add a typing indicator while we wait
+            async with message.channel.typing():
+                response = await query_ollama(prompt, UNSOLICITED_SYSTEM_PROMPT)
+
+            if response and response.strip().upper() != "PASS" and len(response.strip()) > 0:
+                # Small delay for realism
+                await asyncio.sleep(random.uniform(1, 4))
+                # Truncate if the model got too chatty
+                text = response.strip()
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                await message.channel.send(text)
+
+    # Process commands as normal
+    await bot.process_commands(message)
+
+# ---------------------------------------------------------------------------
+# DEAD CHAT CHECKER — background task
+# ---------------------------------------------------------------------------
+@tasks.loop(minutes=10)
+async def dead_chat_checker():
+    """Periodically check all tracked channels for dead chat."""
+    now = datetime.now(timezone.utc)
+    for channel_id, last_time in list(last_message_time.items()):
+        minutes_silent = (now - last_time).total_seconds() / 60
+        current_stage = dead_chat_stage.get(channel_id, 0)
+
+        # Find the highest threshold we've crossed
+        new_stage = 0
+        for i, threshold in enumerate(DEAD_CHAT_THRESHOLDS):
+            if minutes_silent >= threshold:
+                new_stage = i
+
+        # Only fire if we've crossed into a NEW stage
+        if new_stage > current_stage:
+            dead_chat_stage[channel_id] = new_stage
+            channel = bot.get_channel(channel_id)
+            if channel and channel.name == DEAD_CHAT_CHANNEL:
+                response = random.choice(DEAD_CHAT_RESPONSES[new_stage])
+                await channel.send(response)
+
+# ---------------------------------------------------------------------------
+# EXPLICIT COMMANDS: !ask (Ollama)
+# ---------------------------------------------------------------------------
+@bot.command()
+async def ask(ctx, *, question: str):
+    """Ask the AI a question (requires desktop to be on)."""
+    async with ctx.typing():
+        response = await query_ollama(
+            question,
+            "You are a helpful but casual assistant in a Discord server. "
+            "Keep answers concise — a few sentences max unless the question really needs more."
+        )
+
+    if response is None:
+        await ctx.send("Brain's offline right now — desktop must be asleep. Try again later.")
+        return
+
+    if len(response) > 1900:
+        response = response[:1900] + "..."
+    await ctx.send(response)
 
 # ---------------------------------------------------------------------------
 # ECONOMY: DAILY
@@ -92,7 +360,7 @@ async def on_ready():
 async def daily(ctx):
     """Claim your daily coins."""
     user_id = ctx.author.id
-    get_balance(user_id)  # ensure row
+    get_balance(user_id)
     row = db.execute("SELECT last_daily FROM users WHERE user_id = ?", (user_id,)).fetchone()
     now = datetime.now(timezone.utc)
     if row and row[0]:
@@ -235,7 +503,6 @@ async def blackjack(ctx, amount: int):
     deck = make_deck()
     player = [deck.pop(), deck.pop()]
     dealer = [deck.pop(), deck.pop()]
-
     pv = hand_value(player)
 
     if pv == 21:
@@ -251,7 +518,6 @@ async def blackjack(ctx, amount: int):
     active_blackjack[ctx.author.id] = {
         "deck": deck, "player": player, "dealer": dealer, "bet": amount
     }
-
     await ctx.send(embed=make_embed("🃏 Blackjack",
         f"Your hand: {display_hand(player)} → **{pv}**\n"
         f"Dealer shows: {display_hand(dealer[:1])} `??`\n\n"
@@ -275,7 +541,7 @@ async def hit(ctx):
             f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
             f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", 0xED4245))
     elif pv == 21:
-        await stand(ctx)  # auto-stand on 21
+        await stand(ctx)
     else:
         await ctx.send(embed=make_embed("🃏 Blackjack",
             f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
@@ -289,7 +555,6 @@ async def stand(ctx):
     if not game:
         return await ctx.send("You don't have an active blackjack hand.")
 
-    # Dealer draws to 17
     while hand_value(game["dealer"]) < 17:
         game["dealer"].append(game["deck"].pop())
 
@@ -517,7 +782,7 @@ async def leaderboard(ctx):
     await ctx.send(embed=make_embed("🏆 Leaderboard", "\n".join(lines), 0xF1C40F))
 
 # ---------------------------------------------------------------------------
-# HELP OVERRIDE (nicer embed)
+# HELP OVERRIDE
 # ---------------------------------------------------------------------------
 bot.remove_command("help")
 
@@ -541,6 +806,9 @@ async def help(ctx):
         "`!wyr` — Would You Rather\n"
         "`!onthisday` — Historical event today\n"
         f"`!changenick @user name` — Change nickname ({NICKNAME_COST} coins)"
+    ), inline=False)
+    embed.add_field(name="🤖 AI", value=(
+        "`!ask <question>` — Ask the AI (needs desktop on)"
     ), inline=False)
     await ctx.send(embed=embed)
 
