@@ -113,6 +113,17 @@ def update_balance(user_id: int, amount: int):
 def make_embed(title, description, color=0x5865F2):
     return discord.Embed(title=title, description=description, color=color)
 
+async def check_bet(ctx, amount: int) -> bool:
+    """Validate a bet. Returns True if the bet is invalid (caller should return)."""
+    if amount <= 0:
+        await ctx.send("Bet must be positive!")
+        return True
+    bal = get_balance(ctx.author.id)
+    if amount > bal:
+        await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", 0xED4245))
+        return True
+    return False
+
 # ---------------------------------------------------------------------------
 # LATE NIGHT CALLOUT — canned responses
 # ---------------------------------------------------------------------------
@@ -205,17 +216,17 @@ DEAD_CHAT_RESPONSES = {
 # ---------------------------------------------------------------------------
 # OLLAMA INTEGRATION
 # ---------------------------------------------------------------------------
-async def query_ollama(prompt: str, system: str = "") -> str | None:
+async def query_ollama(system: str, prompt: str) -> str | None:
     """Send a prompt to Ollama. Returns None if the server is unreachable."""
     try:
         payload = {
             "model": OLLAMA_MODEL,
-            "messages": [],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
             "stream": False,
         }
-        if system:
-            payload["messages"].append({"role": "system", "content": system})
-        payload["messages"].append({"role": "user", "content": prompt})
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
             async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
@@ -225,6 +236,11 @@ async def query_ollama(prompt: str, system: str = "") -> str | None:
                 return data.get("message", {}).get("content", None)
     except (aiohttp.ClientError, asyncio.TimeoutError):
         return None
+
+ASK_SYSTEM_PROMPT = (
+    "You are a helpful but casual assistant in a Discord server. "
+    "Keep answers concise — a few sentences max unless the question really needs more."
+)
 
 UNSOLICITED_SYSTEM_PROMPT = """You are a member of a small friend group Discord server. You're opinionated, a little unhinged, and you say what's on your mind. You're not a bot — you're just a guy in the chat.
 
@@ -302,7 +318,7 @@ async def on_message(message):
 
             # Add a typing indicator while we wait
             async with message.channel.typing():
-                response = await query_ollama(prompt, UNSOLICITED_SYSTEM_PROMPT)
+                response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt)
 
             if response and response.strip().upper() != "PASS" and len(response.strip()) > 0:
                 # Small delay for realism
@@ -348,11 +364,7 @@ async def dead_chat_checker():
 async def ask(ctx, *, question: str):
     """Ask the AI a question (requires desktop to be on)."""
     async with ctx.typing():
-        response = await query_ollama(
-            question,
-            "You are a helpful but casual assistant in a Discord server. "
-            "Keep answers concise — a few sentences max unless the question really needs more."
-        )
+        response = await query_ollama(ASK_SYSTEM_PROMPT, question)
 
     if response is None:
         await ctx.send("Brain's offline right now — desktop must be asleep. Try again later.")
@@ -401,11 +413,8 @@ async def balance(ctx, member: discord.Member = None):
 @bot.command(aliases=["cf"])
 async def coinflip(ctx, amount: int):
     """Flip a coin — double or nothing."""
-    if amount <= 0:
-        return await ctx.send("Bet must be positive!")
-    bal = get_balance(ctx.author.id)
-    if amount > bal:
-        return await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", 0xED4245))
+    if await check_bet(ctx, amount):
+        return
 
     result = random.choice(["heads", "tails"])
     call = random.choice(["heads", "tails"])
@@ -431,11 +440,8 @@ SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
 @bot.command()
 async def slots(ctx, amount: int):
     """Pull the slot machine lever."""
-    if amount <= 0:
-        return await ctx.send("Bet must be positive!")
-    bal = get_balance(ctx.author.id)
-    if amount > bal:
-        return await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", 0xED4245))
+    if await check_bet(ctx, amount):
+        return
 
     reels = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
     display = " | ".join(reels)
@@ -501,13 +507,10 @@ def display_hand(hand):
 @bot.command(aliases=["bj"])
 async def blackjack(ctx, amount: int):
     """Play a hand of blackjack."""
-    if amount <= 0:
-        return await ctx.send("Bet must be positive!")
     if ctx.author.id in active_blackjack:
         return await ctx.send("You already have a hand going! Use `!hit` or `!stand`.")
-    bal = get_balance(ctx.author.id)
-    if amount > bal:
-        return await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", 0xED4245))
+    if await check_bet(ctx, amount):
+        return
 
     deck = make_deck()
     player = [deck.pop(), deck.pop()]
