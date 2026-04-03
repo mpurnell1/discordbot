@@ -25,6 +25,15 @@ NICKNAME_COST = 2000
 NICKNAME_DURATION_HOURS = 24
 STARTING_BALANCE = 100
 
+# --- Embed colors ---
+COLOR_DEFAULT = 0x5865F2   # Discord blurple
+COLOR_SUCCESS = 0x57F287   # Green
+COLOR_ERROR   = 0xED4245   # Red
+COLOR_WARNING = 0xFEE75C   # Yellow
+COLOR_PINK    = 0xEB459E
+COLOR_ORANGE  = 0xE67E22
+COLOR_GOLD    = 0xF1C40F
+
 # --- Passive feature config ---
 # Your desktop's local IP running Ollama (find it with ipconfig on Windows)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.1.100:11434")
@@ -128,7 +137,7 @@ def update_balance(user_id: int, amount: int):
     db.commit()
 
 
-def make_embed(title, description, color=0x5865F2):
+def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
 
 async def check_bet(ctx, amount: int) -> bool:
@@ -138,7 +147,7 @@ async def check_bet(ctx, amount: int) -> bool:
         return True
     bal = get_balance(ctx.author.id)
     if amount > bal:
-        await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", 0xED4245))
+        await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", COLOR_ERROR))
         return True
     return False
 
@@ -402,11 +411,11 @@ async def guess(ctx, number: int):
     bal = get_balance(user_id)
 
     if bal > 0:
-        await ctx.send(embed=make_embed("🚫 Not Broke Enough", f"You still have **{bal}** coins! Guess is only for when you're at **0**.", 0xED4245))
+        await ctx.send(embed=make_embed("🚫 Not Broke Enough", f"You still have **{bal}** coins! Guess is only for when you're at **0**.", COLOR_ERROR))
         return
 
     if number < 1 or number > LUCKY_GUESS_RANGE:
-        await ctx.send(embed=make_embed("❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", 0xED4245))
+        await ctx.send(embed=make_embed("❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", COLOR_ERROR))
         return
 
     now = datetime.now(CENTRAL_TZ)
@@ -421,7 +430,7 @@ async def guess(ctx, number: int):
         await ctx.send(embed=make_embed(
             "🚫 No Guesses Left",
             f"You've used all **{LUCKY_GUESS_MAX_DAILY}** guesses today. Try again tomorrow!",
-            0xED4245))
+            COLOR_ERROR))
         return
 
     # Reset count if it's a new day
@@ -444,14 +453,14 @@ async def guess(ctx, number: int):
             f"🎯 Correct! The number was **{answer}**!",
             f"You won **{LUCKY_GUESS_REWARD}** coin!\n"
             f"Balance: **{bal}** | Guesses left today: **{remaining}**",
-            0x57F287))
+            COLOR_SUCCESS))
     else:
         bal = get_balance(user_id)
         await ctx.send(embed=make_embed(
             f"❌ Nope! The number was **{answer}**.",
             f"Better luck next time!\n"
             f"Balance: **{bal}** | Guesses left today: **{remaining}**",
-            0xED4245))
+            COLOR_ERROR))
 
 # ---------------------------------------------------------------------------
 # ECONOMY: DAILY
@@ -470,13 +479,13 @@ async def daily(ctx):
         if now - last < timedelta(hours=24):
             remaining = timedelta(hours=24) - (now - last)
             h, m = divmod(int(remaining.total_seconds()) // 60, 60)
-            await ctx.send(embed=make_embed("⏰ Already Claimed", f"Come back in **{h}h {m}m**.", 0xED4245))
+            await ctx.send(embed=make_embed("⏰ Already Claimed", f"Come back in **{h}h {m}m**.", COLOR_ERROR))
             return
     update_balance(user_id, DAILY_AMOUNT)
     db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
     db.commit()
     bal = get_balance(user_id)
-    await ctx.send(embed=make_embed("💰 Daily Claimed!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", 0x57F287))
+    await ctx.send(embed=make_embed("💰 Daily Claimed!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
 
 # ---------------------------------------------------------------------------
 # ECONOMY: BALANCE
@@ -505,13 +514,13 @@ async def coinflip(ctx, amount: int):
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed(
             f"🪙 {result.title()}! You win!",
-            f"You won **{amount}** coins!\nBalance: **{new_bal}**", 0x57F287))
+            f"You won **{amount}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
     else:
         update_balance(ctx.author.id, -amount)
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed(
             f"🪙 {result.title()}! You lose!",
-            f"You lost **{amount}** coins.\nBalance: **{new_bal}**", 0xED4245))
+            f"You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
 
 # ---------------------------------------------------------------------------
 # GAMBLING: SLOTS
@@ -539,20 +548,20 @@ async def slots(ctx, amount: int):
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed(
             f"🎰 {display}",
-            f"**JACKPOT!** You won **{winnings}** coins! (x{multiplier})\nBalance: **{new_bal}**", 0x57F287))
+            f"**JACKPOT!** You won **{winnings}** coins! (x{multiplier})\nBalance: **{new_bal}**", COLOR_SUCCESS))
     elif reels[0] == reels[1] or reels[1] == reels[2]:
         winnings = amount
         update_balance(ctx.author.id, winnings)
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed(
             f"🎰 {display}",
-            f"Two in a row! You won **{winnings}** coins!\nBalance: **{new_bal}**", 0xFEE75C))
+            f"Two in a row! You won **{winnings}** coins!\nBalance: **{new_bal}**", COLOR_WARNING))
     else:
         update_balance(ctx.author.id, -amount)
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed(
             f"🎰 {display}",
-            f"No match. You lost **{amount}** coins.\nBalance: **{new_bal}**", 0xED4245))
+            f"No match. You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
 
 # ---------------------------------------------------------------------------
 # GAMBLING: BLACKJACK
@@ -605,7 +614,7 @@ async def blackjack(ctx, amount: int):
         await ctx.send(embed=make_embed("🃏 BLACKJACK!",
             f"Your hand: {display_hand(player)} → **21**\n"
             f"Dealer: {display_hand(dealer)} → **{hand_value(dealer)}**\n\n"
-            f"You won **{winnings}** coins!\nBalance: **{new_bal}**", 0x57F287))
+            f"You won **{winnings}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
         return
 
     active_blackjack[ctx.author.id] = {
@@ -632,7 +641,7 @@ async def hit(ctx):
         del active_blackjack[ctx.author.id]
         await ctx.send(embed=make_embed("🃏 Bust!",
             f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
-            f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", 0xED4245))
+            f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
     elif pv == 21:
         await stand(ctx)
     else:
@@ -664,16 +673,16 @@ async def stand(ctx):
         update_balance(ctx.author.id, game["bet"])
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed("🃏 You Win!", result_lines +
-            f"You won **{game['bet']}** coins!\nBalance: **{new_bal}**", 0x57F287))
+            f"You won **{game['bet']}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
     elif pv < dv:
         update_balance(ctx.author.id, -game["bet"])
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed("🃏 Dealer Wins", result_lines +
-            f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", 0xED4245))
+            f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
     else:
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed("🃏 Push!", result_lines +
-            f"It's a tie. Your **{game['bet']}** coins are returned.\nBalance: **{new_bal}**", 0xFEE75C))
+            f"It's a tie. Your **{game['bet']}** coins are returned.\nBalance: **{new_bal}**", COLOR_WARNING))
 
 # ---------------------------------------------------------------------------
 # WEATHER
@@ -706,7 +715,7 @@ async def weather(ctx, *, city: str = "Champaign"):
     icon = data["weather"][0]["icon"]
     name = data["name"]
 
-    embed = discord.Embed(title=f"🌤️ Weather in {name}", color=0x5865F2)
+    embed = discord.Embed(title=f"🌤️ Weather in {name}", color=COLOR_DEFAULT)
     embed.set_thumbnail(url=f"https://openweathermap.org/img/wn/{icon}@2x.png")
     embed.add_field(name="Condition", value=desc, inline=True)
     embed.add_field(name="Temp", value=f"{temp:.0f}°F", inline=True)
@@ -724,7 +733,7 @@ async def cat(ctx):
     async with aiohttp.ClientSession() as session:
         async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
             data = await resp.json()
-            embed = discord.Embed(title="🐱 Random Cat", color=0xFEE75C)
+            embed = discord.Embed(title="🐱 Random Cat", color=COLOR_WARNING)
             embed.set_image(url=data[0]["url"])
             await ctx.send(embed=embed)
 
@@ -734,7 +743,7 @@ async def dog(ctx):
     async with aiohttp.ClientSession() as session:
         async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
             data = await resp.json()
-            embed = discord.Embed(title="🐶 Random Dog", color=0xFEE75C)
+            embed = discord.Embed(title="🐶 Random Dog", color=COLOR_WARNING)
             embed.set_image(url=data[0] if isinstance(data, list) else data["message"])
             await ctx.send(embed=embed)
 
@@ -769,7 +778,7 @@ async def wyr(ctx):
     """Would You Rather — vote with reactions!"""
     a, b = random.choice(WYR_QUESTIONS)
     embed = make_embed("🤔 Would You Rather...",
-        f"🅰️ {a}\n\n**OR**\n\n🅱️ {b}", 0xEB459E)
+        f"🅰️ {a}\n\n**OR**\n\n🅱️ {b}", COLOR_PINK)
     msg = await ctx.send(embed=embed)
     await msg.add_reaction("🅰️")
     await msg.add_reaction("🅱️")
@@ -798,7 +807,7 @@ async def onthisday(ctx):
 
     embed = make_embed(
         f"📜 On This Day — {today.strftime('%B %d')}",
-        f"**{year}**: {desc}", 0xE67E22)
+        f"**{year}**: {desc}", COLOR_ORANGE)
     await ctx.send(embed=embed)
 
 # ---------------------------------------------------------------------------
@@ -815,7 +824,7 @@ async def changenick(ctx, member: discord.Member, *, new_nick: str):
     bal = get_balance(ctx.author.id)
     if bal < NICKNAME_COST:
         return await ctx.send(embed=make_embed("❌ Not Enough Coins",
-            f"Changing a nickname costs **{NICKNAME_COST}** coins.\nYou have **{bal}**.", 0xED4245))
+            f"Changing a nickname costs **{NICKNAME_COST}** coins.\nYou have **{bal}**.", COLOR_ERROR))
 
     try:
         original_nick = member.display_name
@@ -835,7 +844,7 @@ async def changenick(ctx, member: discord.Member, *, new_nick: str):
     new_bal = get_balance(ctx.author.id)
     await ctx.send(embed=make_embed("✏️ Nickname Changed!",
         f"**{original_nick}** is now **{new_nick}** for {NICKNAME_DURATION_HOURS} hours.\n"
-        f"Cost: **{NICKNAME_COST}** coins | Balance: **{new_bal}**", 0x57F287))
+        f"Cost: **{NICKNAME_COST}** coins | Balance: **{new_bal}**", COLOR_SUCCESS))
 
 # ---------------------------------------------------------------------------
 # NICKNAME RESTORE TASK
@@ -946,7 +955,7 @@ async def leaderboard(ctx):
 
     if not lines:
         return await ctx.send("No one has any coins yet!")
-    await ctx.send(embed=make_embed("🏆 Leaderboard", "\n".join(lines), 0xF1C40F))
+    await ctx.send(embed=make_embed("🏆 Leaderboard", "\n".join(lines), COLOR_GOLD))
 
 # ---------------------------------------------------------------------------
 # HELP OVERRIDE
@@ -956,7 +965,7 @@ bot.remove_command("help")
 @bot.command()
 async def help(ctx):
     """Show all commands."""
-    embed = discord.Embed(title="📖 Bot Commands", color=0x5865F2)
+    embed = discord.Embed(title="📖 Bot Commands", color=COLOR_DEFAULT)
     embed.add_field(name="💰 Economy", value=(
         "`!daily` — Claim daily coins\n"
         "`!guess <1-10>` — Guess for a free coin (3x/day)\n"
