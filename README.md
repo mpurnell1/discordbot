@@ -57,7 +57,7 @@ journalctl -u discord-bot -f
 | `!coinflip <amount>` | Double or nothing |
 | `!slots <amount>` | Slot machine |
 | `!blackjack <amount>` | Play 21 (then `!hit` / `!stand`) |
-| `!weather <city>` | Current weather |
+| `!weather [city]` | Current weather (defaults to Champaign) |
 | `!cat` | Random cat pic |
 | `!dog` | Random dog pic |
 | `!wyr` | Would You Rather |
