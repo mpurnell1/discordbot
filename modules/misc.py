@@ -668,22 +668,36 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Info", value=(
             f"`{p}stats` - Bot stats and usage\n"
             f"`{p}invite` - Get invite link\n"
-            f"`{p}settings` - Show runtime settings (admin)"
+            f"`{p}adminhelp` - Admin command list (admin only)"
         ), inline=False)
-        if ctx.author.id == ADMIN_ID:
-            embed.add_field(name="Admin", value=(
-                f"`{p}setcommand <command> <on|off>` - Toggle command\n"
-                f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
-                f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
-                f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels\n"
-                f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
-                f"`{p}settings gamble <on|off|status|now|channel [#channel]>` - Gary autonomous gambling\n"
-                f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
-                f"`{p}restart` - Restart process"
-            ), inline=False)
         embed.add_field(name="Quotes", value=(
             f"`{p}quote` - Reply to a message to save it\n"
             f"`{p}quotes` - Show recent quotes"
+        ), inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    async def adminhelp(self, ctx):
+        """Show admin-only commands."""
+        if ctx.author.id != ADMIN_ID:
+            return
+        p = PREFIX
+        embed = discord.Embed(title="Admin Commands", color=COLOR_DEFAULT)
+        embed.add_field(name="Runtime", value=(
+            f"`{p}settings` - Show runtime settings\n"
+            f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
+            f"`{p}settings gamble <on|off|status|now|channel [#channel]>` - Gary autonomous gambling"
+        ), inline=False)
+        embed.add_field(name="Feature Gates", value=(
+            f"`{p}setcommand <command> <on|off>` - Toggle command\n"
+            f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
+            f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
+            f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels"
+        ), inline=False)
+        embed.add_field(name="Admin Utils", value=(
+            f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
+            f"`{p}give @user <amount>` - Add/remove coins\n"
+            f"`{p}restart` - Restart process"
         ), inline=False)
         await ctx.send(embed=embed)
 

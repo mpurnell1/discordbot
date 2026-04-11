@@ -170,6 +170,7 @@ SETTINGS_DEFAULTS = {
     "gary_gamble_channel_id": None,
 }
 PROTECTED_ADMIN_COMMANDS = {
+    "adminhelp",
     "setcommand",
     "setdeadchat",
     "setfeaturemode",
