@@ -394,6 +394,28 @@ class MiscCog(commands.Cog):
 
         if section:
             sec = section.strip().lower()
+            if sec in {"dailyreminder", "daily"}:
+                if not args:
+                    enabled = runtime_settings.get("daily_reminder_enabled", True)
+                    state_text = "ON" if enabled else "OFF"
+                    return await ctx.send(f"Daily reminders: **{state_text}**")
+                action = args[0].strip().lower()
+                if action == "on":
+                    runtime_settings["daily_reminder_enabled"] = True
+                    _save_json_setting("daily_reminder_enabled", True)
+                    return await ctx.send("Daily reminders are now **ON**.")
+                if action == "off":
+                    runtime_settings["daily_reminder_enabled"] = False
+                    _save_json_setting("daily_reminder_enabled", False)
+                    return await ctx.send("Daily reminders are now **OFF**.")
+                if action == "status":
+                    enabled = runtime_settings.get("daily_reminder_enabled", True)
+                    state_text = "ON" if enabled else "OFF"
+                    return await ctx.send(f"Daily reminders: **{state_text}**")
+                return await ctx.send(
+                    f"Usage: `{PREFIX}settings dailyreminder <on|off|status>`"
+                )
+
             if sec == "gamble":
                 if not args:
                     enabled = runtime_settings.get("gary_gamble_enabled", False)
@@ -441,6 +463,7 @@ class MiscCog(commands.Cog):
             return await ctx.send(f"Unknown settings section: `{sec}`")
 
         dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
+        daily_reminder_state = "ON" if runtime_settings.get("daily_reminder_enabled", True) else "OFF"
         gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
         gary_gamble_channel = runtime_settings.get("gary_gamble_channel_id")
         gary_gamble_channel_text = f"<#{int(gary_gamble_channel)}>" if gary_gamble_channel else "(not set)"
@@ -462,6 +485,7 @@ class MiscCog(commands.Cog):
     
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
+        embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
@@ -640,6 +664,7 @@ class MiscCog(commands.Cog):
                 f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
                 f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
                 f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels\n"
+                f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
                 f"`{p}settings gamble <on|off|status|now|channel [#channel]>` - Gary autonomous gambling\n"
                 f"`{p}restart` - Restart process"
             ), inline=False)
