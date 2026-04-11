@@ -413,8 +413,28 @@ class GamesCog(commands.Cog):
             return False
 
         guess = guess_raw.lower().strip()
-        if len(guess) != 1 or not guess.isalpha():
+        if not guess or not guess.isalpha():
             return False
+
+        # Word guess path (only via .g command)
+        if len(guess) > 1:
+            if guess == game["word"]:
+                del active_hangman[channel.id]
+                await channel.send(embed=make_embed(
+                    "Hangman - You Win!",
+                    f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
+                    COLOR_SUCCESS))
+                return True
+            game["wrong"].append(guess)
+            if len(game["wrong"]) >= 6:
+                del active_hangman[channel.id]
+                await channel.send(embed=make_embed(
+                    "Hangman - Game Over",
+                    f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
+                    COLOR_ERROR))
+                return True
+            await channel.send(embed=make_embed("Hangman", hangman_render(game)))
+            return True
 
         # Single-letter guess path
         letter = guess
@@ -458,12 +478,26 @@ class GamesCog(commands.Cog):
         msg = f"{ctx.author.mention} started a hangman game!"
         if player:
             msg = f"{ctx.author.mention} started a hangman game with {player.mention}!"
-        msg += f" Guess with `{PREFIX}g <letter>`."
+        msg += f" Anyone can type a single letter, or use `{PREFIX}g <guess>` for letter/word guesses."
         await ctx.send(embed=make_embed("Hangman", f"{msg}\n\n{hangman_render(game)}"))
+
+    @commands.Cog.listener("on_message")
+    async def hangman_letter_listener(self, message):
+        if message.author.bot:
+            return
+        if message.channel.id not in active_hangman:
+            return
+        content = message.content.strip()
+        if not content or content.startswith(PREFIX):
+            return
+        # Plain-message guesses are single-letter only.
+        if len(content) != 1 or not content.isalpha():
+            return
+        await self._guess_hangman(message.channel, content)
 
     @commands.command()
     async def g(self, ctx, guess: str):
-        """Guess a letter in hangman."""
+        """Guess a letter or whole word in hangman."""
         handled = await self._guess_hangman(ctx.channel, guess)
         if not handled:
             await ctx.send("No active hangman game in this channel.")
