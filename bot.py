@@ -118,7 +118,7 @@ COMMAND_USAGE = {
     "setdeadchat": "<on|off>",
     "setfeaturemode": "<feature> <all|off|whitelist|blacklist>",
     "setfeaturechannels": "<feature> <add|remove|clear> [#channel ...]",
-    "settings": "",
+    "settings": "[gamble <on|off|status|channel [#channel]>]",
 }
 
 

@@ -162,6 +162,8 @@ SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
     "command_toggles": {},
     "feature_channel_rules": {},
+    "gary_gamble_enabled": False,
+    "gary_gamble_channel_id": None,
 }
 PROTECTED_ADMIN_COMMANDS = {
     "setcommand",
@@ -247,6 +249,13 @@ def load_runtime_settings():
     runtime_settings["feature_channel_rules"] = _load_json_setting(
         "feature_channel_rules", SETTINGS_DEFAULTS["feature_channel_rules"]
     )
+    runtime_settings["gary_gamble_enabled"] = bool(
+        _load_json_setting("gary_gamble_enabled", SETTINGS_DEFAULTS["gary_gamble_enabled"])
+    )
+    channel_val = _load_json_setting(
+        "gary_gamble_channel_id", SETTINGS_DEFAULTS["gary_gamble_channel_id"]
+    )
+    runtime_settings["gary_gamble_channel_id"] = int(channel_val) if channel_val else None
 
 
 def normalize_feature_name(feature: str) -> str:
