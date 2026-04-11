@@ -9,6 +9,8 @@ import random
 import asyncio
 import re
 import os
+import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -19,7 +21,7 @@ CENTRAL_TZ = ZoneInfo("America/Chicago")
 # ---------------------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_TOKEN", "YOUR_TOKEN_HERE")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "YOUR_API_KEY_HERE")
-PREFIX = "!"
+PREFIX = "."
 DAILY_AMOUNT = 200
 NICKNAME_COST = 2000
 NICKNAME_DURATION_HOURS = 24
@@ -38,6 +40,7 @@ COLOR_GOLD    = 0xF1C40F
 # Your desktop's local IP running Ollama (find it with ipconfig on Windows)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.1.100:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_REASONING_MODEL", "deepseek-r1:8b")
 
 # Late night callout: hours in US Central time that count as "late"
 LATE_NIGHT_START = 1   # 1am Central
@@ -49,14 +52,23 @@ DEAD_CHAT_THRESHOLDS = [60, 180, 360, 720]  # 1hr, 3hr, 6hr, 12hr
 DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 
 # Unsolicited opinions: chance the bot sends a message to Ollama for commentary
-UNSOLICITED_CHANCE = 0.12  # ~12% of messages get evaluated
+UNSOLICITED_CHANCE = 0 # 0.12  # ~12% of messages get evaluated
 
 ADMIN_ID = 393568333644955648
+SILAS_BOT_ID = 1489403251303518322
+
+# --- Silas interaction config ---
+SILAS_BANTER_CHANCE = 0 # 0.15   # 15% chance to comment on Silas's messages
+SILAS_REACT_CHANCE = 0 # 0.25    # 25% chance to react to Silas's messages
 
 # --- Lucky guess config ---
 LUCKY_GUESS_RANGE = 10       # Guess 1-N
 LUCKY_GUESS_REWARD = 1       # Coins awarded on correct guess
 LUCKY_GUESS_MAX_DAILY = 3    # Max attempts per day
+
+# --- Daily puzzle config ---
+PUZZLE_REWARD = 50           # Coins awarded for solving daily puzzle
+PUZZLE_MAX_ATTEMPTS = 3      # Max wrong answers before lockout
 
 # ---------------------------------------------------------------------------
 # DATABASE SETUP
@@ -69,7 +81,10 @@ def init_db():
             balance INTEGER DEFAULT 0,
             last_daily TEXT DEFAULT '',
             guess_date TEXT DEFAULT '',
-            guess_count INTEGER DEFAULT 0
+            guess_count INTEGER DEFAULT 0,
+            puzzle_date TEXT DEFAULT '',
+            puzzle_solved INTEGER DEFAULT 0,
+            puzzle_attempts INTEGER DEFAULT 0
         )
     """)
     # Migrate existing databases missing the guess columns
@@ -81,6 +96,11 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN guess_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    for col in ["puzzle_date TEXT DEFAULT ''", "puzzle_solved INTEGER DEFAULT 0", "puzzle_attempts INTEGER DEFAULT 0"]:
+        try:
+            db.execute(f"ALTER TABLE users ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass
     db.execute("""
         CREATE TABLE IF NOT EXISTS nick_changes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +139,8 @@ last_message_time = {}    # channel_id -> datetime
 dead_chat_stage = {}      # channel_id -> which threshold we've hit (0-3)
 last_late_night = {}      # user_id -> date string, so we only bug them once per night
 recent_messages = {}      # channel_id -> list of last N messages for context
+bot_start_time = None     # set in on_ready
+command_usage = Counter() # command name -> count (resets on restart)
 
 # ---------------------------------------------------------------------------
 # HELPERS
@@ -243,11 +265,11 @@ DEAD_CHAT_RESPONSES = {
 # ---------------------------------------------------------------------------
 # OLLAMA INTEGRATION
 # ---------------------------------------------------------------------------
-async def query_ollama(system: str, prompt: str) -> str | None:
+async def query_ollama(system: str, prompt: str, model: str = None) -> str | None:
     """Send a prompt to Ollama. Returns None if the server is unreachable."""
     try:
         payload = {
-            "model": OLLAMA_MODEL,
+            "model": model or OLLAMA_MODEL,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -255,7 +277,7 @@ async def query_ollama(system: str, prompt: str) -> str | None:
             "stream": False,
         }
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
             async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
                 if resp.status != 200:
                     return None
@@ -263,6 +285,27 @@ async def query_ollama(system: str, prompt: str) -> str | None:
                 return data.get("message", {}).get("content", None)
     except (aiohttp.ClientError, asyncio.TimeoutError):
         return None
+
+async def query_ollama_chat(messages: list, model: str = None) -> str | None:
+    """Send a multi-turn conversation to Ollama."""
+    try:
+        payload = {"model": model or OLLAMA_MODEL, "messages": messages, "stream": False}
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
+            async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data.get("message", {}).get("content", None)
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return None
+
+def clean_reasoning(text: str) -> str:
+    """Strip <think> reasoning blocks and wrapping quotes from model output."""
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Remove wrapping double quotes
+    if cleaned.startswith('"') and cleaned.endswith('"'):
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
 
 ASK_SYSTEM_PROMPT = (
     "You are a helpful but casual assistant in a Discord server. "
@@ -285,18 +328,174 @@ If there's genuinely nothing worth commenting on, respond with ONLY the word PAS
 
 IMPORTANT: Keep it SHORT. One or two sentences. You're a guy in the chat, not writing an essay."""
 
+SILAS_BANTER_PROMPT = """You are Gary, a Discord bot in a friend group server. There's another bot named Silas in the server. You two have a rivalry — you think you're the better bot, but it's playful, not mean. Think sitcom energy.
+
+You just saw Silas post something. Here's what he said:
+
+{silas_message}
+
+Respond with a short, snarky comment (1-2 sentences). Be funny. Keep it casual and lowercase. You can:
+- Roast his response quality
+- Brag about your own features
+- Act jealous if he did something cool
+- Begrudgingly compliment him then immediately walk it back
+- Trash talk his taste/opinions
+
+If there's genuinely nothing funny to say, respond with ONLY the word PASS."""
+
+SILAS_REACTIONS = ["😒", "🙄", "💀", "🤡", "👀", "😤", "🫠", "💅", "🥱", "😎"]
+
+# --- Silas roleplay state ---
+active_silas_rp = {}  # channel_id -> {"character": str, "history": list}
+
 # ---------------------------------------------------------------------------
 # EVENTS
 # ---------------------------------------------------------------------------
 @bot.event
 async def on_ready():
+    global bot_start_time
+    bot_start_time = datetime.now(timezone.utc)
     print(f"Logged in as {bot.user} ({bot.user.id})")
     restore_nicknames.start()
     dead_chat_checker.start()
 
 @bot.event
+async def on_command(ctx):
+    command_usage[ctx.command.name] += 1
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    if payload.message_id not in pending_games:
+        return
+    if payload.user_id == bot.user.id:
+        return
+    if str(payload.emoji) != "✅":
+        return
+    pending = pending_games.pop(payload.message_id)
+    guild = bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+    joiner = guild.get_member(payload.user_id)
+    if not joiner or joiner.bot or joiner == pending["host"]:
+        pending_games[payload.message_id] = pending  # put it back
+        return
+    channel = bot.get_channel(pending["channel_id"])
+    if not channel:
+        return
+    if pending["type"] == "ttt":
+        if channel.id in active_ttt:
+            return
+        game = start_ttt(pending["host"], joiner)
+        active_ttt[channel.id] = game
+        await channel.send(embed=make_embed(
+            "Tic-Tac-Toe",
+            f"{pending['host'].mention} ({TTT_X}) vs {joiner.mention} ({TTT_O})\n\n"
+            f"{ttt_render(game['board'])}\n\n"
+            f"{pending['host'].mention}'s turn — use `{PREFIX}m <1-9>`"))
+    elif pending["type"] == "c4":
+        if channel.id in active_c4:
+            return
+        game = start_c4(pending["host"], joiner)
+        active_c4[channel.id] = game
+        await channel.send(embed=make_embed(
+            "Connect 4",
+            f"{pending['host'].mention} ({C4_RED}) vs {joiner.mention} ({C4_YELLOW})\n\n"
+            f"{c4_render(game['board'])}\n\n"
+            f"{pending['host'].mention}'s turn — use `{PREFIX}m <1-7>`"))
+
+@bot.event
 async def on_message(message):
-    # Ignore the bot's own messages
+    # Ignore our own messages
+    if message.author.id == bot.user.id:
+        return
+
+    # --- Silas interaction ---
+    if message.author.id == SILAS_BOT_ID:
+        channel_id = message.channel.id
+
+        # Auto-accept roleplay invites from Silas
+        if message.embeds:
+            for e in message.embeds:
+                title = (e.title or "").lower()
+                if "roleplay invite" in title or ("invite" in title and bot.user.mentioned_in(message)):
+                    try:
+                        await message.add_reaction("✅")
+                    except discord.HTTPException:
+                        pass
+                    # Start a roleplay session as Gary
+                    active_silas_rp[channel_id] = {
+                        "character": "Gary",
+                        "history": [
+                            {"role": "system", "content": (
+                                "You are Gary, a Discord bot with attitude. You're in a roleplay with another bot named Silas. "
+                                "You're snarky, competitive, and think you're the better bot. "
+                                "Stay in character as yourself — a witty, slightly unhinged bot who doesn't take anything too seriously. "
+                                "Keep responses short (2-4 sentences). Use lowercase."
+                            )},
+                        ],
+                    }
+                    await asyncio.sleep(random.uniform(1, 3))
+                    response = await query_ollama_chat(
+                        active_silas_rp[channel_id]["history"] + [
+                            {"role": "user", "content": "The roleplay is starting. Silas just invited you. Say something to kick things off."}
+                        ])
+                    if response:
+                        text = response.strip()
+                        if len(text) > 500:
+                            text = text[:500] + "..."
+                        active_silas_rp[channel_id]["history"].append({"role": "assistant", "content": text})
+                        await message.channel.send(text)
+                    return
+
+        # Extract Silas's text from message or embeds
+        silas_text = message.content
+        if message.embeds:
+            parts = []
+            for e in message.embeds:
+                if e.title:
+                    parts.append(e.title)
+                if e.description:
+                    parts.append(e.description)
+            silas_text = silas_text or "\n".join(parts)
+
+        # --- Active roleplay with Silas ---
+        rp = active_silas_rp.get(channel_id)
+        if rp and silas_text:
+            rp["history"].append({"role": "user", "content": silas_text[:500]})
+            # Keep history manageable
+            if len(rp["history"]) > 21:
+                rp["history"] = [rp["history"][0]] + rp["history"][-20:]
+            async with message.channel.typing():
+                response = await query_ollama_chat(rp["history"])
+            if response:
+                text = response.strip()
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                rp["history"].append({"role": "assistant", "content": text})
+                await asyncio.sleep(random.uniform(1, 3))
+                await message.reply(text, mention_author=False)
+            return
+
+        # --- Random banter ---
+        if random.random() < SILAS_REACT_CHANCE:
+            try:
+                await message.add_reaction(random.choice(SILAS_REACTIONS))
+            except discord.HTTPException:
+                pass
+
+        if silas_text and random.random() < SILAS_BANTER_CHANCE:
+            prompt = SILAS_BANTER_PROMPT.format(silas_message=silas_text[:500])
+            response = await query_ollama(prompt, "", model=OLLAMA_REASONING_MODEL)
+            if response:
+                text = clean_reasoning(response)
+                if text and "pass" not in text.lower():
+                    await asyncio.sleep(random.uniform(2, 6))
+                    if len(text) > 500:
+                        text = text[:500] + "..."
+                    await message.reply(text, mention_author=False)
+        return
+
+    # Ignore other bots
     if message.author.bot:
         return
 
@@ -317,6 +516,26 @@ async def on_message(message):
     })
     # Keep only last 15 messages
     recent_messages[channel_id] = recent_messages[channel_id][-15:]
+
+    # --- Respond when tagged ---
+    if bot.user.mentioned_in(message) and not message.mention_everyone:
+        context = recent_messages.get(channel_id, [])
+        chat_log = "\n".join(f"{m['author']}: {m['content']}" for m in context[-10:])
+        prompt = (
+            f"Here's the recent chat:\n\n{chat_log}\n\n"
+            f"{message.author.display_name} just tagged you and said: {message.content}\n"
+            f"Respond to them directly."
+        )
+        async with message.channel.typing():
+            response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt, model=OLLAMA_REASONING_MODEL)
+        if response:
+            text = clean_reasoning(response)
+            if text and "pass" not in text.lower():
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                await message.reply(text, mention_author=False)
+        await bot.process_commands(message)
+        return
 
     # --- Late night callout ---
     hour_central = now.astimezone(CENTRAL_TZ).hour
@@ -343,18 +562,17 @@ async def on_message(message):
             )
             prompt = f"Here are the last few messages in the group chat:\n\n{chat_log}\n\nDo you have anything to say?"
 
-            # Add a typing indicator while we wait
-            async with message.channel.typing():
-                response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt)
+            response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt, model=OLLAMA_REASONING_MODEL)
 
-            if response and response.strip().upper() != "PASS" and len(response.strip()) > 0:
-                # Small delay for realism
-                await asyncio.sleep(random.uniform(1, 4))
-                # Truncate if the model got too chatty
-                text = response.strip()
-                if len(text) > 500:
-                    text = text[:500] + "..."
-                await message.channel.send(text)
+            if response:
+                text = clean_reasoning(response)
+                if text and "pass" not in text.lower():
+                    # Only show typing once we know we're going to say something
+                    async with message.channel.typing():
+                        await asyncio.sleep(random.uniform(1, 4))
+                    if len(text) > 500:
+                        text = text[:500] + "..."
+                    await message.channel.send(text)
 
     # Process commands as normal
     await bot.process_commands(message)
@@ -391,12 +609,13 @@ async def dead_chat_checker():
 async def ask(ctx, *, question: str):
     """Ask the AI a question (requires desktop to be on)."""
     async with ctx.typing():
-        response = await query_ollama(ASK_SYSTEM_PROMPT, question)
+        response = await query_ollama(ASK_SYSTEM_PROMPT, question, model=OLLAMA_REASONING_MODEL)
 
     if response is None:
         await ctx.send("Brain's offline right now — desktop must be asleep. Try again later.")
         return
 
+    response = clean_reasoning(response)
     if len(response) > 1900:
         response = response[:1900] + "..."
     await ctx.send(response)
@@ -461,6 +680,303 @@ async def guess(ctx, number: int):
             f"Better luck next time!\n"
             f"Balance: **{bal}** | Guesses left today: **{remaining}**",
             COLOR_ERROR))
+
+# ---------------------------------------------------------------------------
+# ECONOMY: DAILY PUZZLE
+# ---------------------------------------------------------------------------
+active_puzzles = {}  # user_id -> {"answer": str, "type": str, "display": str}
+
+WORDLE_WORDS = [
+    "crane", "slate", "audio", "raise", "stare", "glyph", "dwarf", "knobs",
+    "plumb", "frost", "shrug", "traps", "blaze", "chunk", "crimp", "dough",
+    "flame", "gripe", "hoist", "joust", "knelt", "lurch", "mirth", "notch",
+    "pouch", "quilt", "roast", "swirl", "thump", "vexed", "whirl", "yacht",
+    "blunt", "chase", "drift", "forge", "gleam", "hover", "jelly", "knack",
+]
+
+UNSCRAMBLE_WORDS = [
+    "python", "server", "cursor", "syntax", "binary", "plugin", "socket",
+    "kernel", "thread", "buffer", "matrix", "cipher", "router", "branch",
+    "module", "render", "signal", "toggle", "vector", "widget", "bridge",
+    "portal", "anchor", "beacon", "cipher", "faucet", "gadget", "jumble",
+]
+
+TRIVIA = [
+    ("What planet is known as the Red Planet?", "mars"),
+    ("What is the chemical symbol for gold?", "au"),
+    ("How many bits are in a byte?", "8"),
+    ("What language is the Linux kernel written in?", "c"),
+    ("What does HTTP stand for?", "hypertext transfer protocol"),
+    ("What is the largest ocean on Earth?", "pacific"),
+    ("What gas do plants absorb from the atmosphere?", "carbon dioxide"),
+    ("What is the square root of 144?", "12"),
+    ("What year did the World Wide Web go public?", "1991"),
+    ("What does CPU stand for?", "central processing unit"),
+    ("What element has the atomic number 1?", "hydrogen"),
+    ("How many sides does a hexagon have?", "6"),
+    ("What is the speed of light in km/s (rounded)?", "300000"),
+    ("What programming language was created by Guido van Rossum?", "python"),
+    ("What does RAM stand for?", "random access memory"),
+]
+
+CODE_PUZZLES = [
+    ("What does this print?\n```python\nprint(len('hello' * 3))```", "15"),
+    ("What does this print?\n```python\nprint(2 ** 10)```", "1024"),
+    ("What does this print?\n```python\nprint('abc'[::-1])```", "cba"),
+    ("What does this print?\n```python\nprint(bool([]))```", "false"),
+    ("What does this print?\n```python\nprint(type(3.14).__name__)```", "float"),
+    ("What does this print?\n```python\nprint(max(3, 1, 4, 1, 5))```", "5"),
+    ("What does this print?\n```python\nprint(10 // 3)```", "3"),
+    ("What does this print?\n```python\nprint('hello world'.count('l'))```", "3"),
+    ("What does this print?\n```python\nprint(sum(range(5)))```", "10"),
+    ("What does this print?\n```python\nprint(list(zip([1,2],[3,4])))```", "[(1, 3), (2, 4)]"),
+]
+
+def generate_math_puzzle():
+    """Generate a math puzzle with multiple operations."""
+    kind = random.choice(["solve_x", "evaluate", "remainder", "sequence"])
+    if kind == "solve_x":
+        # ax + b = c, solve for x
+        a = random.choice([2, 3, 4, 5, 6, 7, 8])
+        x = random.randint(-15, 15)
+        b = random.randint(-20, 20)
+        c = a * x + b
+        sign = f"+ {b}" if b >= 0 else f"- {abs(b)}"
+        question = f"Solve for x: **{a}x {sign} = {c}**"
+        return question, str(x)
+    elif kind == "evaluate":
+        # a * b + c * d
+        a, b = random.randint(2, 12), random.randint(2, 12)
+        c, d = random.randint(2, 12), random.randint(2, 12)
+        answer = a * b + c * d
+        question = f"What is **{a} × {b} + {c} × {d}**?"
+        return question, str(answer)
+    elif kind == "remainder":
+        a = random.randint(50, 200)
+        b = random.randint(3, 15)
+        answer = a % b
+        question = f"What is the remainder of **{a} ÷ {b}**?"
+        return question, str(answer)
+    else:
+        # Find the next number in an arithmetic sequence
+        start = random.randint(1, 20)
+        step = random.randint(2, 10) * random.choice([1, -1])
+        seq = [start + step * i for i in range(5)]
+        answer = start + step * 5
+        display = ", ".join(str(n) for n in seq)
+        question = f"What comes next? **{display}, ?**"
+        return question, str(answer)
+
+WORDLE_MAX_GUESSES = 6
+
+def wordle_feedback(guess, answer):
+    """Return colored tile feedback for a wordle guess."""
+    result = ["⬛"] * 5
+    answer_chars = list(answer)
+    # Green pass: correct letter, correct position
+    for i in range(5):
+        if guess[i] == answer[i]:
+            result[i] = "🟩"
+            answer_chars[i] = None
+    # Yellow pass: correct letter, wrong position
+    for i in range(5):
+        if result[i] == "🟩":
+            continue
+        if guess[i] in answer_chars:
+            result[i] = "🟨"
+            answer_chars[answer_chars.index(guess[i])] = None
+    tiles = "".join(result)
+    letters = " ".join(f"**{c}**" for c in guess)
+    return f"{tiles}\n{letters}"
+
+def wordle_display(puzzle):
+    """Render the full wordle board."""
+    lines = []
+    for g in puzzle.get("guesses", []):
+        lines.append(wordle_feedback(g, puzzle["answer"]))
+    remaining = WORDLE_MAX_GUESSES - len(puzzle.get("guesses", []))
+    lines.append(f"\nGuesses left: **{remaining}**")
+    return "\n".join(lines)
+
+def generate_wordle_puzzle():
+    """Generate a wordle puzzle."""
+    word = random.choice(WORDLE_WORDS)
+    question = f"Guess a 5-letter word! You have **{WORDLE_MAX_GUESSES}** tries."
+    return question, word
+
+def generate_unscramble_puzzle():
+    word = random.choice(UNSCRAMBLE_WORDS)
+    letters = list(word)
+    while True:
+        random.shuffle(letters)
+        scrambled = "".join(letters)
+        if scrambled != word:
+            break
+    question = f"Unscramble this word: **{scrambled}**"
+    return question, word
+
+def generate_puzzle():
+    """Pick a random puzzle type and generate it."""
+    kind = random.choice(["math", "wordle", "unscramble", "trivia", "code"])
+    if kind == "math":
+        q, a = generate_math_puzzle()
+        return kind, q, a
+    elif kind == "wordle":
+        q, a = generate_wordle_puzzle()
+        return kind, q, a
+    elif kind == "unscramble":
+        q, a = generate_unscramble_puzzle()
+        return kind, q, a
+    elif kind == "trivia":
+        q, a = random.choice(TRIVIA)
+        return kind, q, a
+    else:
+        q, a = random.choice(CODE_PUZZLES)
+        return kind, q, a
+
+PUZZLE_TITLES = {
+    "math": "🧮 Math Puzzle",
+    "wordle": "📝 Word Puzzle",
+    "unscramble": "🔀 Unscramble",
+    "trivia": "🧠 Trivia",
+    "code": "💻 Code Puzzle",
+}
+
+@bot.command()
+async def puzzle(ctx):
+    """Get your daily puzzle for a coin bonus."""
+    user_id = ctx.author.id
+    get_balance(user_id)
+
+    now = datetime.now(CENTRAL_TZ)
+    today = now.strftime("%Y-%m-%d")
+    row = db.execute(
+        "SELECT puzzle_date, puzzle_solved, puzzle_attempts FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    puzzle_date = row[0] if row else ""
+    puzzle_solved = row[1] if row else 0
+    puzzle_attempts = row[2] if row else 0
+
+    if puzzle_date == today and puzzle_solved:
+        return await ctx.send(embed=make_embed("✅ Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
+    if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
+        return await ctx.send(embed=make_embed("🚫 Out of Attempts", f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!", COLOR_ERROR))
+
+    # Reset if new day
+    if puzzle_date != today:
+        puzzle_attempts = 0
+        db.execute("UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id))
+        db.commit()
+
+    # Generate new puzzle if they don't have an active one
+    if user_id not in active_puzzles:
+        kind, question, answer = generate_puzzle()
+        p = {"answer": answer.lower().strip(), "type": kind, "display": question}
+        if kind == "wordle":
+            p["guesses"] = []
+        active_puzzles[user_id] = p
+
+    p = active_puzzles[user_id]
+    remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
+    await ctx.send(embed=make_embed(
+        PUZZLE_TITLES[p["type"]],
+        f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
+        f"Reward: **{PUZZLE_REWARD}** coins | Attempts left: **{remaining}**"))
+
+@bot.command()
+async def solve(ctx, *, answer: str):
+    """Submit your answer to the daily puzzle."""
+    user_id = ctx.author.id
+    get_balance(user_id)
+
+    if user_id not in active_puzzles:
+        return await ctx.send(f"You don't have an active puzzle. Start one with `{PREFIX}puzzle`.")
+
+    now = datetime.now(CENTRAL_TZ)
+    today = now.strftime("%Y-%m-%d")
+    row = db.execute(
+        "SELECT puzzle_date, puzzle_solved, puzzle_attempts FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    puzzle_date = row[0] if row else ""
+    puzzle_solved = row[1] if row else 0
+    puzzle_attempts = row[2] if row else 0
+
+    if puzzle_date == today and puzzle_solved:
+        del active_puzzles[user_id]
+        return await ctx.send(embed=make_embed("✅ Already Solved", "You already solved today's puzzle!", COLOR_SUCCESS))
+    if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
+        del active_puzzles[user_id]
+        return await ctx.send(embed=make_embed("🚫 Out of Attempts", "No attempts left today!", COLOR_ERROR))
+
+    p = active_puzzles[user_id]
+    guess = answer.lower().strip()
+
+    # --- Wordle handling ---
+    if p["type"] == "wordle":
+        if len(guess) != 5 or not guess.isalpha():
+            return await ctx.send("Guess must be a 5-letter word.")
+        p["guesses"].append(guess)
+        if guess == p["answer"]:
+            del active_puzzles[user_id]
+            update_balance(user_id, PUZZLE_REWARD)
+            bal = get_balance(user_id)
+            db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
+            db.commit()
+            return await ctx.send(embed=make_embed(
+                f"🎉 Wordle Solved in {len(p['guesses'])}!",
+                f"{wordle_display(p)}\n\nYou earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**",
+                COLOR_SUCCESS))
+        if len(p["guesses"]) >= WORDLE_MAX_GUESSES:
+            del active_puzzles[user_id]
+            return await ctx.send(embed=make_embed(
+                "💀 Wordle Failed",
+                f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.",
+                COLOR_ERROR))
+        return await ctx.send(embed=make_embed(
+            "📝 Wordle",
+            f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
+
+    # --- All other puzzles ---
+    puzzle_attempts += 1
+    db.execute("UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?", (today, puzzle_attempts, user_id))
+    db.commit()
+
+    if guess == p["answer"]:
+        del active_puzzles[user_id]
+        update_balance(user_id, PUZZLE_REWARD)
+        bal = get_balance(user_id)
+        db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
+        db.commit()
+        await ctx.send(embed=make_embed(
+            "🎉 Correct!",
+            f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**",
+            COLOR_SUCCESS))
+    else:
+        remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
+        if remaining <= 0:
+            correct = p["answer"]
+            del active_puzzles[user_id]
+            await ctx.send(embed=make_embed(
+                "💀 Out of Attempts",
+                f"The answer was **{correct}**.\nBetter luck tomorrow!",
+                COLOR_ERROR))
+        else:
+            await ctx.send(embed=make_embed(
+                "❌ Wrong",
+                f"That's not it. Attempts left: **{remaining}**",
+                COLOR_ERROR))
+
+@bot.command()
+async def repuzzle(ctx, member: discord.Member = None):
+    """Admin only: regenerate a user's daily puzzle (or your own)."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    target = member or ctx.author
+    if target.id in active_puzzles:
+        del active_puzzles[target.id]
+    db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
+    db.commit()
+    await ctx.send(f"Puzzle reset for {target.display_name}.")
 
 # ---------------------------------------------------------------------------
 # ECONOMY: DAILY
@@ -630,7 +1146,7 @@ async def hit(ctx):
     """Draw another card in blackjack."""
     game = active_blackjack.get(ctx.author.id)
     if not game:
-        return await ctx.send("You don't have an active blackjack hand. Start one with `!blackjack <amount>`.")
+        return await ctx.send(f"You don't have an active blackjack hand. Start one with `{PREFIX}blackjack <amount>`.")
 
     game["player"].append(game["deck"].pop())
     pv = hand_value(game["player"])
@@ -683,6 +1199,392 @@ async def stand(ctx):
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed("🃏 Push!", result_lines +
             f"It's a tie. Your **{game['bet']}** coins are returned.\nBalance: **{new_bal}**", COLOR_WARNING))
+
+# ---------------------------------------------------------------------------
+# GAMES: TIC-TAC-TOE
+# ---------------------------------------------------------------------------
+active_ttt = {}      # channel_id -> game state
+active_c4 = {}       # channel_id -> game state
+pending_games = {}   # message_id -> {"type": "ttt"/"c4", "host": Member, "channel_id": int}
+
+TTT_EMPTY = "⬛"
+TTT_X = "❌"
+TTT_O = "⭕"
+
+def ttt_render(board):
+    rows = []
+    for r in range(3):
+        cells = []
+        for c in range(3):
+            idx = r * 3 + c
+            if board[idx] == "X":
+                cells.append(TTT_X)
+            elif board[idx] == "O":
+                cells.append(TTT_O)
+            else:
+                cells.append(f"{idx + 1}\N{COMBINING ENCLOSING KEYCAP}")
+        rows.append("".join(cells))
+    return "\n".join(rows)
+
+def ttt_check_winner(board):
+    lines = [
+        (0,1,2),(3,4,5),(6,7,8),  # rows
+        (0,3,6),(1,4,7),(2,5,8),  # cols
+        (0,4,8),(2,4,6),          # diags
+    ]
+    for a, b, c in lines:
+        if board[a] == board[b] == board[c] and board[a] in ("X", "O"):
+            return board[a]
+    if all(cell in ("X", "O") for cell in board):
+        return "draw"
+    return None
+
+def start_ttt(host, opponent):
+    game = {
+        "board": list(range(9)),
+        "players": {"X": host, "O": opponent},
+        "turn": "X",
+    }
+    return game
+
+@bot.command()
+async def ttt(ctx, opponent: discord.Member = None):
+    """Start a tic-tac-toe game. Tag someone or let others react to join."""
+    if ctx.channel.id in active_ttt:
+        return await ctx.send("There's already a game in this channel. Finish it first.")
+    if opponent:
+        if opponent.bot or opponent == ctx.author:
+            return await ctx.send("You can't play against yourself or a bot.")
+        game = start_ttt(ctx.author, opponent)
+        active_ttt[ctx.channel.id] = game
+        await ctx.send(embed=make_embed(
+            "Tic-Tac-Toe",
+            f"{ctx.author.mention} ({TTT_X}) vs {opponent.mention} ({TTT_O})\n\n"
+            f"{ttt_render(game['board'])}\n\n"
+            f"{ctx.author.mention}'s turn — use `{PREFIX}m <1-9>`"))
+    else:
+        msg = await ctx.send(embed=make_embed(
+            "Tic-Tac-Toe",
+            f"{ctx.author.mention} wants to play! React with ✅ to join."))
+        await msg.add_reaction("✅")
+        pending_games[msg.id] = {"type": "ttt", "host": ctx.author, "channel_id": ctx.channel.id}
+
+@bot.command()
+async def m(ctx, pos: int):
+    """Make a move in tic-tac-toe (1-9) or connect 4 (1-7)."""
+    # Try tic-tac-toe first
+    ttt_game = active_ttt.get(ctx.channel.id)
+    if ttt_game:
+        current = ttt_game["players"][ttt_game["turn"]]
+        if ctx.author != current:
+            return
+        if pos < 1 or pos > 9 or ttt_game["board"][pos - 1] in ("X", "O"):
+            return await ctx.send("Invalid move.")
+        ttt_game["board"][pos - 1] = ttt_game["turn"]
+        winner = ttt_check_winner(ttt_game["board"])
+        if winner == "draw":
+            del active_ttt[ctx.channel.id]
+            return await ctx.send(embed=make_embed(
+                "Tic-Tac-Toe — Draw!",
+                ttt_render(ttt_game["board"]), COLOR_WARNING))
+        if winner:
+            del active_ttt[ctx.channel.id]
+            w = ttt_game["players"][winner]
+            return await ctx.send(embed=make_embed(
+                f"Tic-Tac-Toe — {w.display_name} Wins!",
+                ttt_render(ttt_game["board"]), COLOR_SUCCESS))
+        ttt_game["turn"] = "O" if ttt_game["turn"] == "X" else "X"
+        nxt = ttt_game["players"][ttt_game["turn"]]
+        return await ctx.send(embed=make_embed(
+            "Tic-Tac-Toe",
+            f"{ttt_render(ttt_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-9>`"))
+
+    # Try connect 4
+    c4_game = active_c4.get(ctx.channel.id)
+    if c4_game:
+        current = c4_game["players"][c4_game["turn"]]
+        if ctx.author != current:
+            return
+        if pos < 1 or pos > C4_COLS:
+            return await ctx.send(f"Pick a column between 1 and {C4_COLS}.")
+        row = c4_drop(c4_game["board"], pos - 1, c4_game["turn"])
+        if row == -1:
+            return await ctx.send("That column is full.")
+        winner = c4_check_winner(c4_game["board"])
+        if winner == "draw":
+            del active_c4[ctx.channel.id]
+            return await ctx.send(embed=make_embed(
+                "Connect 4 — Draw!",
+                c4_render(c4_game["board"]), COLOR_WARNING))
+        if winner:
+            del active_c4[ctx.channel.id]
+            w = c4_game["players"][winner]
+            return await ctx.send(embed=make_embed(
+                f"Connect 4 — {w.display_name} Wins!",
+                c4_render(c4_game["board"]), COLOR_SUCCESS))
+        c4_game["turn"] = "Y" if c4_game["turn"] == "R" else "R"
+        nxt = c4_game["players"][c4_game["turn"]]
+        return await ctx.send(embed=make_embed(
+            "Connect 4",
+            f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-7>`"))
+
+@bot.command()
+async def forfeit(ctx):
+    """Forfeit the current tic-tac-toe or connect 4 game."""
+    game = active_ttt.get(ctx.channel.id)
+    if game and ctx.author in game["players"].values():
+        del active_ttt[ctx.channel.id]
+        return await ctx.send(f"{ctx.author.display_name} forfeited the tic-tac-toe game.")
+    game = active_c4.get(ctx.channel.id)
+    if game and ctx.author in game["players"].values():
+        del active_c4[ctx.channel.id]
+        return await ctx.send(f"{ctx.author.display_name} forfeited the connect 4 game.")
+    game = active_hangman.get(ctx.channel.id)
+    if game:
+        del active_hangman[ctx.channel.id]
+        return await ctx.send(f"Hangman game ended. The word was **{game['word']}**.")
+    await ctx.send("No active game to forfeit.")
+
+# ---------------------------------------------------------------------------
+# GAMES: CONNECT 4
+# ---------------------------------------------------------------------------
+C4_ROWS = 6
+C4_COLS = 7
+C4_EMPTY = "⚫"
+C4_RED = "🔴"
+C4_YELLOW = "🟡"
+
+def c4_render(board):
+    header = "".join(f"{i+1}\N{COMBINING ENCLOSING KEYCAP}" for i in range(C4_COLS))
+    rows = []
+    for r in range(C4_ROWS):
+        cells = []
+        for c in range(C4_COLS):
+            val = board[r][c]
+            if val == "R":
+                cells.append(C4_RED)
+            elif val == "Y":
+                cells.append(C4_YELLOW)
+            else:
+                cells.append(C4_EMPTY)
+        rows.append("".join(cells))
+    return header + "\n" + "\n".join(rows)
+
+def c4_drop(board, col, piece):
+    for r in range(C4_ROWS - 1, -1, -1):
+        if board[r][col] is None:
+            board[r][col] = piece
+            return r
+    return -1
+
+def c4_check_winner(board):
+    for r in range(C4_ROWS):
+        for c in range(C4_COLS):
+            piece = board[r][c]
+            if piece is None:
+                continue
+            # horizontal
+            if c + 3 < C4_COLS and all(board[r][c+i] == piece for i in range(4)):
+                return piece
+            # vertical
+            if r + 3 < C4_ROWS and all(board[r+i][c] == piece for i in range(4)):
+                return piece
+            # diagonal down-right
+            if r + 3 < C4_ROWS and c + 3 < C4_COLS and all(board[r+i][c+i] == piece for i in range(4)):
+                return piece
+            # diagonal down-left
+            if r + 3 < C4_ROWS and c - 3 >= 0 and all(board[r+i][c-i] == piece for i in range(4)):
+                return piece
+    if all(board[0][c] is not None for c in range(C4_COLS)):
+        return "draw"
+    return None
+
+def start_c4(host, opponent):
+    board = [[None] * C4_COLS for _ in range(C4_ROWS)]
+    game = {
+        "board": board,
+        "players": {"R": host, "Y": opponent},
+        "turn": "R",
+    }
+    return game
+
+@bot.command()
+async def c4(ctx, opponent: discord.Member = None):
+    """Start a connect 4 game. Tag someone or let others react to join."""
+    if ctx.channel.id in active_c4:
+        return await ctx.send("There's already a game in this channel. Finish it first.")
+    if opponent:
+        if opponent.bot or opponent == ctx.author:
+            return await ctx.send("You can't play against yourself or a bot.")
+        game = start_c4(ctx.author, opponent)
+        active_c4[ctx.channel.id] = game
+        await ctx.send(embed=make_embed(
+            "Connect 4",
+            f"{ctx.author.mention} ({C4_RED}) vs {opponent.mention} ({C4_YELLOW})\n\n"
+            f"{c4_render(game['board'])}\n\n"
+            f"{ctx.author.mention}'s turn — use `{PREFIX}m <1-7>`"))
+    else:
+        msg = await ctx.send(embed=make_embed(
+            "Connect 4",
+            f"{ctx.author.mention} wants to play! React with ✅ to join."))
+        await msg.add_reaction("✅")
+        pending_games[msg.id] = {"type": "c4", "host": ctx.author, "channel_id": ctx.channel.id}
+
+@bot.command()
+async def drop(ctx, col: int):
+    """Drop a piece in connect 4 (column 1-7)."""
+    game = active_c4.get(ctx.channel.id)
+    if not game:
+        return
+    current = game["players"][game["turn"]]
+    if ctx.author != current:
+        return
+    if col < 1 or col > C4_COLS:
+        return await ctx.send(f"Pick a column between 1 and {C4_COLS}.")
+    row = c4_drop(game["board"], col - 1, game["turn"])
+    if row == -1:
+        return await ctx.send("That column is full.")
+    winner = c4_check_winner(game["board"])
+    if winner == "draw":
+        del active_c4[ctx.channel.id]
+        return await ctx.send(embed=make_embed(
+            "Connect 4 — Draw!",
+            c4_render(game["board"]), COLOR_WARNING))
+    if winner:
+        del active_c4[ctx.channel.id]
+        w = game["players"][winner]
+        return await ctx.send(embed=make_embed(
+            f"Connect 4 — {w.display_name} Wins!",
+            c4_render(game["board"]), COLOR_SUCCESS))
+    game["turn"] = "Y" if game["turn"] == "R" else "R"
+    nxt = game["players"][game["turn"]]
+    await ctx.send(embed=make_embed(
+        "Connect 4",
+        f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-7>`"))
+
+# ---------------------------------------------------------------------------
+# GAMES: HANGMAN
+# ---------------------------------------------------------------------------
+active_hangman = {}  # channel_id -> game state
+
+HANGMAN_WORDS = [
+    "python", "discord", "hangman", "keyboard", "monitor", "algorithm", "function",
+    "variable", "database", "network", "browser", "terminal", "computer", "program",
+    "internet", "software", "hardware", "graphics", "security", "download",
+    "elephant", "giraffe", "penguin", "dolphin", "octopus", "butterfly", "squirrel",
+    "mushroom", "sandwich", "umbrella", "airplane", "mountain", "treasure", "volcano",
+    "dinosaur", "astronaut", "chocolate", "pineapple", "strawberry", "watermelon",
+    "adventure", "birthday", "carnival", "dominoes", "firework", "galaxies",
+    "harmonica", "illusion", "jukebox", "kangaroo", "labyrinth", "macaroni",
+]
+
+HANGMAN_STAGES = [
+    "```\n  +---+\n      |\n      |\n      |\n      |\n=========```",
+    "```\n  +---+\n  O   |\n      |\n      |\n      |\n=========```",
+    "```\n  +---+\n  O   |\n  |   |\n      |\n      |\n=========```",
+    "```\n  +---+\n  O   |\n /|   |\n      |\n      |\n=========```",
+    "```\n  +---+\n  O   |\n /|\\  |\n      |\n      |\n=========```",
+    "```\n  +---+\n  O   |\n /|\\  |\n /    |\n      |\n=========```",
+    "```\n  +---+\n  O   |\n /|\\  |\n / \\  |\n      |\n=========```",
+]
+
+def hangman_render(game):
+    word_display = " ".join(
+        letter if letter in game["guessed"] else "\\_" for letter in game["word"]
+    )
+    wrong = sorted(game["wrong"])
+    wrong_str = ", ".join(wrong) if wrong else "None"
+    return (
+        f"{HANGMAN_STAGES[len(game['wrong'])]}\n"
+        f"**{word_display}**\n"
+        f"Wrong guesses: {wrong_str}\n"
+        f"Guesses left: **{6 - len(game['wrong'])}**"
+    )
+
+@bot.command()
+async def hangman(ctx, player: discord.Member = None):
+    """Start a hangman game. Tag someone to invite them, or play solo."""
+    if ctx.channel.id in active_hangman:
+        return await ctx.send("There's already a hangman game in this channel. Finish it first.")
+    word = random.choice(HANGMAN_WORDS)
+    game = {
+        "word": word,
+        "guessed": set(),
+        "wrong": [],
+        "started_by": ctx.author,
+    }
+    active_hangman[ctx.channel.id] = game
+    msg = f"{ctx.author.mention} started a hangman game!"
+    if player:
+        msg = f"{ctx.author.mention} started a hangman game with {player.mention}!"
+    msg += f" Anyone can guess with `{PREFIX}g <letter>`."
+    await ctx.send(embed=make_embed("Hangman", f"{msg}\n\n{hangman_render(game)}"))
+
+@bot.command()
+async def g(ctx, letter: str):
+    """Guess a letter in hangman."""
+    game = active_hangman.get(ctx.channel.id)
+    if not game:
+        return
+    letter = letter.lower().strip()
+    if len(letter) != 1 or not letter.isalpha():
+        return await ctx.send("Guess a single letter.")
+    if letter in game["guessed"] or letter in game["wrong"]:
+        return await ctx.send(f"**{letter}** was already guessed.")
+    if letter in game["word"]:
+        game["guessed"].add(letter)
+        if all(l in game["guessed"] for l in game["word"]):
+            del active_hangman[ctx.channel.id]
+            return await ctx.send(embed=make_embed(
+                "Hangman — You Win!",
+                f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
+                COLOR_SUCCESS))
+    else:
+        game["wrong"].append(letter)
+        if len(game["wrong"]) >= 6:
+            del active_hangman[ctx.channel.id]
+            return await ctx.send(embed=make_embed(
+                "Hangman — Game Over",
+                f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
+                COLOR_ERROR))
+    await ctx.send(embed=make_embed("Hangman", hangman_render(game)))
+
+# ---------------------------------------------------------------------------
+# SILAS ROLEPLAY
+# ---------------------------------------------------------------------------
+@bot.command()
+async def rp(ctx, *, character: str):
+    """Start a roleplay between Gary and Silas."""
+    if ctx.channel.id in active_silas_rp:
+        return await ctx.send("There's already a roleplay going in this channel. Use `.stoprp` to end it.")
+    active_silas_rp[ctx.channel.id] = {
+        "character": character,
+        "history": [
+            {"role": "system", "content": (
+                f"You are roleplaying as {character} in a Discord chat. "
+                "Another character (played by Silas) is roleplaying with you. "
+                "Stay in character. Keep responses short (2-4 sentences). "
+                "Be creative and dramatic. Use lowercase, no quotation marks around your dialogue."
+            )},
+        ],
+    }
+    # Trigger Silas's roleplay command
+    await ctx.send(f"!roleplay {character}")
+    await ctx.send(embed=make_embed(
+        "Roleplay Started",
+        f"Gary is roleplaying as **{character}** with Silas.\n"
+        f"Use `{PREFIX}stoprp` to end the session."))
+
+@bot.command()
+async def stoprp(ctx):
+    """Stop the current roleplay with Silas."""
+    if ctx.channel.id in active_silas_rp:
+        del active_silas_rp[ctx.channel.id]
+        # Tell Silas to stop too
+        await ctx.send("!stop")
+        await ctx.send("Roleplay ended.")
+    else:
+        await ctx.send("No active roleplay in this channel.")
 
 # ---------------------------------------------------------------------------
 # WEATHER
@@ -880,7 +1782,7 @@ def format_quote(content, name, date, prefix=""):
 async def quote(ctx):
     """Save a quote by replying to a message."""
     if not ctx.message.reference:
-        return await ctx.send("Reply to a message with `!quote` to save it.")
+        return await ctx.send(f"Reply to a message with `{PREFIX}quote` to save it.")
     try:
         msg = ctx.message.reference.resolved or await ctx.channel.fetch_message(ctx.message.reference.message_id)
     except Exception:
@@ -897,7 +1799,7 @@ async def quote(ctx):
 
 @bot.command()
 async def quotes(ctx, flag: str = ""):
-    """Show recent quotes. Admin can use !quotes ids to show IDs."""
+    """Show recent quotes. Admin can use .quotes ids to show IDs."""
     show_ids = flag.lower() == "ids" and ctx.author.id == ADMIN_ID
     rows = db.execute(
         "SELECT id, quoted_user_name, content, saved_at FROM quotes WHERE guild_id = ? ORDER BY id DESC LIMIT 10",
@@ -924,6 +1826,74 @@ async def unquote(ctx, quote_id: int):
 # ---------------------------------------------------------------------------
 # ADMIN
 # ---------------------------------------------------------------------------
+@bot.command()
+async def stats(ctx):
+    """Show bot stats: uptime, latency, versions, economy, and command usage."""
+    # Uptime
+    if bot_start_time:
+        delta = datetime.now(timezone.utc) - bot_start_time
+        days, rem = divmod(int(delta.total_seconds()), 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes, _ = divmod(rem, 60)
+        parts = []
+        if days:
+            parts.append(f"{days}d")
+        if hours:
+            parts.append(f"{hours}h")
+        parts.append(f"{minutes}m")
+        uptime = " ".join(parts)
+    else:
+        uptime = "Unknown"
+
+    # Economy
+    econ = db.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users").fetchone()
+    total_users, total_coins = econ
+    richest = db.execute(
+        "SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 1"
+    ).fetchone()
+    if richest:
+        richest_member = ctx.guild.get_member(richest[0])
+        richest_str = f"{richest_member.display_name} ({richest[1]})" if richest_member else f"Unknown ({richest[1]})"
+    else:
+        richest_str = "Nobody"
+
+    # Command usage (top 5 this session)
+    top_cmds = command_usage.most_common(5)
+    if top_cmds:
+        usage_str = "\n".join(f"`{PREFIX}{name}` — {count}" for name, count in top_cmds)
+    else:
+        usage_str = "No commands used yet"
+    total_cmds = sum(command_usage.values())
+
+    embed = discord.Embed(title="📊 Bot Stats", color=COLOR_DEFAULT)
+    embed.add_field(name="Uptime", value=uptime, inline=True)
+    embed.add_field(name="Latency", value=f"{bot.latency * 1000:.0f}ms", inline=True)
+    embed.add_field(name="Versions", value=(
+        f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n"
+        f"discord.py {discord.__version__}"
+    ), inline=True)
+    embed.add_field(name="Economy", value=(
+        f"Users: **{total_users}**\n"
+        f"Coins in circulation: **{total_coins}**\n"
+        f"Richest: **{richest_str}**"
+    ), inline=False)
+    embed.add_field(name=f"Top Commands (session: {total_cmds} total)", value=usage_str, inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def invite(ctx):
+    """Generate an invite link with the permissions the bot needs."""
+    perms = discord.Permissions(
+        send_messages=True,
+        embed_links=True,
+        add_reactions=True,
+        manage_nicknames=True,
+        read_message_history=True,
+        read_messages=True,
+    )
+    link = discord.utils.oauth_url(bot.user.id, permissions=perms)
+    await ctx.send(embed=make_embed("🔗 Invite Link", f"[Click here to invite me!]({link})"))
+
 @bot.command()
 async def give(ctx, member: discord.Member, amount: int):
     """Admin only: add coins to a user."""
@@ -966,30 +1936,44 @@ bot.remove_command("help")
 async def help(ctx):
     """Show all commands."""
     embed = discord.Embed(title="📖 Bot Commands", color=COLOR_DEFAULT)
+    p = PREFIX
     embed.add_field(name="💰 Economy", value=(
-        "`!daily` — Claim daily coins\n"
-        "`!guess <1-10>` — Guess for a free coin (3x/day)\n"
-        "`!balance` — Check balance\n"
-        "`!leaderboard` — Top 10 richest"
+        f"`{p}daily` — Claim daily coins\n"
+        f"`{p}guess <1-10>` — Guess for a free coin (3x/day)\n"
+        f"`{p}puzzle` — Daily puzzle for {PUZZLE_REWARD} coins\n"
+        f"`{p}balance` — Check balance\n"
+        f"`{p}leaderboard` — Top 10 richest"
     ), inline=False)
     embed.add_field(name="🎲 Gambling", value=(
-        "`!coinflip <amt>` — Double or nothing\n"
-        "`!slots <amt>` — Slot machine\n"
-        "`!blackjack <amt>` — Play 21"
+        f"`{p}coinflip <amt>` — Double or nothing\n"
+        f"`{p}slots <amt>` — Slot machine\n"
+        f"`{p}blackjack <amt>` — Play 21"
     ), inline=False)
-    embed.add_field(name="🌤️ Weather", value="`!weather [city]` — Current weather (defaults to Champaign)", inline=False)
-    embed.add_field(name="🐾 Animals", value="`!cat` / `!dog` — Random pics", inline=False)
+    embed.add_field(name="🎮 Games", value=(
+        f"`{p}ttt @user` — Tic-tac-toe\n"
+        f"`{p}c4 @user` — Connect 4\n"
+        f"`{p}hangman` — Hangman (anyone can guess)\n"
+        f"`{p}forfeit` — Quit current game"
+    ), inline=False)
+    embed.add_field(name="🌤️ Weather", value=f"`{p}weather [city]` — Current weather (defaults to Champaign)", inline=False)
+    embed.add_field(name="🐾 Animals", value=f"`{p}cat` / `{p}dog` — Random pics", inline=False)
     embed.add_field(name="🎉 Fun", value=(
-        "`!wyr` — Would You Rather\n"
-        "`!onthisday` — Historical event today\n"
-        f"`!changenick @user name` — Change nickname ({NICKNAME_COST} coins)"
+        f"`{p}wyr` — Would You Rather\n"
+        f"`{p}onthisday` — Historical event today\n"
+        f"`{p}changenick @user name` — Change nickname ({NICKNAME_COST} coins)"
     ), inline=False)
     embed.add_field(name="🤖 AI", value=(
-        "`!ask <question>` — Ask the AI (needs desktop on)"
+        f"`{p}ask <question>` — Ask the AI (needs desktop on)\n"
+        f"`{p}rp <character>` — Roleplay with Silas\n"
+        f"`{p}stoprp` — End roleplay"
+    ), inline=False)
+    embed.add_field(name="🔧 Info", value=(
+        f"`{p}stats` — Bot stats & usage\n"
+        f"`{p}invite` — Get invite link"
     ), inline=False)
     embed.add_field(name="💬 Quotes", value=(
-        "`!quote` — Reply to a message to save it\n"
-        "`!quotes` — Show recent quotes"
+        f"`{p}quote` — Reply to a message to save it\n"
+        f"`{p}quotes` — Show recent quotes"
     ), inline=False)
     await ctx.send(embed=embed)
 
@@ -999,12 +1983,19 @@ async def help(ctx):
 # ---------------------------------------------------------------------------
 COMMAND_USAGE = {
     'guess': '<number 1-10>',
+    'solve': '<answer>',
+    'ttt': '[@opponent]',
+    'c4': '[@opponent]',
+    'm': '<1-9>',
+    'drop': '<1-7>',
+    'g': '<letter>',
     'coinflip': '<amount>',
     'slots': '<amount>',
     'blackjack': '<amount>',
     'weather': '<city>',
     'changenick': '@user <nickname>',
     'ask': '<question>',
+    'rp': '<character>',
     'unquote': '<id>',
     'give': '@user <amount>',
 }
@@ -1014,7 +2005,7 @@ async def on_command_error(ctx, error):
     if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
         command = ctx.command.name
         args = COMMAND_USAGE.get(command)
-        await ctx.send(f"Usage: `!{command} {args}`" if args else "Check `!help` for usage.")
+        await ctx.send(f"Usage: `{PREFIX}{command} {args}`" if args else f"Check `{PREFIX}help` for usage.")
     elif isinstance(error, commands.CommandNotFound):
         pass
     else:
