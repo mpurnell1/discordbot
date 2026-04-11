@@ -153,7 +153,7 @@ async def on_command_error(ctx, error):
             ctx.author,
             ctx.author.id,
         )
-        raise error
+        await ctx.send("That command failed unexpectedly. Check logs and try again.")
 
 
 bot.run(TOKEN)
