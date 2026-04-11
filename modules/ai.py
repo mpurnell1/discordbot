@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
+import shared
 from shared import *
 
 
@@ -164,6 +165,7 @@ class AICog(commands.Cog):
         # Ignore our own messages
         if message.author.id == self.bot.user.id:
             return
+        shared.messages_seen += 1
     
         # --- Silas interaction ---
         if message.author.id == SILAS_BOT_ID:

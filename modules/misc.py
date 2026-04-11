@@ -1,4 +1,4 @@
-import discord
+﻿import discord
 from discord.ext import commands, tasks
 import aiohttp
 import asyncio
@@ -512,56 +512,65 @@ class MiscCog(commands.Cog):
 
     @commands.command()
     async def stats(self, ctx):
-        """Show bot stats: uptime, latency, versions, economy, and command usage."""
-        # Uptime
+        """Show runtime bot stats in a compact operational view."""
+        now = datetime.now(timezone.utc)
         if shared.bot_start_time:
-            delta = datetime.now(timezone.utc) - shared.bot_start_time
-            days, rem = divmod(int(delta.total_seconds()), 86400)
+            delta = now - shared.bot_start_time
+            uptime_seconds = int(delta.total_seconds())
+            days, rem = divmod(uptime_seconds, 86400)
             hours, rem = divmod(rem, 3600)
             minutes, _ = divmod(rem, 60)
-            parts = []
-            if days:
-                parts.append(f"{days}d")
-            if hours:
-                parts.append(f"{hours}h")
-            parts.append(f"{minutes}m")
-            uptime = " ".join(parts)
+            uptime = f"{days}d {hours}h {minutes}m"
+            up_minutes = max(delta.total_seconds() / 60.0, 1e-9)
         else:
             uptime = "Unknown"
-    
-        # Economy
-        econ = db.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users").fetchone()
-        total_users, total_coins = econ
-        richest = db.execute(
-            "SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 1"
-        ).fetchone()
-        if richest:
-            richest_member = ctx.guild.get_member(richest[0])
-            richest_str = f"{richest_member.display_name} ({richest[1]})" if richest_member else f"Unknown ({richest[1]})"
-        else:
-            richest_str = "Nobody"
-    
-        # Command usage (top 5 this session)
-        top_cmds = command_usage.most_common(5)
-        if top_cmds:
-            usage_str = "\n".join(f"`{PREFIX}{name}` — {count}" for name, count in top_cmds)
-        else:
-            usage_str = "No commands used yet"
+            up_minutes = 1.0
+
         total_cmds = sum(command_usage.values())
-    
+        messages = shared.messages_seen
+        msg_rate = messages / up_minutes
+
+        guilds = self.bot.guilds
+        text_channels = 0
+        voice_channels = 0
+        for guild in guilds:
+            for ch in guild.channels:
+                if isinstance(ch, discord.TextChannel):
+                    text_channels += 1
+                elif isinstance(ch, discord.VoiceChannel):
+                    voice_channels += 1
+
+        passive_enabled = "Enabled" if UNSOLICITED_CHANCE > 0 else "Disabled"
+        ai_status = "Configured" if OLLAMA_URL else "Unavailable"
+
         embed = discord.Embed(title="📊 Bot Stats", color=COLOR_DEFAULT)
-        embed.add_field(name="Uptime", value=uptime, inline=True)
-        embed.add_field(name="Latency", value=f"{self.bot.latency * 1000:.0f}ms", inline=True)
-        embed.add_field(name="Versions", value=(
-            f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n"
-            f"discord.py {discord.__version__}"
-        ), inline=True)
-        embed.add_field(name="Economy", value=(
-            f"Users: **{total_users}**\n"
-            f"Coins in circulation: **{total_coins}**\n"
-            f"Richest: **{richest_str}**"
-        ), inline=False)
-        embed.add_field(name=f"Top Commands (session: {total_cmds} total)", value=usage_str, inline=False)
+        embed.add_field(
+            name="🤖 Bot",
+            value=f"{self.bot.user}\n`{self.bot.user.id}`",
+            inline=False,
+        )
+        embed.add_field(name="💬 Commands Ran", value=f"{total_cmds} commands", inline=True)
+        embed.add_field(name="📨 Messages", value=f"{messages} ({msg_rate:.2f}/min)", inline=True)
+        embed.add_field(name="⏱️ Uptime", value=uptime, inline=True)
+        embed.add_field(
+            name="🌐 Presence",
+            value=(
+                f"{len(guilds)} servers\n"
+                f"{text_channels} text channels\n"
+                f"{voice_channels} voice channels"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🟢 AI Status",
+            value=(
+                f"Status: {ai_status} · Passive: {passive_enabled}\n"
+                f"Ask model: {OLLAMA_REASONING_MODEL}\n"
+                f"Roleplay model: {OLLAMA_MODEL}"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text=f"Latency: {self.bot.latency * 1000:.0f}ms")
         await ctx.send(embed=embed)
     
 
