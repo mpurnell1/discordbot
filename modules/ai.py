@@ -250,11 +250,11 @@ class AICog(commands.Cog):
             bet = self._compute_blackjack_bet(balance, anchor)
             if bet <= 0:
                 return f"Balance {balance} below minimum bankroll threshold."
-            await channel.send(f"!blackjack {bet}")
+            await channel.send(f"!bj {bet}")
             self.gamble_state["blackjack_active"] = True
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
-            return f"Started blackjack with `!blackjack {bet}`."
+            return f"Started blackjack with `!bj {bet}`."
 
         return "Blackjack hand already active; waiting to play hit/stand."
 
