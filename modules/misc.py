@@ -588,6 +588,18 @@ class MiscCog(commands.Cog):
         update_balance(member.id, amount)
         new_bal = get_balance(member.id)
         await ctx.send(f"Gave **{amount}** coins to {member.mention}. New balance: **{new_bal}**")
+
+
+    @commands.command()
+    async def say(self, ctx, *, text: str):
+        """Admin only: delete command message and make Gary say text."""
+        if ctx.author.id != ADMIN_ID:
+            return
+        try:
+            await ctx.message.delete()
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        await ctx.send(text)
     
     # ---------------------------------------------------------------------------
     # LEADERBOARD
@@ -666,6 +678,7 @@ class MiscCog(commands.Cog):
                 f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels\n"
                 f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
                 f"`{p}settings gamble <on|off|status|now|channel [#channel]>` - Gary autonomous gambling\n"
+                f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
                 f"`{p}restart` - Restart process"
             ), inline=False)
         embed.add_field(name="Quotes", value=(
