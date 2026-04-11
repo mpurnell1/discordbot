@@ -279,14 +279,19 @@ class AICog(commands.Cog):
         # Keep only last 15 messages
         recent_messages[channel_id] = recent_messages[channel_id][-15:]
     
-        # --- Daily reminder (once per day per user) ---
-        if not message.content.strip().lower().startswith(f"{PREFIX}daily"):
-            today = now_central.strftime("%Y-%m-%d")
+        # --- Daily reminder (DB-backed throttle; never on command messages) ---
+        content = message.content.strip()
+        if content and not content.startswith(PREFIX):
             user_id = message.author.id
-            if daily_reminder_sent.get(user_id) != today:
+            last_reminder = get_last_daily_reminder_time(user_id)
+            reminder_ok = (
+                last_reminder is None
+                or (now - last_reminder) >= timedelta(hours=24)
+            )
+            if reminder_ok:
                 available, _ = is_daily_available(user_id, now=now_central)
                 if available:
-                    daily_reminder_sent[user_id] = today
+                    set_last_daily_reminder_time(user_id, when=now)
                     await message.reply(
                         f"Your daily is ready. Use `{PREFIX}daily`.",
                         mention_author=False

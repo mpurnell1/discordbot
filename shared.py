@@ -81,6 +81,7 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             balance INTEGER DEFAULT 0,
             last_daily TEXT DEFAULT '',
+            last_daily_reminder TEXT DEFAULT '',
             guess_date TEXT DEFAULT '',
             guess_count INTEGER DEFAULT 0,
             puzzle_date TEXT DEFAULT '',
@@ -99,6 +100,10 @@ def init_db():
         pass
     try:
         db.execute("ALTER TABLE users ADD COLUMN guess_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN last_daily_reminder TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
     for col in [
@@ -156,8 +161,6 @@ last_late_night = {}      # user_id -> date string, so we only bug them once per
 recent_messages = {}      # channel_id -> list of last N messages for context
 bot_start_time = None     # set in on_ready
 command_usage = Counter() # command name -> count (resets on restart)
-daily_reminder_sent = {}  # user_id -> YYYY-MM-DD when daily reminder was sent
-
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
     "command_toggles": {},
@@ -218,6 +221,30 @@ def is_daily_available(user_id: int, now=None):
     if now - last >= timedelta(hours=24):
         return True, timedelta(0)
     return False, timedelta(hours=24) - (now - last)
+
+
+def get_last_daily_reminder_time(user_id: int):
+    get_balance(user_id)
+    row = db.execute(
+        "SELECT last_daily_reminder FROM users WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    if not row or not row[0]:
+        return None
+    last = datetime.fromisoformat(row[0])
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return last
+
+
+def set_last_daily_reminder_time(user_id: int, when=None):
+    get_balance(user_id)
+    when = when or datetime.now(timezone.utc)
+    db.execute(
+        "UPDATE users SET last_daily_reminder = ? WHERE user_id = ?",
+        (when.isoformat(), user_id),
+    )
+    db.commit()
 
 
 def _load_json_setting(key: str, default):
