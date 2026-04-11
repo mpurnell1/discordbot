@@ -12,11 +12,99 @@ from shared import *
 class AICog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.gamble_state = {
+            "day": "",
+            "scratchoffs_used": 0,
+            "blackjack_active": False,
+            "last_action_at": None,
+        }
+
+    def _bj_rank_value(self, rank: str) -> int:
+        rank = rank.upper()
+        if rank in {"J", "Q", "K"}:
+            return 10
+        if rank == "A":
+            return 11
+        return int(rank)
+
+    def _bj_is_soft(self, ranks: list[str], total: int) -> bool:
+        # If there is an ace and counting one as 11 can still produce this total, it's soft.
+        return "A" in ranks and total <= 21 and total + 10 <= 21
+
+    def _recommend_blackjack_action(self, total: int, dealer_up: int, soft: bool) -> str:
+        if soft:
+            if total >= 19:
+                return "stand"
+            if total == 18:
+                return "hit" if dealer_up in (9, 10, 11) else "stand"
+            return "hit"
+
+        if total >= 17:
+            return "stand"
+        if 13 <= total <= 16:
+            return "stand" if 2 <= dealer_up <= 6 else "hit"
+        if total == 12:
+            return "stand" if 4 <= dealer_up <= 6 else "hit"
+        return "hit"
+
+    def _parse_blackjack_prompt(self, text: str):
+        # Expected style (from Silas): "Your hand: `A♠` `7♦` → **18**" / "Dealer shows: `K♣` `??`"
+        total_match = re.search(r"your hand:.*?\*\*(\d+)\*\*", text, flags=re.IGNORECASE | re.DOTALL)
+        dealer_match = re.search(r"dealer shows:.*?`([^`]+)`", text, flags=re.IGNORECASE | re.DOTALL)
+        hand_line_match = re.search(r"your hand:(.*?)(?:\n|$)", text, flags=re.IGNORECASE | re.DOTALL)
+
+        if not total_match or not dealer_match or not hand_line_match:
+            return None
+
+        total = int(total_match.group(1))
+        dealer_card = dealer_match.group(1).strip()
+        dealer_rank = dealer_card[:-1] if len(dealer_card) > 1 else dealer_card
+        if dealer_rank == "10":
+            dealer_up = 10
+        else:
+            dealer_up = self._bj_rank_value(dealer_rank[0])
+
+        hand_tokens = re.findall(r"`([^`]+)`", hand_line_match.group(1))
+        ranks = []
+        for token in hand_tokens:
+            token = token.strip()
+            if token == "??":
+                continue
+            rank = token[:-1] if len(token) > 1 else token
+            if rank == "10":
+                ranks.append("10")
+            elif rank:
+                ranks.append(rank[0].upper())
+        soft = self._bj_is_soft(ranks, total)
+        return total, dealer_up, soft
+
+    async def _handle_silas_gambling_message(self, message, silas_text: str):
+        channel_id = runtime_settings.get("gary_gamble_channel_id")
+        if not runtime_settings.get("gary_gamble_enabled", False):
+            return
+        if not channel_id or message.channel.id != int(channel_id):
+            return
+
+        lower = silas_text.lower()
+        if any(k in lower for k in ["blackjack!", "bust", "you win", "dealer wins", "push"]):
+            self.gamble_state["blackjack_active"] = False
+            return
+
+        if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"]:
+            parsed = self._parse_blackjack_prompt(silas_text)
+            if parsed is None:
+                await message.channel.send("stand")
+                return
+            total, dealer_up, soft = parsed
+            action = self._recommend_blackjack_action(total, dealer_up, soft)
+            await message.channel.send(action)
 
     @commands.Cog.listener("on_ready")
     async def _start_ai_tasks(self):
         if not self.dead_chat_checker.is_running():
             self.dead_chat_checker.start()
+        if not self.silas_gambler.is_running():
+            self.silas_gambler.start()
     
 
     @commands.Cog.listener("on_message")
@@ -76,6 +164,8 @@ class AICog(commands.Cog):
                         parts.append(e.description)
                 silas_text = silas_text or "\n".join(parts)
 
+            await self._handle_silas_gambling_message(message, silas_text or "")
+    
             # --- Active roleplay with Silas ---
             rp = active_silas_rp.get(channel_id)
             if rp and silas_text:
@@ -248,6 +338,40 @@ class AICog(commands.Cog):
                     response = random.choice(DEAD_CHAT_RESPONSES[new_stage])
                     await channel.send(response)
 
+    @tasks.loop(minutes=10)
+    async def silas_gambler(self):
+        """Autonomous gambler for Silas economy (settings-controlled)."""
+        if not runtime_settings.get("gary_gamble_enabled", False):
+            return
+        channel_id = runtime_settings.get("gary_gamble_channel_id")
+        if not channel_id:
+            return
+        channel = self.bot.get_channel(int(channel_id))
+        if channel is None:
+            return
+
+        now = datetime.now(timezone.utc)
+        today = now.astimezone(CENTRAL_TZ).strftime("%Y-%m-%d")
+        if self.gamble_state["day"] != today:
+            self.gamble_state["day"] = today
+            self.gamble_state["scratchoffs_used"] = 0
+            self.gamble_state["blackjack_active"] = False
+
+        last_action = self.gamble_state["last_action_at"]
+        if last_action and now - last_action < timedelta(minutes=12):
+            return
+
+        if self.gamble_state["scratchoffs_used"] < 3:
+            await channel.send("!scratchoff")
+            self.gamble_state["scratchoffs_used"] += 1
+            self.gamble_state["last_action_at"] = now
+            return
+
+        if not self.gamble_state["blackjack_active"]:
+            await channel.send("!blackjack 1")
+            self.gamble_state["blackjack_active"] = True
+            self.gamble_state["last_action_at"] = now
+    
     # ---------------------------------------------------------------------------
     # EXPLICIT COMMANDS: !ask (Ollama)
     # ---------------------------------------------------------------------------

@@ -387,11 +387,56 @@ class MiscCog(commands.Cog):
 
     @commands.command()
     async def settings(self, ctx, section: str = "", *args):
-        """Show runtime settings."""
+        """Show runtime settings or manage sections (example: .settings gamble on)."""
         if ctx.author.id != ADMIN_ID:
             return
 
+        if section:
+            sec = section.strip().lower()
+            if sec == "gamble":
+                if not args:
+                    enabled = runtime_settings.get("gary_gamble_enabled", False)
+                    channel_id = runtime_settings.get("gary_gamble_channel_id")
+                    channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+                    state_text = "ON" if enabled else "OFF"
+                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text}")
+
+                action = args[0].strip().lower()
+                if action == "on":
+                    runtime_settings["gary_gamble_enabled"] = True
+                    runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
+                    _save_json_setting("gary_gamble_enabled", True)
+                    _save_json_setting("gary_gamble_channel_id", ctx.channel.id)
+                    return await ctx.send(
+                        f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}."
+                    )
+                if action == "off":
+                    runtime_settings["gary_gamble_enabled"] = False
+                    _save_json_setting("gary_gamble_enabled", False)
+                    return await ctx.send("Gary autonomous gambling is now **OFF**.")
+                if action == "status":
+                    enabled = runtime_settings.get("gary_gamble_enabled", False)
+                    channel_id = runtime_settings.get("gary_gamble_channel_id")
+                    channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+                    state_text = "ON" if enabled else "OFF"
+                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text}")
+                if action == "channel":
+                    target = ctx.channel
+                    if ctx.message.channel_mentions:
+                        target = ctx.message.channel_mentions[0]
+                    runtime_settings["gary_gamble_channel_id"] = target.id
+                    _save_json_setting("gary_gamble_channel_id", target.id)
+                    return await ctx.send(f"Gary gambling channel set to {target.mention}.")
+                return await ctx.send(
+                    f"Usage: `{PREFIX}settings gamble <on|off|status|channel [#channel]>`"
+                )
+
+            return await ctx.send(f"Unknown settings section: `{sec}`")
+
         dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
+        gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
+        gary_gamble_channel = runtime_settings.get("gary_gamble_channel_id")
+        gary_gamble_channel_text = f"<#{int(gary_gamble_channel)}>" if gary_gamble_channel else "(not set)"
         disabled = sorted(
             name for name, enabled in runtime_settings.get("command_toggles", {}).items() if not enabled
         )
@@ -410,6 +455,7 @@ class MiscCog(commands.Cog):
     
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
+        embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
             name="Feature Rules",
@@ -561,7 +607,7 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Games", value=(
             f"`{p}ttt @user` - Tic-tac-toe\n"
             f"`{p}c4 @user` - Connect 4\n"
-            f"`{p}hangman` - Hangman\n"
+            f"`{p}hangman` - Hangman (plain single letters or `{p}g <guess>`)\n"
             f"`{p}forfeit` - Quit current game"
         ), inline=False)
         embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)", inline=False)
@@ -587,6 +633,7 @@ class MiscCog(commands.Cog):
                 f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
                 f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
                 f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels\n"
+                f"`{p}settings gamble <on|off|status|channel [#channel]>` - Gary autonomous gambling\n"
                 f"`{p}restart` - Restart process"
             ), inline=False)
         embed.add_field(name="Quotes", value=(
