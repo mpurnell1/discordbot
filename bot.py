@@ -160,6 +160,7 @@ last_late_night = {}      # user_id -> date string, so we only bug them once per
 recent_messages = {}      # channel_id -> list of last N messages for context
 bot_start_time = None     # set in on_ready
 command_usage = Counter() # command name -> count (resets on restart)
+daily_reminder_sent = {}  # user_id -> YYYY-MM-DD when daily reminder was sent
 
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
@@ -197,6 +198,28 @@ def update_balance(user_id: int, amount: int):
 
 def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
+
+
+def get_last_daily_time(user_id: int):
+    get_balance(user_id)
+    row = db.execute("SELECT last_daily FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    if not row or not row[0]:
+        return None
+    last = datetime.fromisoformat(row[0])
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return last
+
+
+def is_daily_available(user_id: int, now=None):
+    if now is None:
+        now = datetime.now(CENTRAL_TZ)
+    last = get_last_daily_time(user_id)
+    if last is None:
+        return True, timedelta(0)
+    if now - last >= timedelta(hours=24):
+        return True, timedelta(0)
+    return False, timedelta(hours=24) - (now - last)
 
 
 def _load_json_setting(key: str, default):
@@ -617,6 +640,7 @@ async def on_message(message):
 
     channel_id = message.channel.id
     now = datetime.now(timezone.utc)
+    now_central = now.astimezone(CENTRAL_TZ)
 
     # --- Track message times for dead chat ---
     if runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id):
@@ -633,6 +657,19 @@ async def on_message(message):
     })
     # Keep only last 15 messages
     recent_messages[channel_id] = recent_messages[channel_id][-15:]
+
+    # --- Daily reminder (once per day per user) ---
+    if not message.content.strip().lower().startswith(f"{PREFIX}daily"):
+        today = now_central.strftime("%Y-%m-%d")
+        user_id = message.author.id
+        if daily_reminder_sent.get(user_id) != today:
+            available, _ = is_daily_available(user_id, now=now_central)
+            if available:
+                daily_reminder_sent[user_id] = today
+                await message.reply(
+                    f"Your daily is ready. Use `{PREFIX}daily`.",
+                    mention_author=False
+                )
 
     # --- Respond when tagged ---
     if (
@@ -1187,18 +1224,12 @@ async def daily(ctx):
 
     """Claim your daily coins."""
     user_id = ctx.author.id
-    get_balance(user_id)
-    row = db.execute("SELECT last_daily FROM users WHERE user_id = ?", (user_id,)).fetchone()
     now = datetime.now(CENTRAL_TZ)
-    if row and row[0]:
-        last = datetime.fromisoformat(row[0])
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
-        if now - last < timedelta(hours=24):
-            remaining = timedelta(hours=24) - (now - last)
-            h, m = divmod(int(remaining.total_seconds()) // 60, 60)
-            await ctx.send(embed=make_embed("⏰ Already Claimed", f"Come back in **{h}h {m}m**.", COLOR_ERROR))
-            return
+    available, remaining = is_daily_available(user_id, now=now)
+    if not available:
+        h, m = divmod(int(remaining.total_seconds()) // 60, 60)
+        await ctx.send(embed=make_embed("⏰ Already Claimed", f"Come back in **{h}h {m}m**.", COLOR_ERROR))
+        return
     update_balance(user_id, DAILY_AMOUNT)
     db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
     db.commit()
