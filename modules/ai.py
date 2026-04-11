@@ -281,7 +281,12 @@ class AICog(commands.Cog):
     
         # --- Daily reminder (DB-backed throttle; never on command messages) ---
         content = message.content.strip()
-        if content and not content.startswith(PREFIX):
+        if (
+            runtime_settings.get("daily_reminder_enabled", True)
+            and is_feature_allowed("daily_reminder", channel_id)
+            and content
+            and not content.startswith(PREFIX)
+        ):
             user_id = message.author.id
             last_reminder = get_last_daily_reminder_time(user_id)
             reminder_ok = (

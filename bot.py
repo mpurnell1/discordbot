@@ -118,7 +118,7 @@ COMMAND_USAGE = {
     "setdeadchat": "<on|off>",
     "setfeaturemode": "<feature> <all|off|whitelist|blacklist>",
     "setfeaturechannels": "<feature> <add|remove|clear> [#channel ...]",
-    "settings": "[gamble <on|off|status|now|channel [#channel]>]",
+    "settings": "[dailyreminder <on|off|status> | gamble <on|off|status|now|channel [#channel]>]",
 }
 
 

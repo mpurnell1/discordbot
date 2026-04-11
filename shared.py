@@ -163,6 +163,7 @@ bot_start_time = None     # set in on_ready
 command_usage = Counter() # command name -> count (resets on restart)
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
+    "daily_reminder_enabled": True,
     "command_toggles": {},
     "feature_channel_rules": {},
     "gary_gamble_enabled": False,
@@ -269,6 +270,9 @@ def _save_json_setting(key: str, value):
 def load_runtime_settings():
     runtime_settings["dead_chat_enabled"] = bool(
         _load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"])
+    )
+    runtime_settings["daily_reminder_enabled"] = bool(
+        _load_json_setting("daily_reminder_enabled", SETTINGS_DEFAULTS["daily_reminder_enabled"])
     )
     runtime_settings["command_toggles"] = _load_json_setting(
         "command_toggles", SETTINGS_DEFAULTS["command_toggles"]
