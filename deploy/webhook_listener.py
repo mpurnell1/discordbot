@@ -43,7 +43,7 @@ def _deploy_in_background(context: dict[str, str]) -> None:
     env.update(context)
     try:
         subprocess.run(
-            [str(DEPLOY_SCRIPT)],
+            ["/bin/bash", str(DEPLOY_SCRIPT)],
             cwd=str(REPO_DIR),
             env=env,
             check=True,
