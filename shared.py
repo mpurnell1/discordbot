@@ -161,6 +161,7 @@ last_late_night = {}      # user_id -> date string, so we only bug them once per
 recent_messages = {}      # channel_id -> list of last N messages for context
 bot_start_time = None     # set in on_ready
 command_usage = Counter() # command name -> count (resets on restart)
+messages_seen = 0         # non-self messages observed (resets on restart)
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
     "daily_reminder_enabled": True,
