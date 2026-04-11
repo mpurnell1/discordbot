@@ -11,6 +11,7 @@ import re
 import os
 import sys
 import json
+from pathlib import Path
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -75,7 +76,8 @@ PUZZLE_MAX_ATTEMPTS = 3      # Max wrong answers before lockout
 # DATABASE SETUP
 # ---------------------------------------------------------------------------
 def init_db():
-    db = sqlite3.connect("bot.db")
+    db_path = Path(__file__).resolve().parent / "bot.db"
+    db = sqlite3.connect(db_path)
     db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
