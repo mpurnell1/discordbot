@@ -95,6 +95,7 @@ Gary autonomous gambling controls are nested under settings:
 - `.settings gamble on` -> enable and bind gambling to current channel
 - `.settings gamble off` -> disable
 - `.settings gamble status` -> show state + bound channel
+- `.settings gamble now` -> force one immediate gambling step
 - `.settings gamble channel [#channel]` -> set channel (current if omitted)
 
 Other admin controls:
@@ -111,3 +112,4 @@ Other admin controls:
 - Runtime settings are persisted in SQLite `settings` table.
 - Feature gating is channel-aware via `feature_channel_rules`.
 - Some AI/passive features depend on Ollama availability.
+- Gary's autonomous gamble opener uses Silas `!scratches` before low-stakes blackjack.
