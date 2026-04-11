@@ -10,6 +10,7 @@ import asyncio
 import re
 import os
 import sys
+import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -84,7 +85,11 @@ def init_db():
             guess_count INTEGER DEFAULT 0,
             puzzle_date TEXT DEFAULT '',
             puzzle_solved INTEGER DEFAULT 0,
-            puzzle_attempts INTEGER DEFAULT 0
+            puzzle_attempts INTEGER DEFAULT 0,
+            active_puzzle_type TEXT DEFAULT '',
+            active_puzzle_answer TEXT DEFAULT '',
+            active_puzzle_display TEXT DEFAULT '',
+            active_puzzle_guesses TEXT DEFAULT '[]'
         )
     """)
     # Migrate existing databases missing the guess columns
@@ -96,7 +101,15 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN guess_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
-    for col in ["puzzle_date TEXT DEFAULT ''", "puzzle_solved INTEGER DEFAULT 0", "puzzle_attempts INTEGER DEFAULT 0"]:
+    for col in [
+        "puzzle_date TEXT DEFAULT ''",
+        "puzzle_solved INTEGER DEFAULT 0",
+        "puzzle_attempts INTEGER DEFAULT 0",
+        "active_puzzle_type TEXT DEFAULT ''",
+        "active_puzzle_answer TEXT DEFAULT ''",
+        "active_puzzle_display TEXT DEFAULT ''",
+        "active_puzzle_guesses TEXT DEFAULT '[]'",
+    ]:
         try:
             db.execute(f"ALTER TABLE users ADD COLUMN {col}")
         except sqlite3.OperationalError:
@@ -161,6 +174,7 @@ def update_balance(user_id: int, amount: int):
 
 def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
+
 
 async def check_bet(ctx, amount: int) -> bool:
     """Validate a bet. Returns True if the bet is invalid (caller should return)."""
@@ -356,8 +370,10 @@ async def on_ready():
     global bot_start_time
     bot_start_time = datetime.now(timezone.utc)
     print(f"Logged in as {bot.user} ({bot.user.id})")
-    restore_nicknames.start()
-    dead_chat_checker.start()
+    if not restore_nicknames.is_running():
+        restore_nicknames.start()
+    if not dead_chat_checker.is_running():
+        dead_chat_checker.start()
 
 @bot.event
 async def on_command(ctx):
@@ -401,7 +417,7 @@ async def on_raw_reaction_add(payload):
             "Connect 4",
             f"{pending['host'].mention} ({C4_RED}) vs {joiner.mention} ({C4_YELLOW})\n\n"
             f"{c4_render(game['board'])}\n\n"
-            f"{pending['host'].mention}'s turn — use `{PREFIX}m <1-7>`"))
+            f"{pending['host'].mention}'s turn — use `{PREFIX}drop <1-7>`"))
 
 @bot.event
 async def on_message(message):
@@ -686,6 +702,59 @@ async def guess(ctx, number: int):
 # ---------------------------------------------------------------------------
 active_puzzles = {}  # user_id -> {"answer": str, "type": str, "display": str}
 
+def load_active_puzzle(user_id: int):
+    row = db.execute(
+        "SELECT active_puzzle_type, active_puzzle_answer, active_puzzle_display, active_puzzle_guesses "
+        "FROM users WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    if not row:
+        return None
+
+    puzzle_type, answer, display, guesses_raw = row
+    if not puzzle_type or not answer or not display:
+        return None
+
+    puzzle = {
+        "type": puzzle_type,
+        "answer": answer.lower().strip(),
+        "display": display,
+    }
+    if puzzle_type == "wordle":
+        try:
+            guesses = json.loads(guesses_raw or "[]")
+            if not isinstance(guesses, list):
+                guesses = []
+        except json.JSONDecodeError:
+            guesses = []
+        puzzle["guesses"] = [str(g).lower().strip() for g in guesses if isinstance(g, str)]
+    return puzzle
+
+def save_active_puzzle(user_id: int, puzzle):
+    get_balance(user_id)
+    if puzzle is None:
+        db.execute(
+            "UPDATE users SET active_puzzle_type = '', active_puzzle_answer = '', "
+            "active_puzzle_display = '', active_puzzle_guesses = '[]' WHERE user_id = ?",
+            (user_id,),
+        )
+        db.commit()
+        return
+
+    guesses = puzzle.get("guesses", []) if puzzle.get("type") == "wordle" else []
+    db.execute(
+        "UPDATE users SET active_puzzle_type = ?, active_puzzle_answer = ?, active_puzzle_display = ?, "
+        "active_puzzle_guesses = ? WHERE user_id = ?",
+        (
+            puzzle.get("type", ""),
+            puzzle.get("answer", ""),
+            puzzle.get("display", ""),
+            json.dumps(guesses),
+            user_id,
+        ),
+    )
+    db.commit()
+
 WORDLE_WORDS = [
     "crane", "slate", "audio", "raise", "stare", "glyph", "dwarf", "knobs",
     "plumb", "frost", "shrug", "traps", "blaze", "chunk", "crimp", "dough",
@@ -858,23 +927,33 @@ async def puzzle(ctx):
     puzzle_attempts = row[2] if row else 0
 
     if puzzle_date == today and puzzle_solved:
-        return await ctx.send(embed=make_embed("✅ Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
+        active_puzzles.pop(user_id, None)
+        save_active_puzzle(user_id, None)
+        return await ctx.send(embed=make_embed("Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
     if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
-        return await ctx.send(embed=make_embed("🚫 Out of Attempts", f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!", COLOR_ERROR))
+        active_puzzles.pop(user_id, None)
+        save_active_puzzle(user_id, None)
+        return await ctx.send(embed=make_embed("Out of Attempts", f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!", COLOR_ERROR))
 
-    # Reset if new day
     if puzzle_date != today:
         puzzle_attempts = 0
+        active_puzzles.pop(user_id, None)
+        save_active_puzzle(user_id, None)
         db.execute("UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id))
         db.commit()
 
-    # Generate new puzzle if they don't have an active one
+    if user_id not in active_puzzles:
+        loaded = load_active_puzzle(user_id)
+        if loaded:
+            active_puzzles[user_id] = loaded
+
     if user_id not in active_puzzles:
         kind, question, answer = generate_puzzle()
         p = {"answer": answer.lower().strip(), "type": kind, "display": question}
         if kind == "wordle":
             p["guesses"] = []
         active_puzzles[user_id] = p
+        save_active_puzzle(user_id, p)
 
     p = active_puzzles[user_id]
     remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
@@ -890,6 +969,10 @@ async def solve(ctx, *, answer: str):
     get_balance(user_id)
 
     if user_id not in active_puzzles:
+        loaded = load_active_puzzle(user_id)
+        if loaded:
+            active_puzzles[user_id] = loaded
+    if user_id not in active_puzzles:
         return await ctx.send(f"You don't have an active puzzle. Start one with `{PREFIX}puzzle`.")
 
     now = datetime.now(CENTRAL_TZ)
@@ -902,67 +985,72 @@ async def solve(ctx, *, answer: str):
     puzzle_attempts = row[2] if row else 0
 
     if puzzle_date == today and puzzle_solved:
-        del active_puzzles[user_id]
-        return await ctx.send(embed=make_embed("✅ Already Solved", "You already solved today's puzzle!", COLOR_SUCCESS))
+        active_puzzles.pop(user_id, None)
+        save_active_puzzle(user_id, None)
+        return await ctx.send(embed=make_embed("Already Solved", "You already solved today's puzzle!", COLOR_SUCCESS))
     if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
-        del active_puzzles[user_id]
-        return await ctx.send(embed=make_embed("🚫 Out of Attempts", "No attempts left today!", COLOR_ERROR))
+        active_puzzles.pop(user_id, None)
+        save_active_puzzle(user_id, None)
+        return await ctx.send(embed=make_embed("Out of Attempts", "No attempts left today!", COLOR_ERROR))
 
     p = active_puzzles[user_id]
     guess = answer.lower().strip()
 
-    # --- Wordle handling ---
     if p["type"] == "wordle":
         if len(guess) != 5 or not guess.isalpha():
             return await ctx.send("Guess must be a 5-letter word.")
         p["guesses"].append(guess)
+        save_active_puzzle(user_id, p)
         if guess == p["answer"]:
-            del active_puzzles[user_id]
+            active_puzzles.pop(user_id, None)
+            save_active_puzzle(user_id, None)
             update_balance(user_id, PUZZLE_REWARD)
             bal = get_balance(user_id)
             db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
             db.commit()
             return await ctx.send(embed=make_embed(
-                f"🎉 Wordle Solved in {len(p['guesses'])}!",
+                f"Wordle Solved in {len(p['guesses'])}!",
                 f"{wordle_display(p)}\n\nYou earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**",
                 COLOR_SUCCESS))
         if len(p["guesses"]) >= WORDLE_MAX_GUESSES:
-            del active_puzzles[user_id]
+            active_puzzles.pop(user_id, None)
+            save_active_puzzle(user_id, None)
             return await ctx.send(embed=make_embed(
-                "💀 Wordle Failed",
+                "Wordle Failed",
                 f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.",
                 COLOR_ERROR))
         return await ctx.send(embed=make_embed(
-            "📝 Wordle",
+            "Wordle",
             f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
 
-    # --- All other puzzles ---
     puzzle_attempts += 1
     db.execute("UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?", (today, puzzle_attempts, user_id))
     db.commit()
 
     if guess == p["answer"]:
-        del active_puzzles[user_id]
+        active_puzzles.pop(user_id, None)
+        save_active_puzzle(user_id, None)
         update_balance(user_id, PUZZLE_REWARD)
         bal = get_balance(user_id)
         db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
         db.commit()
         await ctx.send(embed=make_embed(
-            "🎉 Correct!",
+            "Correct!",
             f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**",
             COLOR_SUCCESS))
     else:
         remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
         if remaining <= 0:
             correct = p["answer"]
-            del active_puzzles[user_id]
+            active_puzzles.pop(user_id, None)
+            save_active_puzzle(user_id, None)
             await ctx.send(embed=make_embed(
-                "💀 Out of Attempts",
+                "Out of Attempts",
                 f"The answer was **{correct}**.\nBetter luck tomorrow!",
                 COLOR_ERROR))
         else:
             await ctx.send(embed=make_embed(
-                "❌ Wrong",
+                "Wrong",
                 f"That's not it. Attempts left: **{remaining}**",
                 COLOR_ERROR))
 
@@ -972,17 +1060,15 @@ async def repuzzle(ctx, member: discord.Member = None):
     if ctx.author.id != ADMIN_ID:
         return
     target = member or ctx.author
-    if target.id in active_puzzles:
-        del active_puzzles[target.id]
+    active_puzzles.pop(target.id, None)
+    save_active_puzzle(target.id, None)
     db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
     db.commit()
     await ctx.send(f"Puzzle reset for {target.display_name}.")
 
-# ---------------------------------------------------------------------------
-# ECONOMY: DAILY
-# ---------------------------------------------------------------------------
 @bot.command()
 async def daily(ctx):
+
     """Claim your daily coins."""
     user_id = ctx.author.id
     get_balance(user_id)
@@ -1114,7 +1200,7 @@ def display_hand(hand):
 async def blackjack(ctx, amount: int):
     """Play a hand of blackjack."""
     if ctx.author.id in active_blackjack:
-        return await ctx.send("You already have a hand going! Use `!hit` or `!stand`.")
+        return await ctx.send(f"You already have a hand going! Use `{PREFIX}hit` or `{PREFIX}stand`.")
     if await check_bet(ctx, amount):
         return
 
@@ -1139,7 +1225,7 @@ async def blackjack(ctx, amount: int):
     await ctx.send(embed=make_embed("🃏 Blackjack",
         f"Your hand: {display_hand(player)} → **{pv}**\n"
         f"Dealer shows: {display_hand(dealer[:1])} `??`\n\n"
-        f"Type `!hit` or `!stand`"))
+        f"Type `{PREFIX}hit` or `{PREFIX}stand`"))
 
 @bot.command()
 async def hit(ctx):
@@ -1164,7 +1250,7 @@ async def hit(ctx):
         await ctx.send(embed=make_embed("🃏 Blackjack",
             f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
             f"Dealer shows: {display_hand(game['dealer'][:1])} `??`\n\n"
-            f"Type `!hit` or `!stand`"))
+            f"Type `{PREFIX}hit` or `{PREFIX}stand`"))
 
 @bot.command()
 async def stand(ctx):
@@ -1326,7 +1412,7 @@ async def m(ctx, pos: int):
         nxt = c4_game["players"][c4_game["turn"]]
         return await ctx.send(embed=make_embed(
             "Connect 4",
-            f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-7>`"))
+            f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
 
 @bot.command()
 async def forfeit(ctx):
@@ -1422,7 +1508,7 @@ async def c4(ctx, opponent: discord.Member = None):
             "Connect 4",
             f"{ctx.author.mention} ({C4_RED}) vs {opponent.mention} ({C4_YELLOW})\n\n"
             f"{c4_render(game['board'])}\n\n"
-            f"{ctx.author.mention}'s turn — use `{PREFIX}m <1-7>`"))
+            f"{ctx.author.mention}'s turn — use `{PREFIX}drop <1-7>`"))
     else:
         msg = await ctx.send(embed=make_embed(
             "Connect 4",
@@ -1460,7 +1546,7 @@ async def drop(ctx, col: int):
     nxt = game["players"][game["turn"]]
     await ctx.send(embed=make_embed(
         "Connect 4",
-        f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-7>`"))
+        f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
 
 # ---------------------------------------------------------------------------
 # GAMES: HANGMAN
@@ -1595,19 +1681,22 @@ LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", 
 async def weather(ctx, *, city: str = "Champaign"):
     """Get the weather for a city."""
     cleaned = city.strip()
-    # Assume IL for local cities
     if cleaned.lower() in LOCAL_CITIES:
         cleaned = cleaned + ",IL,US"
-    # If input looks like "City, ST" (two-letter state), assume US
     elif re.match(r'^.+,\s*[A-Za-z]{2}$', cleaned):
         cleaned = cleaned + ",US"
+
     url = "https://api.openweathermap.org/data/2.5/weather"
     params = {"q": cleaned, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as resp:
-            if resp.status != 200:
-                return await ctx.send(f"Couldn't find weather for **{city}**.")
-            data = await resp.json()
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return await ctx.send(f"Couldn't find weather for **{city}**.")
+                data = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return await ctx.send("Weather service is unavailable right now. Try again in a bit.")
 
     desc = data["weather"][0]["description"].title()
     temp = data["main"]["temp"]
@@ -1617,11 +1706,11 @@ async def weather(ctx, *, city: str = "Champaign"):
     icon = data["weather"][0]["icon"]
     name = data["name"]
 
-    embed = discord.Embed(title=f"🌤️ Weather in {name}", color=COLOR_DEFAULT)
+    embed = discord.Embed(title=f"Weather in {name}", color=COLOR_DEFAULT)
     embed.set_thumbnail(url=f"https://openweathermap.org/img/wn/{icon}@2x.png")
     embed.add_field(name="Condition", value=desc, inline=True)
-    embed.add_field(name="Temp", value=f"{temp:.0f}°F", inline=True)
-    embed.add_field(name="Feels Like", value=f"{feels:.0f}°F", inline=True)
+    embed.add_field(name="Temp", value=f"{temp:.0f}F", inline=True)
+    embed.add_field(name="Feels Like", value=f"{feels:.0f}F", inline=True)
     embed.add_field(name="Humidity", value=f"{humidity}%", inline=True)
     embed.add_field(name="Wind", value=f"{wind:.0f} mph", inline=True)
     await ctx.send(embed=embed)
@@ -1632,26 +1721,35 @@ async def weather(ctx, *, city: str = "Champaign"):
 @bot.command()
 async def cat(ctx):
     """Random cat picture."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
-            data = await resp.json()
-            embed = discord.Embed(title="🐱 Random Cat", color=COLOR_WARNING)
-            embed.set_image(url=data[0]["url"])
-            await ctx.send(embed=embed)
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get("https://api.thecatapi.com/v1/images/search") as resp:
+                data = await resp.json()
+                embed = discord.Embed(title="Random Cat", color=COLOR_WARNING)
+                embed.set_image(url=data[0]["url"])
+                await ctx.send(embed=embed)
+    except (aiohttp.ClientError, asyncio.TimeoutError, IndexError, KeyError, TypeError):
+        await ctx.send("Couldn't fetch a cat right now. Try again in a bit.")
 
 @bot.command()
 async def dog(ctx):
     """Random dog picture."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
-            data = await resp.json()
-            embed = discord.Embed(title="🐶 Random Dog", color=COLOR_WARNING)
-            embed.set_image(url=data[0] if isinstance(data, list) else data["message"])
-            await ctx.send(embed=embed)
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get("https://dog.ceo/api/breeds/image/random") as resp:
+                data = await resp.json()
+                embed = discord.Embed(title="Random Dog", color=COLOR_WARNING)
+                embed.set_image(url=data[0] if isinstance(data, list) else data["message"])
+                await ctx.send(embed=embed)
+    except (aiohttp.ClientError, asyncio.TimeoutError, IndexError, KeyError, TypeError):
+        await ctx.send("Couldn't fetch a dog right now. Try again in a bit.")
 
 # ---------------------------------------------------------------------------
 # WOULD YOU RATHER
 # ---------------------------------------------------------------------------
+
 WYR_QUESTIONS = [
     ("Always be 10 minutes late", "Always be 20 minutes early"),
     ("Have unlimited pizza for life", "Have unlimited tacos for life"),
@@ -1935,45 +2033,45 @@ bot.remove_command("help")
 @bot.command()
 async def help(ctx):
     """Show all commands."""
-    embed = discord.Embed(title="📖 Bot Commands", color=COLOR_DEFAULT)
+    embed = discord.Embed(title="Bot Commands", color=COLOR_DEFAULT)
     p = PREFIX
-    embed.add_field(name="💰 Economy", value=(
-        f"`{p}daily` — Claim daily coins\n"
-        f"`{p}guess <1-10>` — Guess for a free coin (3x/day)\n"
-        f"`{p}puzzle` — Daily puzzle for {PUZZLE_REWARD} coins\n"
-        f"`{p}balance` — Check balance\n"
-        f"`{p}leaderboard` — Top 10 richest"
+    embed.add_field(name="Economy", value=(
+        f"`{p}daily` - Claim daily coins\n"
+        f"`{p}guess <1-10>` - Guess for a free coin (3x/day)\n"
+        f"`{p}puzzle` - Daily puzzle for {PUZZLE_REWARD} coins\n"
+        f"`{p}balance` - Check balance\n"
+        f"`{p}leaderboard` - Top 10 richest"
     ), inline=False)
-    embed.add_field(name="🎲 Gambling", value=(
-        f"`{p}coinflip <amt>` — Double or nothing\n"
-        f"`{p}slots <amt>` — Slot machine\n"
-        f"`{p}blackjack <amt>` — Play 21"
+    embed.add_field(name="Gambling", value=(
+        f"`{p}coinflip <amt>` - Double or nothing\n"
+        f"`{p}slots <amt>` - Slot machine\n"
+        f"`{p}blackjack <amt>` - Play 21"
     ), inline=False)
-    embed.add_field(name="🎮 Games", value=(
-        f"`{p}ttt @user` — Tic-tac-toe\n"
-        f"`{p}c4 @user` — Connect 4\n"
-        f"`{p}hangman` — Hangman (anyone can guess)\n"
-        f"`{p}forfeit` — Quit current game"
+    embed.add_field(name="Games", value=(
+        f"`{p}ttt @user` - Tic-tac-toe\n"
+        f"`{p}c4 @user` - Connect 4\n"
+        f"`{p}hangman` - Hangman (anyone can guess)\n"
+        f"`{p}forfeit` - Quit current game"
     ), inline=False)
-    embed.add_field(name="🌤️ Weather", value=f"`{p}weather [city]` — Current weather (defaults to Champaign)", inline=False)
-    embed.add_field(name="🐾 Animals", value=f"`{p}cat` / `{p}dog` — Random pics", inline=False)
-    embed.add_field(name="🎉 Fun", value=(
-        f"`{p}wyr` — Would You Rather\n"
-        f"`{p}onthisday` — Historical event today\n"
-        f"`{p}changenick @user name` — Change nickname ({NICKNAME_COST} coins)"
+    embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)", inline=False)
+    embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
+    embed.add_field(name="Fun", value=(
+        f"`{p}wyr` - Would You Rather\n"
+        f"`{p}onthisday` - Historical event today\n"
+        f"`{p}changenick @user name` - Change nickname ({NICKNAME_COST} coins)"
     ), inline=False)
-    embed.add_field(name="🤖 AI", value=(
-        f"`{p}ask <question>` — Ask the AI (needs desktop on)\n"
-        f"`{p}rp <character>` — Roleplay with Silas\n"
-        f"`{p}stoprp` — End roleplay"
+    embed.add_field(name="AI", value=(
+        f"`{p}ask <question>` - Ask the AI (needs desktop on)\n"
+        f"`{p}rp <character>` - Roleplay with Silas\n"
+        f"`{p}stoprp` - End roleplay"
     ), inline=False)
-    embed.add_field(name="🔧 Info", value=(
-        f"`{p}stats` — Bot stats & usage\n"
-        f"`{p}invite` — Get invite link"
+    embed.add_field(name="Info", value=(
+        f"`{p}stats` - Bot stats and usage\n"
+        f"`{p}invite` - Get invite link"
     ), inline=False)
-    embed.add_field(name="💬 Quotes", value=(
-        f"`{p}quote` — Reply to a message to save it\n"
-        f"`{p}quotes` — Show recent quotes"
+    embed.add_field(name="Quotes", value=(
+        f"`{p}quote` - Reply to a message to save it\n"
+        f"`{p}quotes` - Show recent quotes"
     ), inline=False)
     await ctx.send(embed=embed)
 
