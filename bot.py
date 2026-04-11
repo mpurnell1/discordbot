@@ -134,6 +134,12 @@ def init_db():
             saved_at TEXT
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
     db.commit()
     return db
 
@@ -155,6 +161,23 @@ recent_messages = {}      # channel_id -> list of last N messages for context
 bot_start_time = None     # set in on_ready
 command_usage = Counter() # command name -> count (resets on restart)
 
+SETTINGS_DEFAULTS = {
+    "dead_chat_enabled": True,
+    "command_toggles": {},
+    "feature_channel_rules": {},
+}
+PROTECTED_ADMIN_COMMANDS = {
+    "setcommand",
+    "setdeadchat",
+    "setfeaturemode",
+    "setfeaturechannels",
+    "settings",
+    "restart",
+}
+
+# Loaded from SQLite on startup and updated live by admin commands.
+runtime_settings = dict(SETTINGS_DEFAULTS)
+
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
@@ -175,6 +198,69 @@ def update_balance(user_id: int, amount: int):
 def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
 
+
+def _load_json_setting(key: str, default):
+    row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if not row:
+        return default
+    try:
+        return json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
+def _save_json_setting(key: str, value):
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, json.dumps(value)),
+    )
+    db.commit()
+
+
+def load_runtime_settings():
+    runtime_settings["dead_chat_enabled"] = bool(
+        _load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"])
+    )
+    runtime_settings["command_toggles"] = _load_json_setting(
+        "command_toggles", SETTINGS_DEFAULTS["command_toggles"]
+    )
+    runtime_settings["feature_channel_rules"] = _load_json_setting(
+        "feature_channel_rules", SETTINGS_DEFAULTS["feature_channel_rules"]
+    )
+
+
+def normalize_feature_name(feature: str) -> str:
+    return feature.strip().lower().replace(" ", "_")
+
+
+def is_command_enabled(command_name: str) -> bool:
+    toggles = runtime_settings.get("command_toggles", {})
+    return bool(toggles.get(command_name, True))
+
+
+def is_feature_allowed(feature: str, channel_id: int) -> bool:
+    rules = runtime_settings.get("feature_channel_rules", {})
+    rule = rules.get(normalize_feature_name(feature))
+    if not rule:
+        return True
+    mode = rule.get("mode", "all")
+    channels = {int(c) for c in rule.get("channels", [])}
+    if mode == "off":
+        return False
+    if mode == "whitelist":
+        return channel_id in channels
+    if mode == "blacklist":
+        return channel_id not in channels
+    return True
+
+
+def get_feature_rule(feature: str):
+    rules = runtime_settings.get("feature_channel_rules", {})
+    return rules.get(normalize_feature_name(feature))
+
+
+load_runtime_settings()
 
 async def check_bet(ctx, amount: int) -> bool:
     """Validate a bet. Returns True if the bet is invalid (caller should return)."""
@@ -379,6 +465,18 @@ async def on_ready():
 async def on_command(ctx):
     command_usage[ctx.command.name] += 1
 
+
+@bot.check
+async def command_gatekeeper(ctx):
+    if ctx.author.id == ADMIN_ID:
+        return True
+    command_name = ctx.command.name.lower()
+    if not is_command_enabled(command_name):
+        raise commands.CheckFailure("That command is currently disabled by an admin.")
+    if not is_feature_allowed(f"cmd:{command_name}", ctx.channel.id):
+        raise commands.CheckFailure("That command is not allowed in this channel.")
+    return True
+
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.message_id not in pending_games:
@@ -428,6 +526,8 @@ async def on_message(message):
     # --- Silas interaction ---
     if message.author.id == SILAS_BOT_ID:
         channel_id = message.channel.id
+        if not is_feature_allowed("silas", channel_id):
+            return
 
         # Auto-accept roleplay invites from Silas
         if message.embeds:
@@ -519,8 +619,9 @@ async def on_message(message):
     now = datetime.now(timezone.utc)
 
     # --- Track message times for dead chat ---
-    last_message_time[channel_id] = now
-    dead_chat_stage[channel_id] = 0  # reset escalation
+    if runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id):
+        last_message_time[channel_id] = now
+        dead_chat_stage[channel_id] = 0  # reset escalation
 
     # --- Track recent messages for Ollama context ---
     if channel_id not in recent_messages:
@@ -534,7 +635,11 @@ async def on_message(message):
     recent_messages[channel_id] = recent_messages[channel_id][-15:]
 
     # --- Respond when tagged ---
-    if bot.user.mentioned_in(message) and not message.mention_everyone:
+    if (
+        bot.user.mentioned_in(message)
+        and not message.mention_everyone
+        and is_feature_allowed("mention_reply", channel_id)
+    ):
         context = recent_messages.get(channel_id, [])
         chat_log = "\n".join(f"{m['author']}: {m['content']}" for m in context[-10:])
         prompt = (
@@ -555,7 +660,10 @@ async def on_message(message):
 
     # --- Late night callout ---
     hour_central = now.astimezone(CENTRAL_TZ).hour
-    if LATE_NIGHT_START <= hour_central < LATE_NIGHT_END:
+    if (
+        LATE_NIGHT_START <= hour_central < LATE_NIGHT_END
+        and is_feature_allowed("late_night", channel_id)
+    ):
         today_str = now.strftime("%Y-%m-%d")
         user_key = f"{message.author.id}-{today_str}"
         if user_key not in last_late_night and random.random() < LATE_NIGHT_CHANCE:
@@ -569,7 +677,11 @@ async def on_message(message):
             return
 
     # --- Unsolicited opinions (Ollama) ---
-    if random.random() < UNSOLICITED_CHANCE and len(message.content) > 5:
+    if (
+        is_feature_allowed("unsolicited_ai", channel_id)
+        and random.random() < UNSOLICITED_CHANCE
+        and len(message.content) > 5
+    ):
         context = recent_messages.get(channel_id, [])
         if len(context) >= 2:
             # Format recent messages for the LLM
@@ -599,8 +711,12 @@ async def on_message(message):
 @tasks.loop(minutes=10)
 async def dead_chat_checker():
     """Periodically check all tracked channels for dead chat."""
+    if not runtime_settings.get("dead_chat_enabled", True):
+        return
     now = datetime.now(timezone.utc)
     for channel_id, last_time in list(last_message_time.items()):
+        if not is_feature_allowed("dead_chat", channel_id):
+            continue
         minutes_silent = (now - last_time).total_seconds() / 60
         current_stage = dead_chat_stage.get(channel_id, 0)
 
@@ -1925,6 +2041,144 @@ async def unquote(ctx, quote_id: int):
 # ADMIN
 # ---------------------------------------------------------------------------
 @bot.command()
+async def setcommand(ctx, command_name: str, state: str):
+    """Admin only: enable/disable a command globally."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    command_name = command_name.strip().lower()
+    target = bot.get_command(command_name)
+    if target is None:
+        return await ctx.send(f"Unknown command: `{command_name}`")
+    if command_name in PROTECTED_ADMIN_COMMANDS:
+        return await ctx.send("That admin control command cannot be disabled.")
+    value = state.strip().lower()
+    if value not in {"on", "off"}:
+        return await ctx.send(f"Usage: `{PREFIX}setcommand <command> <on|off>`")
+    toggles = runtime_settings.get("command_toggles", {})
+    toggles[command_name] = (value == "on")
+    runtime_settings["command_toggles"] = toggles
+    _save_json_setting("command_toggles", toggles)
+    await ctx.send(f"`{PREFIX}{command_name}` is now **{value.upper()}**.")
+
+
+@bot.command()
+async def setdeadchat(ctx, state: str):
+    """Admin only: enable/disable dead chat callouts."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    value = state.strip().lower()
+    if value not in {"on", "off"}:
+        return await ctx.send(f"Usage: `{PREFIX}setdeadchat <on|off>`")
+    enabled = value == "on"
+    runtime_settings["dead_chat_enabled"] = enabled
+    _save_json_setting("dead_chat_enabled", enabled)
+    await ctx.send(f"Dead chat is now **{value.upper()}**.")
+
+
+@bot.command()
+async def setfeaturemode(ctx, feature: str, mode: str):
+    """Admin only: configure channel policy mode for a feature."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    normalized_feature = normalize_feature_name(feature)
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in {"all", "off", "whitelist", "blacklist"}:
+        return await ctx.send(
+            f"Usage: `{PREFIX}setfeaturemode <feature> <all|off|whitelist|blacklist>`"
+        )
+    rules = runtime_settings.get("feature_channel_rules", {})
+    existing = rules.get(normalized_feature, {"channels": []})
+    existing["mode"] = normalized_mode
+    existing["channels"] = [int(c) for c in existing.get("channels", [])]
+    rules[normalized_feature] = existing
+    runtime_settings["feature_channel_rules"] = rules
+    _save_json_setting("feature_channel_rules", rules)
+    await ctx.send(f"Feature `{normalized_feature}` mode is now **{normalized_mode}**.")
+
+
+@bot.command()
+async def setfeaturechannels(ctx, feature: str, action: str):
+    """Admin only: add/remove/clear channel list for a feature rule."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    normalized_feature = normalize_feature_name(feature)
+    normalized_action = action.strip().lower()
+    if normalized_action not in {"add", "remove", "clear"}:
+        return await ctx.send(
+            f"Usage: `{PREFIX}setfeaturechannels <feature> <add|remove|clear> [#channel ...]`"
+        )
+    rules = runtime_settings.get("feature_channel_rules", {})
+    rule = rules.get(normalized_feature, {"mode": "all", "channels": []})
+    channels = {int(c) for c in rule.get("channels", [])}
+
+    if normalized_action == "clear":
+        channels.clear()
+    else:
+        mentioned_channels = ctx.message.channel_mentions
+        if not mentioned_channels:
+            return await ctx.send(
+                f"Mention one or more channels. Example: `{PREFIX}setfeaturechannels {normalized_feature} {normalized_action} #general`"
+            )
+        ids = {c.id for c in mentioned_channels}
+        if normalized_action == "add":
+            channels |= ids
+        else:
+            channels -= ids
+
+    rule["channels"] = sorted(channels)
+    rules[normalized_feature] = rule
+    runtime_settings["feature_channel_rules"] = rules
+    _save_json_setting("feature_channel_rules", rules)
+    pretty_channels = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
+    await ctx.send(f"Feature `{normalized_feature}` channels: {pretty_channels}")
+
+
+@bot.command()
+async def settings(ctx):
+    """Show runtime feature settings."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
+    disabled = sorted(
+        name for name, enabled in runtime_settings.get("command_toggles", {}).items() if not enabled
+    )
+    disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
+
+    rule_lines = []
+    for feature, rule in sorted(runtime_settings.get("feature_channel_rules", {}).items()):
+        mode = rule.get("mode", "all")
+        channels = rule.get("channels", [])
+        if channels:
+            channel_str = ", ".join(f"<#{int(cid)}>" for cid in channels)
+        else:
+            channel_str = "(none)"
+        rule_lines.append(f"`{feature}`: **{mode}** {channel_str}")
+    rules_str = "\n".join(rule_lines) if rule_lines else "No feature channel rules set."
+
+    embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
+    embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
+    embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
+    embed.add_field(
+        name="Feature Rules",
+        value=rules_str[:1024],
+        inline=False,
+    )
+    embed.set_footer(text="Command features use cmd:<command> (example: cmd:ask)")
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def restart(ctx):
+    """Admin only: restart this bot process."""
+    if ctx.author.id != ADMIN_ID:
+        return
+    await ctx.send("Restarting bot process now...")
+    db.commit()
+    python = sys.executable
+    os.execv(python, [python] + sys.argv)
+
+
+@bot.command()
 async def stats(ctx):
     """Show bot stats: uptime, latency, versions, economy, and command usage."""
     # Uptime
@@ -2067,8 +2321,17 @@ async def help(ctx):
     ), inline=False)
     embed.add_field(name="Info", value=(
         f"`{p}stats` - Bot stats and usage\n"
-        f"`{p}invite` - Get invite link"
+        f"`{p}invite` - Get invite link\n"
+        f"`{p}settings` - Show runtime settings (admin)"
     ), inline=False)
+    if ctx.author.id == ADMIN_ID:
+        embed.add_field(name="Admin", value=(
+            f"`{p}setcommand <command> <on|off>` - Toggle command\n"
+            f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
+            f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
+            f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels\n"
+            f"`{p}restart` - Restart process"
+        ), inline=False)
     embed.add_field(name="Quotes", value=(
         f"`{p}quote` - Reply to a message to save it\n"
         f"`{p}quotes` - Show recent quotes"
@@ -2096,6 +2359,10 @@ COMMAND_USAGE = {
     'rp': '<character>',
     'unquote': '<id>',
     'give': '@user <amount>',
+    'setcommand': '<command> <on|off>',
+    'setdeadchat': '<on|off>',
+    'setfeaturemode': '<feature> <all|off|whitelist|blacklist>',
+    'setfeaturechannels': '<feature> <add|remove|clear> [#channel ...]',
 }
 
 @bot.event
@@ -2104,6 +2371,8 @@ async def on_command_error(ctx, error):
         command = ctx.command.name
         args = COMMAND_USAGE.get(command)
         await ctx.send(f"Usage: `{PREFIX}{command} {args}`" if args else f"Check `{PREFIX}help` for usage.")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send(str(error))
     elif isinstance(error, commands.CommandNotFound):
         pass
     else:
