@@ -572,6 +572,7 @@ class MiscCog(commands.Cog):
             send_messages=True,
             embed_links=True,
             add_reactions=True,
+            manage_messages=True,
             manage_nicknames=True,
             read_message_history=True,
             read_messages=True,
