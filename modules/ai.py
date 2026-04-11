@@ -16,6 +16,7 @@ class AICog(commands.Cog):
     BJ_MIN_BALANCE = 200
     BJ_STOP_LOSS_PCT = 0.35
     BJ_TAKE_PROFIT_PCT = 0.60
+    GAMBLE_ACTION_COOLDOWN = timedelta(minutes=2)
 
     def __init__(self, bot):
         self.bot = bot
@@ -216,7 +217,7 @@ class AICog(commands.Cog):
         if (
             not bypass_cooldown
             and last_action
-            and now - last_action < timedelta(minutes=12)
+            and now - last_action < self.GAMBLE_ACTION_COOLDOWN
         ):
             return "Cooldown active; next action will happen automatically."
 
@@ -507,7 +508,7 @@ class AICog(commands.Cog):
                     response = random.choice(DEAD_CHAT_RESPONSES[new_stage])
                     await channel.send(response)
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=1)
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
         await self.run_gamble_step(bypass_cooldown=False)
