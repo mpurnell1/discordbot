@@ -595,11 +595,14 @@ class MiscCog(commands.Cog):
         """Admin only: delete command message and make Gary say text."""
         if ctx.author.id != ADMIN_ID:
             return
+        deleted = True
         try:
             await ctx.message.delete()
         except (discord.Forbidden, discord.HTTPException):
-            pass
+            deleted = False
         await ctx.send(text)
+        if not deleted:
+            await ctx.send("I couldn't delete your `.say` command message (missing permissions).")
     
     # ---------------------------------------------------------------------------
     # LEADERBOARD
