@@ -28,8 +28,18 @@ class AICog(commands.Cog):
         return int(rank)
 
     def _bj_is_soft(self, ranks: list[str], total: int) -> bool:
-        # If there is an ace and counting one as 11 can still produce this total, it's soft.
-        return "A" in ranks and total <= 21 and total + 10 <= 21
+        # Soft if at least one ace is effectively counted as 11 in the shown total.
+        hard_total = 0
+        aces = 0
+        for rank in ranks:
+            if rank == "A":
+                hard_total += 1
+                aces += 1
+            else:
+                hard_total += self._bj_rank_value(rank)
+        if aces == 0:
+            return False
+        return total <= 21 and (hard_total + 10 == total)
 
     def _recommend_blackjack_action(self, total: int, dealer_up: int, soft: bool) -> str:
         if soft:
