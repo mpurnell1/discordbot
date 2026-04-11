@@ -11,6 +11,12 @@ from shared import *
 
 
 class AICog(commands.Cog):
+    BJ_BET_PCT = 0.025
+    BJ_BET_CAP = 75
+    BJ_MIN_BALANCE = 200
+    BJ_STOP_LOSS_PCT = 0.35
+    BJ_TAKE_PROFIT_PCT = 0.60
+
     def __init__(self, bot):
         self.bot = bot
         loaded = load_gary_gamble_state()
@@ -28,6 +34,8 @@ class AICog(commands.Cog):
             "scratchoffs_used": loaded.get("scratchoffs_used", 0),
             "blackjack_active": loaded.get("blackjack_active", False),
             "last_action_at": last_action,
+            "last_known_balance": loaded.get("last_known_balance"),
+            "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
 
     def _persist_gamble_state(self):
@@ -38,8 +46,46 @@ class AICog(commands.Cog):
                 "scratchoffs_used": self.gamble_state.get("scratchoffs_used", 0),
                 "blackjack_active": self.gamble_state.get("blackjack_active", False),
                 "last_action_at": last_action.isoformat() if isinstance(last_action, datetime) else None,
+                "last_known_balance": self.gamble_state.get("last_known_balance"),
+                "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
             }
         )
+
+    def _extract_balance_from_text(self, text: str):
+        patterns = [
+            r"balance[^0-9\-]*([0-9][0-9,]*)",
+            r"\b([0-9][0-9,]*)\s*(?:coins?|🪙)\b",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, flags=re.IGNORECASE)
+            if not m:
+                continue
+            raw = m.group(1).replace(",", "")
+            try:
+                value = int(raw)
+                if value >= 0:
+                    return value
+            except ValueError:
+                continue
+        return None
+
+    def _compute_blackjack_bet(self, balance: int, anchor: int):
+        if balance < self.BJ_MIN_BALANCE:
+            return 0
+        if anchor <= 0:
+            anchor = balance
+
+        ratio = balance / anchor if anchor else 1.0
+        risk_scale = 1.0
+        if ratio < 0.65:
+            risk_scale = 0.4
+        elif ratio < 0.80:
+            risk_scale = 0.6
+
+        raw = int(balance * self.BJ_BET_PCT * risk_scale)
+        bet = max(1, raw)
+        bet = min(bet, self.BJ_BET_CAP, balance)
+        return bet
 
     def _scratch_reset_key(self, now_utc: datetime) -> str:
         """Return logical daily key where a new day starts at 5:00 AM Central."""
@@ -125,6 +171,11 @@ class AICog(commands.Cog):
             return
 
         lower = silas_text.lower()
+        bal = self._extract_balance_from_text(silas_text)
+        if bal is not None:
+            self.gamble_state["last_known_balance"] = bal
+            self._persist_gamble_state()
+
         if any(k in lower for k in ["blackjack!", "bust", "you win", "dealer wins", "push"]):
             self.gamble_state["blackjack_active"] = False
             self._persist_gamble_state()
@@ -158,6 +209,7 @@ class AICog(commands.Cog):
             self.gamble_state["day"] = cycle_key
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
+            self.gamble_state["session_anchor_balance"] = None
             self._persist_gamble_state()
 
         last_action = self.gamble_state["last_action_at"]
@@ -175,12 +227,33 @@ class AICog(commands.Cog):
             self._persist_gamble_state()
             return "Sent `!scratches`."
 
+        balance = self.gamble_state.get("last_known_balance")
+        if balance is None:
+            await channel.send("!balance")
+            self.gamble_state["last_action_at"] = now
+            self._persist_gamble_state()
+            return "Requested balance with `!balance`."
+
+        anchor = self.gamble_state.get("session_anchor_balance")
+        if anchor is None:
+            self.gamble_state["session_anchor_balance"] = balance
+            anchor = balance
+            self._persist_gamble_state()
+
+        if balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT)):
+            return f"Stop-loss active at balance {balance}; pausing blackjack."
+        if balance >= int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT)):
+            return f"Take-profit reached at balance {balance}; pausing blackjack."
+
         if not self.gamble_state["blackjack_active"]:
-            await channel.send("!blackjack 1")
+            bet = self._compute_blackjack_bet(balance, anchor)
+            if bet <= 0:
+                return f"Balance {balance} below minimum bankroll threshold."
+            await channel.send(f"!blackjack {bet}")
             self.gamble_state["blackjack_active"] = True
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
-            return "Started blackjack with `!blackjack 1`."
+            return f"Started blackjack with `!blackjack {bet}`."
 
         return "Blackjack hand already active; waiting to play hit/stand."
 

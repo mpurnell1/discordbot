@@ -340,6 +340,16 @@ def load_gary_gamble_state():
         "scratchoffs_used": max(0, int(raw.get("scratchoffs_used", 0))),
         "blackjack_active": bool(raw.get("blackjack_active", False)),
         "last_action_at": raw.get("last_action_at"),
+        "last_known_balance": (
+            int(raw.get("last_known_balance"))
+            if raw.get("last_known_balance") is not None
+            else None
+        ),
+        "session_anchor_balance": (
+            int(raw.get("session_anchor_balance"))
+            if raw.get("session_anchor_balance") is not None
+            else None
+        ),
     }
 
 
@@ -349,6 +359,16 @@ def save_gary_gamble_state(state: dict):
         "scratchoffs_used": max(0, int(state.get("scratchoffs_used", 0))),
         "blackjack_active": bool(state.get("blackjack_active", False)),
         "last_action_at": state.get("last_action_at"),
+        "last_known_balance": (
+            int(state.get("last_known_balance"))
+            if state.get("last_known_balance") is not None
+            else None
+        ),
+        "session_anchor_balance": (
+            int(state.get("session_anchor_balance"))
+            if state.get("session_anchor_balance") is not None
+            else None
+        ),
     }
     _save_json_setting("gary_gamble_state", payload)
 
