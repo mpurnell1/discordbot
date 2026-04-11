@@ -20,6 +20,13 @@ class AICog(commands.Cog):
             "last_action_at": None,
         }
 
+    def _scratch_reset_key(self, now_utc: datetime) -> str:
+        """Return logical daily key where a new day starts at 5:00 AM Central."""
+        now_central = now_utc.astimezone(CENTRAL_TZ)
+        if now_central.hour < 5:
+            now_central -= timedelta(days=1)
+        return now_central.strftime("%Y-%m-%d")
+
     def _bj_rank_value(self, rank: str) -> int:
         rank = rank.upper()
         if rank in {"J", "Q", "K"}:
@@ -124,9 +131,9 @@ class AICog(commands.Cog):
             return "Configured gamble channel is unavailable."
 
         now = datetime.now(timezone.utc)
-        today = now.astimezone(CENTRAL_TZ).strftime("%Y-%m-%d")
-        if self.gamble_state["day"] != today:
-            self.gamble_state["day"] = today
+        cycle_key = self._scratch_reset_key(now)
+        if self.gamble_state["day"] != cycle_key:
+            self.gamble_state["day"] = cycle_key
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
 
