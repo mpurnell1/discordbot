@@ -109,6 +109,48 @@ class AICog(commands.Cog):
             action = self._recommend_blackjack_action(total, dealer_up, soft)
             await message.channel.send(action)
 
+    async def run_gamble_step(self, bypass_cooldown: bool = False) -> str:
+        """Run one autonomous gambling decision step."""
+        if not runtime_settings.get("gary_gamble_enabled", False):
+            return "Gary autonomous gambling is OFF."
+
+        channel_id = runtime_settings.get("gary_gamble_channel_id")
+        if not channel_id:
+            return "Gamble channel is not set."
+
+        channel = self.bot.get_channel(int(channel_id))
+        if channel is None:
+            return "Configured gamble channel is unavailable."
+
+        now = datetime.now(timezone.utc)
+        today = now.astimezone(CENTRAL_TZ).strftime("%Y-%m-%d")
+        if self.gamble_state["day"] != today:
+            self.gamble_state["day"] = today
+            self.gamble_state["scratchoffs_used"] = 0
+            self.gamble_state["blackjack_active"] = False
+
+        last_action = self.gamble_state["last_action_at"]
+        if (
+            not bypass_cooldown
+            and last_action
+            and now - last_action < timedelta(minutes=12)
+        ):
+            return "Cooldown active; next action will happen automatically."
+
+        if self.gamble_state["scratchoffs_used"] < 3:
+            await channel.send("!scratches")
+            self.gamble_state["scratchoffs_used"] = 3
+            self.gamble_state["last_action_at"] = now
+            return "Sent `!scratches`."
+
+        if not self.gamble_state["blackjack_active"]:
+            await channel.send("!blackjack 1")
+            self.gamble_state["blackjack_active"] = True
+            self.gamble_state["last_action_at"] = now
+            return "Started blackjack with `!blackjack 1`."
+
+        return "Blackjack hand already active; waiting to play hit/stand."
+
     @commands.Cog.listener("on_ready")
     async def _start_ai_tasks(self):
         if not self.dead_chat_checker.is_running():
@@ -351,36 +393,7 @@ class AICog(commands.Cog):
     @tasks.loop(minutes=10)
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
-        if not runtime_settings.get("gary_gamble_enabled", False):
-            return
-        channel_id = runtime_settings.get("gary_gamble_channel_id")
-        if not channel_id:
-            return
-        channel = self.bot.get_channel(int(channel_id))
-        if channel is None:
-            return
-
-        now = datetime.now(timezone.utc)
-        today = now.astimezone(CENTRAL_TZ).strftime("%Y-%m-%d")
-        if self.gamble_state["day"] != today:
-            self.gamble_state["day"] = today
-            self.gamble_state["scratchoffs_used"] = 0
-            self.gamble_state["blackjack_active"] = False
-
-        last_action = self.gamble_state["last_action_at"]
-        if last_action and now - last_action < timedelta(minutes=12):
-            return
-
-        if self.gamble_state["scratchoffs_used"] < 3:
-            await channel.send("!scratchoff")
-            self.gamble_state["scratchoffs_used"] += 1
-            self.gamble_state["last_action_at"] = now
-            return
-
-        if not self.gamble_state["blackjack_active"]:
-            await channel.send("!blackjack 1")
-            self.gamble_state["blackjack_active"] = True
-            self.gamble_state["last_action_at"] = now
+        await self.run_gamble_step(bypass_cooldown=False)
     
     # ---------------------------------------------------------------------------
     # EXPLICIT COMMANDS: !ask (Ollama)

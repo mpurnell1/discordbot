@@ -428,8 +428,14 @@ class MiscCog(commands.Cog):
                     runtime_settings["gary_gamble_channel_id"] = target.id
                     _save_json_setting("gary_gamble_channel_id", target.id)
                     return await ctx.send(f"Gary gambling channel set to {target.mention}.")
+                if action == "now":
+                    ai_cog = self.bot.get_cog("AICog")
+                    if ai_cog is None:
+                        return await ctx.send("AICog is not loaded.")
+                    result = await ai_cog.run_gamble_step(bypass_cooldown=True)
+                    return await ctx.send(f"Gamble action: {result}")
                 return await ctx.send(
-                    f"Usage: `{PREFIX}settings gamble <on|off|status|channel [#channel]>`"
+                    f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel [#channel]>`"
                 )
 
             return await ctx.send(f"Unknown settings section: `{sec}`")
@@ -634,7 +640,7 @@ class MiscCog(commands.Cog):
                 f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
                 f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
                 f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels\n"
-                f"`{p}settings gamble <on|off|status|channel [#channel]>` - Gary autonomous gambling\n"
+                f"`{p}settings gamble <on|off|status|now|channel [#channel]>` - Gary autonomous gambling\n"
                 f"`{p}restart` - Restart process"
             ), inline=False)
         embed.add_field(name="Quotes", value=(
