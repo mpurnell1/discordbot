@@ -321,6 +321,36 @@ def get_feature_rule(feature: str):
     return rules.get(normalize_feature_name(feature))
 
 
+def load_gary_gamble_state():
+    raw = _load_json_setting(
+        "gary_gamble_state",
+        {
+            "day": "",
+            "scratchoffs_used": 0,
+            "blackjack_active": False,
+            "last_action_at": None,
+        },
+    )
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "day": str(raw.get("day", "")),
+        "scratchoffs_used": max(0, int(raw.get("scratchoffs_used", 0))),
+        "blackjack_active": bool(raw.get("blackjack_active", False)),
+        "last_action_at": raw.get("last_action_at"),
+    }
+
+
+def save_gary_gamble_state(state: dict):
+    payload = {
+        "day": str(state.get("day", "")),
+        "scratchoffs_used": max(0, int(state.get("scratchoffs_used", 0))),
+        "blackjack_active": bool(state.get("blackjack_active", False)),
+        "last_action_at": state.get("last_action_at"),
+    }
+    _save_json_setting("gary_gamble_state", payload)
+
+
 load_runtime_settings()
 
 async def check_bet(ctx, amount: int) -> bool:

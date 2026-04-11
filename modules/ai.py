@@ -13,12 +13,33 @@ from shared import *
 class AICog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        loaded = load_gary_gamble_state()
+        last_action_raw = loaded.get("last_action_at")
+        last_action = None
+        if isinstance(last_action_raw, str) and last_action_raw:
+            try:
+                last_action = datetime.fromisoformat(last_action_raw)
+                if last_action.tzinfo is None:
+                    last_action = last_action.replace(tzinfo=timezone.utc)
+            except ValueError:
+                last_action = None
         self.gamble_state = {
-            "day": "",
-            "scratchoffs_used": 0,
-            "blackjack_active": False,
-            "last_action_at": None,
+            "day": loaded.get("day", ""),
+            "scratchoffs_used": loaded.get("scratchoffs_used", 0),
+            "blackjack_active": loaded.get("blackjack_active", False),
+            "last_action_at": last_action,
         }
+
+    def _persist_gamble_state(self):
+        last_action = self.gamble_state.get("last_action_at")
+        save_gary_gamble_state(
+            {
+                "day": self.gamble_state.get("day", ""),
+                "scratchoffs_used": self.gamble_state.get("scratchoffs_used", 0),
+                "blackjack_active": self.gamble_state.get("blackjack_active", False),
+                "last_action_at": last_action.isoformat() if isinstance(last_action, datetime) else None,
+            }
+        )
 
     def _scratch_reset_key(self, now_utc: datetime) -> str:
         """Return logical daily key where a new day starts at 5:00 AM Central."""
@@ -106,6 +127,7 @@ class AICog(commands.Cog):
         lower = silas_text.lower()
         if any(k in lower for k in ["blackjack!", "bust", "you win", "dealer wins", "push"]):
             self.gamble_state["blackjack_active"] = False
+            self._persist_gamble_state()
             return
 
         if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"]:
@@ -136,6 +158,7 @@ class AICog(commands.Cog):
             self.gamble_state["day"] = cycle_key
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
+            self._persist_gamble_state()
 
         last_action = self.gamble_state["last_action_at"]
         if (
@@ -149,12 +172,14 @@ class AICog(commands.Cog):
             await channel.send("!scratches")
             self.gamble_state["scratchoffs_used"] = 3
             self.gamble_state["last_action_at"] = now
+            self._persist_gamble_state()
             return "Sent `!scratches`."
 
         if not self.gamble_state["blackjack_active"]:
             await channel.send("!blackjack 1")
             self.gamble_state["blackjack_active"] = True
             self.gamble_state["last_action_at"] = now
+            self._persist_gamble_state()
             return "Started blackjack with `!blackjack 1`."
 
         return "Blackjack hand already active; waiting to play hit/stand."
