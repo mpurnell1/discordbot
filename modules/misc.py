@@ -303,7 +303,7 @@ class MiscCog(commands.Cog):
         toggles = runtime_settings.get("command_toggles", {})
         toggles[canonical_name] = (value == "on")
         runtime_settings["command_toggles"] = toggles
-        _save_json_setting("command_toggles", toggles)
+        shared._save_json_setting("command_toggles", toggles)
         await ctx.send(f"`{PREFIX}{canonical_name}` is now **{value.upper()}**.")
     
     
@@ -318,7 +318,7 @@ class MiscCog(commands.Cog):
             return await ctx.send(f"Usage: `{PREFIX}setdeadchat <on|off>`")
         enabled = value == "on"
         runtime_settings["dead_chat_enabled"] = enabled
-        _save_json_setting("dead_chat_enabled", enabled)
+        shared._save_json_setting("dead_chat_enabled", enabled)
         # Clear tracking so toggling on doesn't instantly fire stale escalation.
         last_message_time.clear()
         dead_chat_stage.clear()
@@ -343,7 +343,7 @@ class MiscCog(commands.Cog):
         existing["channels"] = [int(c) for c in existing.get("channels", [])]
         rules[normalized_feature] = existing
         runtime_settings["feature_channel_rules"] = rules
-        _save_json_setting("feature_channel_rules", rules)
+        shared._save_json_setting("feature_channel_rules", rules)
         await ctx.send(f"Feature `{normalized_feature}` mode is now **{normalized_mode}**.")
     
     
@@ -380,7 +380,7 @@ class MiscCog(commands.Cog):
         rule["channels"] = sorted(channels)
         rules[normalized_feature] = rule
         runtime_settings["feature_channel_rules"] = rules
-        _save_json_setting("feature_channel_rules", rules)
+        shared._save_json_setting("feature_channel_rules", rules)
         pretty_channels = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
         await ctx.send(f"Feature `{normalized_feature}` channels: {pretty_channels}")
     
@@ -402,11 +402,11 @@ class MiscCog(commands.Cog):
                 action = args[0].strip().lower()
                 if action == "on":
                     runtime_settings["daily_reminder_enabled"] = True
-                    _save_json_setting("daily_reminder_enabled", True)
+                    shared._save_json_setting("daily_reminder_enabled", True)
                     return await ctx.send("Daily reminders are now **ON**.")
                 if action == "off":
                     runtime_settings["daily_reminder_enabled"] = False
-                    _save_json_setting("daily_reminder_enabled", False)
+                    shared._save_json_setting("daily_reminder_enabled", False)
                     return await ctx.send("Daily reminders are now **OFF**.")
                 if action == "status":
                     enabled = runtime_settings.get("daily_reminder_enabled", True)
@@ -428,14 +428,14 @@ class MiscCog(commands.Cog):
                 if action == "on":
                     runtime_settings["gary_gamble_enabled"] = True
                     runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
-                    _save_json_setting("gary_gamble_enabled", True)
-                    _save_json_setting("gary_gamble_channel_id", ctx.channel.id)
+                    shared._save_json_setting("gary_gamble_enabled", True)
+                    shared._save_json_setting("gary_gamble_channel_id", ctx.channel.id)
                     return await ctx.send(
                         f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}."
                     )
                 if action == "off":
                     runtime_settings["gary_gamble_enabled"] = False
-                    _save_json_setting("gary_gamble_enabled", False)
+                    shared._save_json_setting("gary_gamble_enabled", False)
                     return await ctx.send("Gary autonomous gambling is now **OFF**.")
                 if action == "status":
                     enabled = runtime_settings.get("gary_gamble_enabled", False)
@@ -448,7 +448,7 @@ class MiscCog(commands.Cog):
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
                     runtime_settings["gary_gamble_channel_id"] = target.id
-                    _save_json_setting("gary_gamble_channel_id", target.id)
+                    shared._save_json_setting("gary_gamble_channel_id", target.id)
                     return await ctx.send(f"Gary gambling channel set to {target.mention}.")
                 if action == "now":
                     ai_cog = self.bot.get_cog("AICog")
