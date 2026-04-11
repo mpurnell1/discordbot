@@ -155,14 +155,14 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # Passive feature state
 last_message_time = {}    # channel_id -> datetime
-dead_chat_stage = {}      # channel_id -> which threshold we've hit (0-3)
+dead_chat_stage = {}      # channel_id -> threshold stage hit; -1 means no threshold hit yet
 last_late_night = {}      # user_id -> date string, so we only bug them once per night
 recent_messages = {}      # channel_id -> list of last N messages for context
 bot_start_time = None     # set in on_ready
 command_usage = Counter() # command name -> count (resets on restart)
 
 SETTINGS_DEFAULTS = {
-    "dead_chat_enabled": True,
+    "dead_chat_enabled": False,
     "command_toggles": {},
     "feature_channel_rules": {},
 }
@@ -621,7 +621,7 @@ async def on_message(message):
     # --- Track message times for dead chat ---
     if runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id):
         last_message_time[channel_id] = now
-        dead_chat_stage[channel_id] = 0  # reset escalation
+        dead_chat_stage[channel_id] = -1  # reset escalation
 
     # --- Track recent messages for Ollama context ---
     if channel_id not in recent_messages:
@@ -718,10 +718,10 @@ async def dead_chat_checker():
         if not is_feature_allowed("dead_chat", channel_id):
             continue
         minutes_silent = (now - last_time).total_seconds() / 60
-        current_stage = dead_chat_stage.get(channel_id, 0)
+        current_stage = dead_chat_stage.get(channel_id, -1)
 
         # Find the highest threshold we've crossed
-        new_stage = 0
+        new_stage = -1
         for i, threshold in enumerate(DEAD_CHAT_THRESHOLDS):
             if minutes_silent >= threshold:
                 new_stage = i
@@ -2045,20 +2045,21 @@ async def setcommand(ctx, command_name: str, state: str):
     """Admin only: enable/disable a command globally."""
     if ctx.author.id != ADMIN_ID:
         return
-    command_name = command_name.strip().lower()
-    target = bot.get_command(command_name)
+    command_input = command_name.strip().lower()
+    target = bot.get_command(command_input)
     if target is None:
-        return await ctx.send(f"Unknown command: `{command_name}`")
-    if command_name in PROTECTED_ADMIN_COMMANDS:
+        return await ctx.send(f"Unknown command: `{command_input}`")
+    canonical_name = target.name.lower()
+    if canonical_name in PROTECTED_ADMIN_COMMANDS:
         return await ctx.send("That admin control command cannot be disabled.")
     value = state.strip().lower()
     if value not in {"on", "off"}:
         return await ctx.send(f"Usage: `{PREFIX}setcommand <command> <on|off>`")
     toggles = runtime_settings.get("command_toggles", {})
-    toggles[command_name] = (value == "on")
+    toggles[canonical_name] = (value == "on")
     runtime_settings["command_toggles"] = toggles
     _save_json_setting("command_toggles", toggles)
-    await ctx.send(f"`{PREFIX}{command_name}` is now **{value.upper()}**.")
+    await ctx.send(f"`{PREFIX}{canonical_name}` is now **{value.upper()}**.")
 
 
 @bot.command()
@@ -2072,6 +2073,9 @@ async def setdeadchat(ctx, state: str):
     enabled = value == "on"
     runtime_settings["dead_chat_enabled"] = enabled
     _save_json_setting("dead_chat_enabled", enabled)
+    # Clear tracking so toggling on doesn't instantly fire stale escalation.
+    last_message_time.clear()
+    dead_chat_stage.clear()
     await ctx.send(f"Dead chat is now **{value.upper()}**.")
 
 
