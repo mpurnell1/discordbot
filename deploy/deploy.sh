@@ -7,6 +7,7 @@ DEPLOY_REMOTE="${DEPLOY_REMOTE:-origin}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$REPO_DIR/venv}"
 SERVICE_NAME="${SERVICE_NAME:-discord-bot.service}"
+RESTART_TRIGGER_FILE="${RESTART_TRIGGER_FILE:-$REPO_DIR/.deploy-restart}"
 LOCK_FILE="${LOCK_FILE:-/tmp/discordbot-deploy.lock}"
 LOG_FILE="${LOG_FILE:-$REPO_DIR/deploy/deploy.log}"
 
@@ -39,6 +40,6 @@ mkdir -p "$(dirname "$LOG_FILE")"
     "$PYTHON_BIN" -m py_compile bot.py
   fi
 
-  sudo systemctl restart "$SERVICE_NAME"
+  touch "$RESTART_TRIGGER_FILE"
   echo "[$(date -Iseconds)] deploy success"
 } >>"$LOG_FILE" 2>&1
