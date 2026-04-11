@@ -6,6 +6,7 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
+import shared
 from shared import *
 from modules import ai, economy, games, misc
 
@@ -67,8 +68,7 @@ bot = GaryBot(command_prefix=PREFIX, intents=intents)
 
 @bot.event
 async def on_ready():
-    global bot_start_time
-    bot_start_time = datetime.now(timezone.utc)
+    shared.bot_start_time = datetime.now(timezone.utc)
     logger.info("Logged in as %s (%s)", bot.user, bot.user.id)
 
 

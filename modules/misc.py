@@ -8,6 +8,7 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 
+import shared
 from shared import *
 
 LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
@@ -483,8 +484,8 @@ class MiscCog(commands.Cog):
     async def stats(self, ctx):
         """Show bot stats: uptime, latency, versions, economy, and command usage."""
         # Uptime
-        if bot_start_time:
-            delta = datetime.now(timezone.utc) - bot_start_time
+        if shared.bot_start_time:
+            delta = datetime.now(timezone.utc) - shared.bot_start_time
             days, rem = divmod(int(delta.total_seconds()), 86400)
             hours, rem = divmod(rem, 3600)
             minutes, _ = divmod(rem, 60)
