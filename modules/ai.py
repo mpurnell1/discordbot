@@ -62,6 +62,7 @@ class AICog(commands.Cog):
         }
         self._last_gamble_report_at = None
         self._last_gamble_result = None
+        self._hangman_guess_msg = None  # track Gary's last hangman letter message for editing
 
     def _persist_gamble_state(self):
         def _iso(key):
@@ -412,6 +413,7 @@ class AICog(commands.Cog):
                 self.gamble_state["hangman_active"] = False
                 self.gamble_state["hangman_started_at"] = None
                 self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+                self._hangman_guess_msg = None
                 self._persist_gamble_state()
                 return
             if hangman["status"] == "active":
@@ -420,7 +422,13 @@ class AICog(commands.Cog):
                     self._persist_gamble_state()
                 letter = self._pick_hangman_letter(hangman["word_pattern"], hangman["guessed"])
                 if letter:
-                    await message.channel.send(letter)
+                    if self._hangman_guess_msg:
+                        try:
+                            await self._hangman_guess_msg.edit(content=letter)
+                        except discord.HTTPException:
+                            self._hangman_guess_msg = await message.channel.send(letter)
+                    else:
+                        self._hangman_guess_msg = await message.channel.send(letter)
 
     async def run_gamble_step(self, bypass_cooldown: bool = False) -> str:
         """Run one autonomous gambling decision step."""
