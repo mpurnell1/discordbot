@@ -526,6 +526,7 @@ class MiscCog(commands.Cog):
         daily_reminder_state = "ON" if runtime_settings.get("daily_reminder_enabled", True) else "OFF"
         gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
         bj_ruleset = str(runtime_settings.get("bj_ruleset", "realistic")).upper()
+        bj_hint_state = "ON" if runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
         gary_gamble_channel = runtime_settings.get("gary_gamble_channel_id")
         gary_gamble_channel_text = f"<#{int(gary_gamble_channel)}>" if gary_gamble_channel else "(not set)"
         disabled = sorted(
@@ -558,6 +559,7 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
         embed.add_field(name="BJ Ruleset", value=bj_ruleset, inline=True)
+        embed.add_field(name="BJ Hint", value=bj_hint_state, inline=True)
         embed.add_field(name="Passive AI", value=passive_value, inline=False)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
@@ -776,7 +778,8 @@ class MiscCog(commands.Cog):
             f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
             f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances\n"
-            f"`{p}bjruleset <realistic|arcade|status>` - Blackjack table ruleset"
+            f"`{p}bjruleset <realistic|arcade|status>` - Blackjack table ruleset\n"
+            f"`{p}bjhint <on|off|status>` - Basic strategy hint toggle"
         ), inline=False)
         embed.add_field(name="Feature Gates", value=(
             f"`{p}setcommand <command> <on|off>` - Toggle command\n"

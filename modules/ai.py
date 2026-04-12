@@ -21,7 +21,6 @@ class AICog(commands.Cog):
     BJ_STOP_LOSS_PCT = 0.35
     BJ_TAKE_PROFIT_PCT = 0.60
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
-    BJ_ACTIVE_TIMEOUT = timedelta(minutes=3)
     HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
     HM_COOLDOWN = timedelta(hours=6)
     GAMBLE_REPORT_CHANNEL_ID_FALLBACK = REDACTED_CHANNEL_ID
@@ -444,7 +443,6 @@ class AICog(commands.Cog):
 
         # Clear stale active games
         for game, started_key, timeout in [
-            ("blackjack_active", "blackjack_started_at", self.BJ_ACTIVE_TIMEOUT),
             ("hangman_active", "hangman_started_at", self.HM_ACTIVE_TIMEOUT),
         ]:
             started_at = self.gamble_state.get(started_key)

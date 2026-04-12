@@ -120,6 +120,7 @@ COMMAND_USAGE = {
     "setfeaturemode": "<feature> <all|off|whitelist|blacklist>",
     "setfeaturechannels": "<feature> <add|remove|clear> [#channel ...]",
     "bjruleset": "<realistic|arcade|status>",
+    "bjhint": "<on|off|status>",
     "say": "<text>",
     "settings": "[dailyreminder <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
 }
