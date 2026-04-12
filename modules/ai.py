@@ -203,49 +203,26 @@ class AICog(commands.Cog):
             return "stand" if 4 <= dealer_up <= 6 else "hit"
         return "hit"
     def _parse_blackjack_prompt(self, text: str):
-        # Support both old and new Silas prompt formats:
-        # Old: "Your hand: `A♠` `7♦` → **18**", "Dealer shows: `K♣` `??`"
-        # New: "Dealer: J♦ 🂠", "Gary (12): Q♠ 2♠"  (player name varies)
+        # Format: "Dealer: J♦ 🂠", "Gary (12): Q♠ 2♠"
+        # Suit chars vary by Unicode encoding so we match rank + any non-word/non-space char.
         total = None
         dealer_up = None
         ranks = []
 
-        old_total = re.search(r"your hand:.*?\*\*(\d+)\*\*", text, flags=re.IGNORECASE | re.DOTALL)
-        # Match player name before (total): e.g. "Gary (17):", "You (12):"
-        # Exclude "Dealer" to avoid matching the dealer's line.
-        new_total = re.search(r"(?:^|\n)\s*(?!dealer)\w+\s*\((\d+)\)\s*:", text, flags=re.IGNORECASE | re.MULTILINE)
-        if old_total:
-            total = int(old_total.group(1))
-        elif new_total:
-            total = int(new_total.group(1))
+        # "Gary (17):"
+        total_m = re.search(r"Gary\s*\((\d+)\)\s*:", text, flags=re.IGNORECASE)
+        if total_m:
+            total = int(total_m.group(1))
 
-        old_dealer = re.search(r"dealer shows:.*?`([^`]+)`", text, flags=re.IGNORECASE | re.DOTALL)
-        new_dealer = re.search(r"dealer[^:]*:\s*([0-9]{1,2}|[JQKA])[♠♥♦♣]", text, flags=re.IGNORECASE)
-        if old_dealer:
-            dealer_card = old_dealer.group(1).strip()
-            dealer_rank = dealer_card[:-1] if len(dealer_card) > 1 else dealer_card
-            dealer_up = 10 if dealer_rank == "10" else self._bj_rank_value(dealer_rank[0])
-        elif new_dealer:
-            dealer_up = self._bj_rank_value(new_dealer.group(1).upper())
+        dealer_m = re.search(r"dealer[^:]*:\s*([0-9]{1,2}|[JQKA])[^\s\w]", text, flags=re.IGNORECASE)
+        if dealer_m:
+            dealer_up = self._bj_rank_value(dealer_m.group(1).upper())
 
-        hand_line_old = re.search(r"your hand:(.*?)(?:\n|$)", text, flags=re.IGNORECASE | re.DOTALL)
-        if hand_line_old:
-            for token in re.findall(r"`([^`]+)`", hand_line_old.group(1)):
-                token = token.strip()
-                if token == "??":
-                    continue
-                rank = token[:-1] if len(token) > 1 else token
-                if rank == "10":
-                    ranks.append("10")
-                elif rank:
-                    ranks.append(rank[0].upper())
-        else:
-            # Match "Gary (17): 9♣ 8♣" or "You (12): Q♠ 2♠" — exclude Dealer line
-            hand_line_new = re.search(r"(?!dealer)\w+\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
-            if hand_line_new:
-                cards = re.findall(r"([0-9]{1,2}|[JQKA])[♠♥♦♣]", hand_line_new.group(1), flags=re.IGNORECASE)
-                for card_rank in cards:
-                    ranks.append(card_rank.upper())
+        hand_m = re.search(r"Gary\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
+        if hand_m:
+            cards = re.findall(r"([0-9]{1,2}|[JQKA])[^\s\w]", hand_m.group(1), flags=re.IGNORECASE)
+            for card_rank in cards:
+                ranks.append(card_rank.upper())
 
         if total is None or dealer_up is None:
             return None
