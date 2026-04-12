@@ -171,6 +171,11 @@ SETTINGS_DEFAULTS = {
     "feature_channel_rules": {},
     "gary_gamble_enabled": False,
     "gary_gamble_channel_id": None,
+    "gary_gamble_report_channel_id": None,
+    # Percent chances (0-100) for passive AI features. Stored as int.
+    "unsolicited_chance_pct": 0,
+    "silas_banter_chance_pct": 0,
+    "silas_react_chance_pct": 0,
 }
 PROTECTED_ADMIN_COMMANDS = {
     "adminhelp",
@@ -195,6 +200,11 @@ def get_balance(user_id: int) -> int:
         db.commit()
         return STARTING_BALANCE
     return row[0]
+
+def peek_balance(user_id: int) -> int:
+    """Read-only balance check — returns 0 if the user has no row."""
+    row = db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    return row[0] if row else 0
 
 def update_balance(user_id: int, amount: int):
     get_balance(user_id)
@@ -291,6 +301,17 @@ def load_runtime_settings():
         "gary_gamble_channel_id", SETTINGS_DEFAULTS["gary_gamble_channel_id"]
     )
     runtime_settings["gary_gamble_channel_id"] = int(channel_val) if channel_val else None
+    report_val = _load_json_setting(
+        "gary_gamble_report_channel_id", SETTINGS_DEFAULTS["gary_gamble_report_channel_id"]
+    )
+    runtime_settings["gary_gamble_report_channel_id"] = int(report_val) if report_val else None
+    for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct"):
+        raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = SETTINGS_DEFAULTS[key]
+        runtime_settings[key] = max(0, min(100, value))
 
 
 def normalize_feature_name(feature: str) -> str:
@@ -562,8 +583,4 @@ SILAS_REACTIONS = ["😒", "🙄", "💀", "🤡", "👀", "😤", "🫠", "💅
 
 # --- Silas roleplay state ---
 active_silas_rp = {}  # channel_id -> {"character": str, "history": list}
-
-# ---------------------------------------------------------------------------
-
-# --- Silas roleplay state ---
 

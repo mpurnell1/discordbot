@@ -187,15 +187,30 @@ class MiscCog(commands.Cog):
             return await ctx.send(embed=make_embed("❌ Not Enough Coins",
                 f"Changing a nickname costs **{NICKNAME_COST}** coins.\nYou have **{bal}**.", COLOR_ERROR))
     
+        # If this user is already under an active changenick, preserve the
+        # truly-original nick from the existing row instead of capturing the
+        # current (already-overridden) display name.
+        existing = db.execute(
+            "SELECT original_nick FROM nick_changes WHERE guild_id = ? AND target_id = ? "
+            "ORDER BY id ASC LIMIT 1",
+            (ctx.guild.id, member.id),
+        ).fetchone()
+        original_nick = existing[0] if existing else member.display_name
+
         try:
-            original_nick = member.display_name
             await member.edit(nick=new_nick)
         except discord.Forbidden:
             return await ctx.send("I don't have permission to change that user's nickname.")
-    
+
         update_balance(ctx.author.id, -NICKNAME_COST)
         expires = datetime.now(timezone.utc) + timedelta(hours=NICKNAME_DURATION_HOURS)
-    
+
+        # Replace any prior pending row(s) for this target so the restore task
+        # only fires once and uses the preserved original nick above.
+        db.execute(
+            "DELETE FROM nick_changes WHERE guild_id = ? AND target_id = ?",
+            (ctx.guild.id, member.id),
+        )
         db.execute(
             "INSERT INTO nick_changes (guild_id, target_id, original_nick, expires_at) VALUES (?, ?, ?, ?)",
             (ctx.guild.id, member.id, original_nick, expires.isoformat())
@@ -416,13 +431,47 @@ class MiscCog(commands.Cog):
                     f"Usage: `{PREFIX}settings dailyreminder <on|off|status>`"
                 )
 
+            if sec == "passive":
+                keys = {
+                    "unsolicited": "unsolicited_chance_pct",
+                    "silasbanter": "silas_banter_chance_pct",
+                    "silasreact": "silas_react_chance_pct",
+                }
+                if not args:
+                    lines = [
+                        f"Unsolicited AI: **{runtime_settings.get('unsolicited_chance_pct', 0)}%**",
+                        f"Silas banter: **{runtime_settings.get('silas_banter_chance_pct', 0)}%**",
+                        f"Silas react: **{runtime_settings.get('silas_react_chance_pct', 0)}%**",
+                    ]
+                    return await ctx.send("\n".join(lines))
+                target = args[0].strip().lower()
+                if target not in keys:
+                    return await ctx.send(
+                        f"Usage: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact> <0-100>`"
+                    )
+                if len(args) < 2:
+                    current = runtime_settings.get(keys[target], 0)
+                    return await ctx.send(f"`{target}` is **{current}%**")
+                try:
+                    value = int(args[1])
+                except ValueError:
+                    return await ctx.send("Value must be an integer percent (0-100).")
+                value = max(0, min(100, value))
+                runtime_settings[keys[target]] = value
+                shared._save_json_setting(keys[target], value)
+                return await ctx.send(f"`{target}` is now **{value}%**.")
+
             if sec == "gamble":
                 if not args:
                     enabled = runtime_settings.get("gary_gamble_enabled", False)
                     channel_id = runtime_settings.get("gary_gamble_channel_id")
+                    report_id = runtime_settings.get("gary_gamble_report_channel_id")
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+                    report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text}")
+                    return await ctx.send(
+                        f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}"
+                    )
 
                 action = args[0].strip().lower()
                 if action == "on":
@@ -440,9 +489,13 @@ class MiscCog(commands.Cog):
                 if action == "status":
                     enabled = runtime_settings.get("gary_gamble_enabled", False)
                     channel_id = runtime_settings.get("gary_gamble_channel_id")
+                    report_id = runtime_settings.get("gary_gamble_report_channel_id")
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+                    report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text}")
+                    return await ctx.send(
+                        f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}"
+                    )
                 if action == "channel":
                     target = ctx.channel
                     if ctx.message.channel_mentions:
@@ -456,8 +509,15 @@ class MiscCog(commands.Cog):
                         return await ctx.send("AICog is not loaded.")
                     result = await ai_cog.run_gamble_step(bypass_cooldown=True)
                     return await ctx.send(f"Gamble action: {result}")
+                if action == "report":
+                    target = ctx.channel
+                    if ctx.message.channel_mentions:
+                        target = ctx.message.channel_mentions[0]
+                    runtime_settings["gary_gamble_report_channel_id"] = target.id
+                    shared._save_json_setting("gary_gamble_report_channel_id", target.id)
+                    return await ctx.send(f"Gamble report channel set to {target.mention}.")
                 return await ctx.send(
-                    f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel [#channel]>`"
+                    f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`"
                 )
 
             return await ctx.send(f"Unknown settings section: `{sec}`")
@@ -483,10 +543,20 @@ class MiscCog(commands.Cog):
             rule_lines.append(f"`{feature}`: **{mode}** {channel_str}")
         rules_str = "\n".join(rule_lines) if rule_lines else "No feature channel rules set."
     
+        unsolicited_pct = runtime_settings.get("unsolicited_chance_pct", 0)
+        silas_banter_pct = runtime_settings.get("silas_banter_chance_pct", 0)
+        silas_react_pct = runtime_settings.get("silas_react_chance_pct", 0)
+        passive_value = (
+            f"Unsolicited: **{unsolicited_pct}%**\n"
+            f"Silas banter: **{silas_banter_pct}%**\n"
+            f"Silas react: **{silas_react_pct}%**"
+        )
+
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
         embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
+        embed.add_field(name="Passive AI", value=passive_value, inline=False)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
             name="Feature Rules",
@@ -540,7 +610,8 @@ class MiscCog(commands.Cog):
                 elif isinstance(ch, discord.VoiceChannel):
                     voice_channels += 1
 
-        passive_enabled = "Enabled" if UNSOLICITED_CHANCE > 0 else "Disabled"
+        unsolicited_pct = runtime_settings.get("unsolicited_chance_pct", 0)
+        passive_enabled = f"{unsolicited_pct}%" if unsolicited_pct > 0 else "Disabled"
         ai_status = "Configured" if OLLAMA_URL else "Unavailable"
 
         embed = discord.Embed(title="📊 Bot Stats", color=COLOR_DEFAULT)
@@ -699,7 +770,8 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Runtime", value=(
             f"`{p}settings` - Show runtime settings\n"
             f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
-            f"`{p}settings gamble <on|off|status|now|channel [#channel]>` - Gary autonomous gambling"
+            f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
+            f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances"
         ), inline=False)
         embed.add_field(name="Feature Gates", value=(
             f"`{p}setcommand <command> <on|off>` - Toggle command\n"

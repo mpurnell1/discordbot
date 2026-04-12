@@ -528,7 +528,7 @@ class EconomyCog(commands.Cog):
     async def balance(self, ctx, member: discord.Member = None):
         """Check your coin balance (or someone else's)."""
         target = member or ctx.author
-        bal = get_balance(target.id)
+        bal = peek_balance(target.id) if member else get_balance(target.id)
         await ctx.send(embed=make_embed(f"💵 {target.display_name}'s Balance", f"**{bal}** coins"))
     
     # ---------------------------------------------------------------------------
