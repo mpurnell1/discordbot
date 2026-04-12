@@ -148,7 +148,7 @@ class AICog(commands.Cog):
         await channel.send(
             "Gary Gamble Report\n"
             f"Summary: {summary}\n"
-            f"Day: {now_central.strftime('%m/%d %I:%M %p')} | Scratches used: {self.gamble_state.get('scratchoffs_used')} | "
+            f"Time: {now_central.strftime('%m/%d %I:%M %p')} | Scratches used: {self.gamble_state.get('scratchoffs_used')} | "
             f"Blackjack active: {self.gamble_state.get('blackjack_active')}\n"
             f"Balance: {balance if balance is not None else 'unknown'} | "
             f"Anchor: {anchor if anchor is not None else 'unknown'} | "
