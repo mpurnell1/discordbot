@@ -144,10 +144,11 @@ class AICog(commands.Cog):
             if isinstance(balance, int) and balance > 0
             else None
         )
+        now_central = now.astimezone(CENTRAL_TZ)
         await channel.send(
             "Gary Gamble Report\n"
             f"Summary: {summary}\n"
-            f"Day: {self.gamble_state.get('day')} | Scratches used: {self.gamble_state.get('scratchoffs_used')} | "
+            f"Day: {now_central.strftime('%m/%d %I:%M %p')} | Scratches used: {self.gamble_state.get('scratchoffs_used')} | "
             f"Blackjack active: {self.gamble_state.get('blackjack_active')}\n"
             f"Balance: {balance if balance is not None else 'unknown'} | "
             f"Anchor: {anchor if anchor is not None else 'unknown'} | "
