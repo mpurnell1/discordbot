@@ -61,7 +61,7 @@ class AICog(commands.Cog):
             "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
         self._last_gamble_report_at = None
-        self._last_gamble_result = None
+        self._last_gamble_result = self.gamble_state.get("last_report_key")
 
     def _persist_gamble_state(self):
         def _iso(key):
@@ -77,6 +77,7 @@ class AICog(commands.Cog):
                 "hangman_active": self.gamble_state.get("hangman_active", False),
                 "hangman_started_at": _iso("hangman_started_at"),
                 "hangman_ended_at": _iso("hangman_ended_at"),
+                "last_report_key": self.gamble_state.get("last_report_key"),
                 "last_known_balance": self.gamble_state.get("last_known_balance"),
                 "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
             }
@@ -839,6 +840,8 @@ class AICog(commands.Cog):
             self._last_gamble_result = result_key
         else:
             self._last_gamble_result = result
+        self.gamble_state["last_report_key"] = self._last_gamble_result
+        self._persist_gamble_state()
         force = result.startswith(
             (
                 "Sent `!scratches`.",
