@@ -361,7 +361,6 @@ class AICog(commands.Cog):
                     self._persist_gamble_state()
                 letter = self._pick_hangman_letter(hangman["word_pattern"], hangman["guessed"])
                 if letter:
-                    await asyncio.sleep(random.uniform(1, 3))
                     await message.channel.send(letter)
 
     async def run_gamble_step(self, bypass_cooldown: bool = False) -> str:
@@ -440,10 +439,10 @@ class AICog(commands.Cog):
         if bj_stopped:
             if self.gamble_state.get("hangman_active"):
                 return "Hangman in progress; waiting for Silas."
+            # Hangman is free — no cooldown needed between games.
             await channel.send("!hang")
             self.gamble_state["hangman_active"] = True
             self.gamble_state["hangman_started_at"] = now
-            self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
             reason = "stop-loss" if balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT)) else "take-profit"
             return f"BJ {reason} at {balance}; started hangman."
