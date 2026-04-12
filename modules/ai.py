@@ -52,6 +52,7 @@ class AICog(commands.Cog):
             "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
         self._last_gamble_report_at = None
+        self._last_gamble_result = None
 
     def _persist_gamble_state(self):
         last_action = self.gamble_state.get("last_action_at")
@@ -613,6 +614,17 @@ class AICog(commands.Cog):
         if not runtime_settings.get("gary_gamble_enabled", False):
             return
         result = await self.run_gamble_step(bypass_cooldown=False)
+        is_idle = result.startswith((
+            "Stop-loss",
+            "Take-profit",
+            "Cooldown active",
+            "Blackjack hand already active",
+            "Balance",
+        ))
+        # Idle/terminal states report once then go silent until something changes.
+        if is_idle and result == self._last_gamble_result:
+            return
+        self._last_gamble_result = result
         force = result.startswith(
             (
                 "Sent `!scratches`.",
