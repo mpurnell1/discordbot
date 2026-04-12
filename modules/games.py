@@ -1,14 +1,16 @@
 import discord
 import random
 from collections import Counter
+from datetime import datetime, timezone
 
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from shared import *
 
 active_ttt = {}      # channel_id -> game state
 active_c4 = {}       # channel_id -> game state
-pending_games = {}   # message_id -> {"type": "ttt"/"c4", "host": Member, "channel_id": int}
+pending_games = {}   # message_id -> {"type": "ttt"/"c4", "host": Member, "channel_id": int, "created_at": datetime}
+PENDING_GAME_TIMEOUT = 300  # seconds before a pending invite is cleaned up
 
 TTT_EMPTY = "⬛"
 TTT_X = "❌"
@@ -201,6 +203,22 @@ class GamesCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @commands.Cog.listener("on_ready")
+    async def _start_games_tasks(self):
+        if not self.cleanup_pending_games.is_running():
+            self.cleanup_pending_games.start()
+
+    @tasks.loop(minutes=5)
+    async def cleanup_pending_games(self):
+        """Remove stale game invites that nobody accepted."""
+        now = datetime.now(timezone.utc)
+        stale = [
+            mid for mid, info in pending_games.items()
+            if (now - info.get("created_at", now)).total_seconds() > PENDING_GAME_TIMEOUT
+        ]
+        for mid in stale:
+            del pending_games[mid]
+
     @commands.Cog.listener("on_raw_reaction_add")
     async def on_raw_reaction_add(self, payload):
         if payload.message_id not in pending_games:
@@ -265,7 +283,7 @@ class GamesCog(commands.Cog):
                 "Tic-Tac-Toe",
                 f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
-            pending_games[msg.id] = {"type": "ttt", "host": ctx.author, "channel_id": ctx.channel.id}
+            pending_games[msg.id] = {"type": "ttt", "host": ctx.author, "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc)}
     
 
     @commands.command()
@@ -369,7 +387,7 @@ class GamesCog(commands.Cog):
                 "Connect 4",
                 f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
-            pending_games[msg.id] = {"type": "c4", "host": ctx.author, "channel_id": ctx.channel.id}
+            pending_games[msg.id] = {"type": "c4", "host": ctx.author, "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc)}
     
 
     @commands.command()
@@ -468,24 +486,31 @@ class GamesCog(commands.Cog):
         if ctx.channel.id in active_hangman:
             return await ctx.send("There's already a hangman game in this channel. Finish it first.")
         word = random.choice(HANGMAN_WORDS)
+        players = {ctx.author.id}
+        if player:
+            players.add(player.id)
         game = {
             "word": word,
             "guessed": set(),
             "wrong": [],
             "started_by": ctx.author,
+            "players": players,
         }
         active_hangman[ctx.channel.id] = game
         msg = f"{ctx.author.mention} started a hangman game!"
         if player:
             msg = f"{ctx.author.mention} started a hangman game with {player.mention}!"
-        msg += f" Anyone can type a single letter, or use `{PREFIX}g <guess>` for letter/word guesses."
+        msg += f" Type a single letter, or use `{PREFIX}g <guess>` for letter/word guesses."
         await ctx.send(embed=make_embed("Hangman", f"{msg}\n\n{hangman_render(game)}"))
 
     @commands.Cog.listener("on_message")
     async def hangman_letter_listener(self, message):
         if message.author.bot:
             return
-        if message.channel.id not in active_hangman:
+        game = active_hangman.get(message.channel.id)
+        if not game:
+            return
+        if message.author.id not in game.get("players", set()):
             return
         content = message.content.strip()
         if not content or content.startswith(PREFIX):
@@ -498,9 +523,12 @@ class GamesCog(commands.Cog):
     @commands.command()
     async def g(self, ctx, guess: str):
         """Guess a letter or whole word in hangman."""
-        handled = await self._guess_hangman(ctx.channel, guess)
-        if not handled:
-            await ctx.send("No active hangman game in this channel.")
+        game = active_hangman.get(ctx.channel.id)
+        if not game:
+            return await ctx.send("No active hangman game in this channel.")
+        if ctx.author.id not in game.get("players", set()):
+            return
+        await self._guess_hangman(ctx.channel, guess)
 
 async def setup(bot):
     await bot.add_cog(GamesCog(bot))

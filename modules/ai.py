@@ -18,7 +18,7 @@ class AICog(commands.Cog):
     BJ_TAKE_PROFIT_PCT = 0.60
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
     BJ_ACTIVE_TIMEOUT = timedelta(minutes=3)
-    GAMBLE_REPORT_CHANNEL_ID = 1492675170203340992
+    GAMBLE_REPORT_CHANNEL_ID_FALLBACK = 1492675170203340992
     GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
     def __init__(self, bot):
@@ -71,7 +71,7 @@ class AICog(commands.Cog):
     def _extract_balance_from_text(self, text: str):
         patterns = [
             r"balance[^0-9\-]*([0-9][0-9,]*)",
-            r"\b([0-9][0-9,]*)\s*(?:coins?|ðŸª™)\b",
+            r"\b([0-9][0-9,]*)\s*(?:coins?|🪙)\b",
         ]
         for pattern in patterns:
             m = re.search(pattern, text, flags=re.IGNORECASE)
@@ -105,7 +105,8 @@ class AICog(commands.Cog):
         return bet
 
     async def _send_gamble_report(self, summary: str, force: bool = False):
-        channel = self.bot.get_channel(self.GAMBLE_REPORT_CHANNEL_ID)
+        report_id = runtime_settings.get("gary_gamble_report_channel_id") or self.GAMBLE_REPORT_CHANNEL_ID_FALLBACK
+        channel = self.bot.get_channel(int(report_id))
         if channel is None:
             return
         now = datetime.now(timezone.utc)
@@ -378,7 +379,7 @@ class AICog(commands.Cog):
                     title = (e.title or "").lower()
                     if "roleplay invite" in title or ("invite" in title and self.bot.user.mentioned_in(message)):
                         try:
-                            await message.add_reaction("âœ…")
+                            await message.add_reaction("✅")
                         except discord.HTTPException:
                             pass
                         # Start a roleplay session as Gary
@@ -388,7 +389,7 @@ class AICog(commands.Cog):
                                 {"role": "system", "content": (
                                     "You are Gary, a Discord bot with attitude. You're in a roleplay with another bot named Silas. "
                                     "You're snarky, competitive, and think you're the better bot. "
-                                    "Stay in character as yourself â€” a witty, slightly unhinged bot who doesn't take anything too seriously. "
+                                    "Stay in character as yourself — a witty, slightly unhinged bot who doesn't take anything too seriously. "
                                     "Keep responses short (2-4 sentences). Use lowercase."
                                 )},
                             ],
@@ -438,13 +439,15 @@ class AICog(commands.Cog):
                 return
     
             # --- Random banter ---
-            if random.random() < SILAS_REACT_CHANCE:
+            silas_react_chance = runtime_settings.get("silas_react_chance_pct", 0) / 100.0
+            silas_banter_chance = runtime_settings.get("silas_banter_chance_pct", 0) / 100.0
+            if random.random() < silas_react_chance:
                 try:
                     await message.add_reaction(random.choice(SILAS_REACTIONS))
                 except discord.HTTPException:
                     pass
-    
-            if silas_text and random.random() < SILAS_BANTER_CHANCE:
+
+            if silas_text and random.random() < silas_banter_chance:
                 prompt = SILAS_BANTER_PROMPT.format(silas_message=silas_text[:500])
                 response = await query_ollama(prompt, "", model=OLLAMA_REASONING_MODEL)
                 if response:
@@ -544,9 +547,10 @@ class AICog(commands.Cog):
                 return
     
         # --- Unsolicited opinions (Ollama) ---
+        unsolicited_chance = runtime_settings.get("unsolicited_chance_pct", 0) / 100.0
         if (
             is_feature_allowed("unsolicited_ai", channel_id)
-            and random.random() < UNSOLICITED_CHANCE
+            and random.random() < unsolicited_chance
             and len(message.content) > 5
         ):
             context = recent_messages.get(channel_id, [])
@@ -572,7 +576,7 @@ class AICog(commands.Cog):
         # Process commands as normal
     
     
-    # DEAD CHAT CHECKER â€” background task
+    # DEAD CHAT CHECKER — background task
     # ---------------------------------------------------------------------------
 
     @tasks.loop(minutes=10)
@@ -604,6 +608,10 @@ class AICog(commands.Cog):
     @tasks.loop(seconds=30)
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
+        # Don't run or report when the feature is off — otherwise the report
+        # channel gets a throttled "OFF" message every 5 minutes forever.
+        if not runtime_settings.get("gary_gamble_enabled", False):
+            return
         result = await self.run_gamble_step(bypass_cooldown=False)
         force = result.startswith(
             (
@@ -627,7 +635,7 @@ class AICog(commands.Cog):
             response = await query_ollama(ASK_SYSTEM_PROMPT, question, model=OLLAMA_REASONING_MODEL)
     
         if response is None:
-            await ctx.send("Brain's offline right now â€” desktop must be asleep. Try again later.")
+            await ctx.send("Brain's offline right now — desktop must be asleep. Try again later.")
             return
     
         response = clean_reasoning(response)
