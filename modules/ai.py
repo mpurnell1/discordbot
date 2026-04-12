@@ -18,6 +18,7 @@ class AICog(commands.Cog):
     BJ_TAKE_PROFIT_PCT = 0.60
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
     BJ_ACTIVE_TIMEOUT = timedelta(minutes=3)
+    HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
     GAMBLE_REPORT_CHANNEL_ID_FALLBACK = 1492675170203340992
     GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
@@ -26,28 +27,36 @@ class AICog(commands.Cog):
         loaded = load_gary_gamble_state()
         last_action_raw = loaded.get("last_action_at")
         blackjack_started_raw = loaded.get("blackjack_started_at")
+        hangman_started_raw = loaded.get("hangman_started_at")
         last_action = None
         blackjack_started = None
-        if isinstance(last_action_raw, str) and last_action_raw:
-            try:
-                last_action = datetime.fromisoformat(last_action_raw)
-                if last_action.tzinfo is None:
-                    last_action = last_action.replace(tzinfo=timezone.utc)
-            except ValueError:
-                last_action = None
-        if isinstance(blackjack_started_raw, str) and blackjack_started_raw:
-            try:
-                blackjack_started = datetime.fromisoformat(blackjack_started_raw)
-                if blackjack_started.tzinfo is None:
-                    blackjack_started = blackjack_started.replace(tzinfo=timezone.utc)
-            except ValueError:
-                blackjack_started = None
+        hangman_started = None
+        for raw, name in [
+            (last_action_raw, "last_action"),
+            (blackjack_started_raw, "blackjack_started"),
+            (hangman_started_raw, "hangman_started"),
+        ]:
+            if isinstance(raw, str) and raw:
+                try:
+                    dt = datetime.fromisoformat(raw)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    dt = None
+                if name == "last_action":
+                    last_action = dt
+                elif name == "blackjack_started":
+                    blackjack_started = dt
+                else:
+                    hangman_started = dt
         self.gamble_state = {
             "day": loaded.get("day", ""),
             "scratchoffs_used": loaded.get("scratchoffs_used", 0),
             "blackjack_active": loaded.get("blackjack_active", False),
             "last_action_at": last_action,
             "blackjack_started_at": blackjack_started,
+            "hangman_active": loaded.get("hangman_active", False),
+            "hangman_started_at": hangman_started,
             "last_known_balance": loaded.get("last_known_balance"),
             "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
@@ -57,6 +66,7 @@ class AICog(commands.Cog):
     def _persist_gamble_state(self):
         last_action = self.gamble_state.get("last_action_at")
         blackjack_started = self.gamble_state.get("blackjack_started_at")
+        hangman_started = self.gamble_state.get("hangman_started_at")
         save_gary_gamble_state(
             {
                 "day": self.gamble_state.get("day", ""),
@@ -64,6 +74,8 @@ class AICog(commands.Cog):
                 "blackjack_active": self.gamble_state.get("blackjack_active", False),
                 "last_action_at": last_action.isoformat() if isinstance(last_action, datetime) else None,
                 "blackjack_started_at": blackjack_started.isoformat() if isinstance(blackjack_started, datetime) else None,
+                "hangman_active": self.gamble_state.get("hangman_active", False),
+                "hangman_started_at": hangman_started.isoformat() if isinstance(hangman_started, datetime) else None,
                 "last_known_balance": self.gamble_state.get("last_known_balance"),
                 "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
             }
@@ -190,20 +202,22 @@ class AICog(commands.Cog):
     def _parse_blackjack_prompt(self, text: str):
         # Support both old and new Silas prompt formats:
         # Old: "Your hand: `A♠` `7♦` → **18**", "Dealer shows: `K♣` `??`"
-        # New: "Dealer: J♦ 🂠", "You (12): Q♠ 2♠"
+        # New: "Dealer: J♦ 🂠", "Gary (12): Q♠ 2♠"  (player name varies)
         total = None
         dealer_up = None
         ranks = []
 
         old_total = re.search(r"your hand:.*?\*\*(\d+)\*\*", text, flags=re.IGNORECASE | re.DOTALL)
-        new_total = re.search(r"you\s*\((\d+)\)\s*:", text, flags=re.IGNORECASE)
+        # Match player name before (total): e.g. "Gary (17):", "You (12):"
+        # Exclude "Dealer" to avoid matching the dealer's line.
+        new_total = re.search(r"(?:^|\n)\s*(?!dealer)\w+\s*\((\d+)\)\s*:", text, flags=re.IGNORECASE | re.MULTILINE)
         if old_total:
             total = int(old_total.group(1))
         elif new_total:
             total = int(new_total.group(1))
 
         old_dealer = re.search(r"dealer shows:.*?`([^`]+)`", text, flags=re.IGNORECASE | re.DOTALL)
-        new_dealer = re.search(r"dealer\s*:\s*([0-9]{1,2}|[JQKA])[♠♥♦♣]", text, flags=re.IGNORECASE)
+        new_dealer = re.search(r"dealer[^:]*:\s*([0-9]{1,2}|[JQKA])[♠♥♦♣]", text, flags=re.IGNORECASE)
         if old_dealer:
             dealer_card = old_dealer.group(1).strip()
             dealer_rank = dealer_card[:-1] if len(dealer_card) > 1 else dealer_card
@@ -223,7 +237,8 @@ class AICog(commands.Cog):
                 elif rank:
                     ranks.append(rank[0].upper())
         else:
-            hand_line_new = re.search(r"you\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
+            # Match "Gary (17): 9♣ 8♣" or "You (12): Q♠ 2♠" — exclude Dealer line
+            hand_line_new = re.search(r"(?!dealer)\w+\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
             if hand_line_new:
                 cards = re.findall(r"([0-9]{1,2}|[JQKA])[♠♥♦♣]", hand_line_new.group(1), flags=re.IGNORECASE)
                 for card_rank in cards:
@@ -233,6 +248,61 @@ class AICog(commands.Cog):
             return None
         soft = self._bj_is_soft(ranks, total)
         return total, dealer_up, soft
+
+    def _parse_silas_hangman(self, text: str):
+        """Parse Silas's hangman message. Returns dict or None."""
+        lower = text.lower()
+        # Detect game end
+        if "game over" in lower or "the word was" in lower and "lives left: 0" in lower:
+            return {"status": "lost"}
+        if "you got it" in lower or ("the word was" in lower and "word complete" in lower):
+            return {"status": "won"}
+
+        # Parse active game state
+        word_match = re.search(r"word:\s*(.+)", text, flags=re.IGNORECASE)
+        guessed_match = re.search(r"guessed:\s*(.+)", text, flags=re.IGNORECASE)
+        lives_match = re.search(r"lives left:\s*(\d+)", text, flags=re.IGNORECASE)
+        if not word_match or not lives_match:
+            return None
+
+        # "Word: _ _ _ e _" -> ['_', '_', '_', 'e', '_']
+        word_raw = word_match.group(1).strip()
+        word_pattern = [ch for ch in word_raw.split() if ch]
+        if not word_pattern:
+            return None
+
+        lives = int(lives_match.group(1))
+
+        guessed_raw = guessed_match.group(1).strip() if guessed_match else "none"
+        if guessed_raw.lower() == "none":
+            guessed = set()
+        else:
+            guessed = {ch.strip().lower() for ch in guessed_raw.split(",") if ch.strip().isalpha() and len(ch.strip()) == 1}
+
+        return {"status": "active", "word_pattern": word_pattern, "guessed": guessed, "lives": lives}
+
+    def _pick_hangman_letter(self, word_pattern, guessed):
+        """Pick the best letter for Silas's hangman using the solver."""
+        from modules.games import best_hangman_letter, HANGMAN_WORDS, LETTER_PRIORITY
+
+        # Build a game dict compatible with the solver.
+        # Use '\x00' for unknown positions so the solver can filter candidates.
+        revealed = {ch for ch in word_pattern if ch != '_'}
+        wrong = [ch for ch in guessed if ch not in revealed]
+        word = "".join(ch if ch != '_' else '\x00' for ch in word_pattern)
+
+        game = {"word": word, "guessed": revealed, "wrong": wrong}
+        letter, _ = best_hangman_letter(game)
+        if letter:
+            return letter
+
+        # Final fallback: letter frequency
+        tried = guessed | revealed
+        for ch in LETTER_PRIORITY:
+            if ch not in tried:
+                return ch
+        return None
+
     async def _handle_silas_gambling_message(self, message, silas_text: str):
         channel_id = runtime_settings.get("gary_gamble_channel_id")
         if not runtime_settings.get("gary_gamble_enabled", False):
@@ -267,11 +337,32 @@ class AICog(commands.Cog):
                 self._persist_gamble_state()
             parsed = self._parse_blackjack_prompt(silas_text)
             if parsed is None:
+                await self._send_gamble_report(
+                    f"BJ parse failed, falling back to stand. Text: {silas_text[:200]}", force=True
+                )
                 await message.channel.send("stand")
                 return
             total, dealer_up, soft = parsed
             action = self._recommend_blackjack_action(total, dealer_up, soft)
             await message.channel.send(action)
+            return
+
+        # --- Hangman handling ---
+        hangman = self._parse_silas_hangman(silas_text)
+        if hangman and self.gamble_state.get("hangman_active"):
+            if hangman["status"] in ("won", "lost"):
+                self.gamble_state["hangman_active"] = False
+                self.gamble_state["hangman_started_at"] = None
+                self._persist_gamble_state()
+                return
+            if hangman["status"] == "active":
+                if self.gamble_state.get("hangman_started_at") is None:
+                    self.gamble_state["hangman_started_at"] = datetime.now(timezone.utc)
+                    self._persist_gamble_state()
+                letter = self._pick_hangman_letter(hangman["word_pattern"], hangman["guessed"])
+                if letter:
+                    await asyncio.sleep(random.uniform(1, 3))
+                    await message.channel.send(letter)
 
     async def run_gamble_step(self, bypass_cooldown: bool = False) -> str:
         """Run one autonomous gambling decision step."""
@@ -293,19 +384,26 @@ class AICog(commands.Cog):
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
             self.gamble_state["blackjack_started_at"] = None
+            self.gamble_state["hangman_active"] = False
+            self.gamble_state["hangman_started_at"] = None
             self.gamble_state["session_anchor_balance"] = None
             self._persist_gamble_state()
 
-        started_at = self.gamble_state.get("blackjack_started_at")
-        if (
-            self.gamble_state.get("blackjack_active")
-            and isinstance(started_at, datetime)
-            and now - started_at > self.BJ_ACTIVE_TIMEOUT
-        ):
-            self.gamble_state["blackjack_active"] = False
-            self.gamble_state["blackjack_started_at"] = None
-            self._persist_gamble_state()
-            return "Cleared stale blackjack_active after timeout."
+        # Clear stale active games
+        for game, started_key, timeout in [
+            ("blackjack_active", "blackjack_started_at", self.BJ_ACTIVE_TIMEOUT),
+            ("hangman_active", "hangman_started_at", self.HM_ACTIVE_TIMEOUT),
+        ]:
+            started_at = self.gamble_state.get(started_key)
+            if (
+                self.gamble_state.get(game)
+                and isinstance(started_at, datetime)
+                and now - started_at > timeout
+            ):
+                self.gamble_state[game] = False
+                self.gamble_state[started_key] = None
+                self._persist_gamble_state()
+                return f"Cleared stale {game} after timeout."
 
         last_action = self.gamble_state["last_action_at"]
         if (
@@ -335,10 +433,20 @@ class AICog(commands.Cog):
             anchor = balance
             self._persist_gamble_state()
 
-        if balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT)):
-            return f"Stop-loss active at balance {balance}; pausing blackjack."
-        if balance >= int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT)):
-            return f"Take-profit reached at balance {balance}; pausing blackjack."
+        bj_stopped = (
+            balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT))
+            or balance >= int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT))
+        )
+        if bj_stopped:
+            if self.gamble_state.get("hangman_active"):
+                return "Hangman in progress; waiting for Silas."
+            await channel.send("!hang")
+            self.gamble_state["hangman_active"] = True
+            self.gamble_state["hangman_started_at"] = now
+            self.gamble_state["last_action_at"] = now
+            self._persist_gamble_state()
+            reason = "stop-loss" if balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT)) else "take-profit"
+            return f"BJ {reason} at {balance}; started hangman."
 
         if not self.gamble_state["blackjack_active"]:
             bet = self._compute_blackjack_bet(balance, anchor)

@@ -113,6 +113,8 @@ def start_c4(host, opponent):
     return game
 
 active_hangman = {}  # channel_id -> game state
+hangman_last_played = {}  # channel_id -> datetime (UTC) of last game end
+HANGMAN_COOLDOWN_HOURS = 6
 
 HANGMAN_WORDS = [
     "python", "discord", "hangman", "keyboard", "monitor", "algorithm", "function",
@@ -360,6 +362,7 @@ class GamesCog(commands.Cog):
         game = active_hangman.get(ctx.channel.id)
         if game:
             del active_hangman[ctx.channel.id]
+            hangman_last_played[ctx.channel.id] = datetime.now(timezone.utc)
             return await ctx.send(f"Hangman game ended. The word was **{game['word']}**.")
         await ctx.send("No active game to forfeit.")
     
@@ -438,6 +441,7 @@ class GamesCog(commands.Cog):
         if len(guess) > 1:
             if guess == game["word"]:
                 del active_hangman[channel.id]
+                hangman_last_played[channel.id] = datetime.now(timezone.utc)
                 await channel.send(embed=make_embed(
                     "Hangman - You Win!",
                     f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
@@ -446,6 +450,7 @@ class GamesCog(commands.Cog):
             game["wrong"].append(guess)
             if len(game["wrong"]) >= 6:
                 del active_hangman[channel.id]
+                hangman_last_played[channel.id] = datetime.now(timezone.utc)
                 await channel.send(embed=make_embed(
                     "Hangman - Game Over",
                     f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
@@ -463,6 +468,7 @@ class GamesCog(commands.Cog):
             game["guessed"].add(letter)
             if all(l in game["guessed"] for l in game["word"]):
                 del active_hangman[channel.id]
+                hangman_last_played[channel.id] = datetime.now(timezone.utc)
                 await channel.send(embed=make_embed(
                     "Hangman - You Win!",
                     f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
@@ -472,6 +478,7 @@ class GamesCog(commands.Cog):
             game["wrong"].append(letter)
             if len(game["wrong"]) >= 6:
                 del active_hangman[channel.id]
+                hangman_last_played[channel.id] = datetime.now(timezone.utc)
                 await channel.send(embed=make_embed(
                     "Hangman - Game Over",
                     f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
@@ -485,6 +492,17 @@ class GamesCog(commands.Cog):
         """Start a hangman game. Tag someone to invite them, or play solo."""
         if ctx.channel.id in active_hangman:
             return await ctx.send("There's already a hangman game in this channel. Finish it first.")
+        last = hangman_last_played.get(ctx.channel.id)
+        if last:
+            now = datetime.now(timezone.utc)
+            elapsed = now - last
+            remaining = timedelta(hours=HANGMAN_COOLDOWN_HOURS) - elapsed
+            if remaining.total_seconds() > 0:
+                h, m = divmod(int(remaining.total_seconds()) // 60, 60)
+                return await ctx.send(embed=make_embed(
+                    "Hangman Cooldown",
+                    f"Next game available in **{h}h {m}m**.",
+                    COLOR_ERROR))
         word = random.choice(HANGMAN_WORDS)
         players = {ctx.author.id}
         if player:
