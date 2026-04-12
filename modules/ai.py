@@ -231,7 +231,16 @@ class AICog(commands.Cog):
             self.gamble_state["last_known_balance"] = bal
             self._persist_gamble_state()
 
-        if any(k in lower for k in ["blackjack!", "bust", "you win", "dealer wins", "push"]):
+        # Mark hand resolved for result-style blackjack messages.
+        resolved_blackjack = (
+            ("blackjack" in lower and "balance:" in lower)
+            or "dealer wins" in lower
+            or "gary wins" in lower
+            or "you win" in lower
+            or "push" in lower
+            or "bust" in lower
+        )
+        if resolved_blackjack:
             self.gamble_state["blackjack_active"] = False
             self._persist_gamble_state()
             return
