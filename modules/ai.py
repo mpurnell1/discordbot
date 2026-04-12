@@ -202,9 +202,27 @@ class AICog(commands.Cog):
         if total == 12:
             return "stand" if 4 <= dealer_up <= 6 else "hit"
         return "hit"
+
+    def _extract_card_ranks(self, segment: str) -> list[str]:
+        """Extract card ranks from a blackjack line segment.
+
+        Handles raw cards (e.g. J♦), markdown-wrapped cards (e.g. `J♦`),
+        and ignores placeholders like ?? or hidden-card symbols.
+        """
+        ranks = []
+        for token in segment.split():
+            cleaned = token.strip("`*_~|,.;:()[]{}")
+            m = re.match(r"^(10|[2-9]|[JQKA])", cleaned, flags=re.IGNORECASE)
+            if m:
+                ranks.append(m.group(1).upper())
+        return ranks
+
     def _parse_blackjack_prompt(self, text: str):
-        # Format: "Dealer: J♦ 🂠", "Gary (12): Q♠ 2♠"
-        # Suit chars vary by Unicode encoding so we match rank + any non-word/non-space char.
+        # Expected shapes include:
+        # - Dealer: J♦ 🂠
+        # - Dealer: `J♦` ??
+        # - Gary (12): Q♠ 2♠
+        # - Gary (12): `Q♠` `2♠`
         total = None
         dealer_up = None
         ranks = []
@@ -214,15 +232,15 @@ class AICog(commands.Cog):
         if total_m:
             total = int(total_m.group(1))
 
-        dealer_m = re.search(r"dealer[^:]*:\s*([0-9]{1,2}|[JQKA])[^\s\w]", text, flags=re.IGNORECASE)
+        dealer_m = re.search(r"dealer[^:]*:\s*([^\n]+)", text, flags=re.IGNORECASE)
         if dealer_m:
-            dealer_up = self._bj_rank_value(dealer_m.group(1).upper())
+            dealer_ranks = self._extract_card_ranks(dealer_m.group(1))
+            if dealer_ranks:
+                dealer_up = self._bj_rank_value(dealer_ranks[0])
 
         hand_m = re.search(r"Gary\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
         if hand_m:
-            cards = re.findall(r"([0-9]{1,2}|[JQKA])[^\s\w]", hand_m.group(1), flags=re.IGNORECASE)
-            for card_rank in cards:
-                ranks.append(card_rank.upper())
+            ranks.extend(self._extract_card_ranks(hand_m.group(1)))
 
         if total is None or dealer_up is None:
             return None
