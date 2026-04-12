@@ -457,6 +457,29 @@ def blackjack_recommendation(player_hand, dealer_up_card):
     return "hit", "hard 11 or less"
 
 
+def best_legal_blackjack_recommendation(game, hand, dealer_up_card):
+    base_action, base_reason = blackjack_recommendation(hand["cards"], dealer_up_card)
+    legal = set(available_actions(game, hand))
+    if base_action in legal:
+        return base_action, base_reason
+
+    soft_fallback = {
+        "surrender": "hit",
+        "double": "hit",
+        "split": "hit",
+    }
+    fallback = soft_fallback.get(base_action, "stand")
+    if fallback in legal:
+        return fallback, f"{base_reason}; {base_action} unavailable -> {fallback}"
+    if "hit" in legal:
+        return "hit", f"{base_reason}; {base_action} unavailable -> hit"
+    if "stand" in legal:
+        return "stand", f"{base_reason}; {base_action} unavailable -> stand"
+
+    # Shouldn't happen, but avoid impossible guidance.
+    return next(iter(legal)), f"{base_reason}; adjusted to available action"
+
+
 apply_blackjack_ruleset(get_blackjack_ruleset_name())
 
 class EconomyCog(commands.Cog):
@@ -816,13 +839,11 @@ class EconomyCog(commands.Cog):
             current = self._current_blackjack_hand(game)
             if current:
                 dealer_up = game["dealer"][0]
-                rec_action, rec_reason = blackjack_recommendation(current["cards"], dealer_up)
                 actions = ", ".join(f"`{PREFIX}{a}`" for a in available_actions(game, current))
-                lines.extend([
-                    "",
-                    f"Actions: {actions}",
-                    f"Basic strategy: **{rec_action}** ({rec_reason})",
-                ])
+                lines.extend(["", f"Actions: {actions}"])
+                if runtime_settings.get("bj_basic_hint_enabled", True):
+                    rec_action, rec_reason = best_legal_blackjack_recommendation(game, current, dealer_up)
+                    lines.append(f"Basic strategy: **{rec_action}** ({rec_reason})")
 
         if footer_note:
             lines.extend(["", footer_note])
@@ -915,6 +936,25 @@ class EconomyCog(commands.Cog):
     async def bjrules(self, ctx):
         """Show the active blackjack table rules."""
         await ctx.send(self._blackjack_rules_summary())
+
+    @commands.command()
+    async def bjhint(self, ctx, mode: str = "status"):
+        """Admin only: toggle blackjack basic-strategy hints (`on`, `off`, `status`)."""
+        if ctx.author.id != ADMIN_ID:
+            return
+
+        action = mode.strip().lower()
+        if action == "status":
+            enabled = runtime_settings.get("bj_basic_hint_enabled", True)
+            return await ctx.send(f"Blackjack strategy hints are **{'ON' if enabled else 'OFF'}**.")
+
+        if action not in {"on", "off"}:
+            return await ctx.send(f"Usage: `{PREFIX}bjhint <on|off|status>`")
+
+        enabled = action == "on"
+        runtime_settings["bj_basic_hint_enabled"] = enabled
+        shared._save_json_setting("bj_basic_hint_enabled", enabled)
+        await ctx.send(f"Blackjack strategy hints are now **{'ON' if enabled else 'OFF'}**.")
 
     @commands.command()
     async def bjruleset(self, ctx, mode: str = "status"):

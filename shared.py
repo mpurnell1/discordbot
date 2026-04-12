@@ -173,6 +173,7 @@ SETTINGS_DEFAULTS = {
     "gary_gamble_channel_id": None,
     "gary_gamble_report_channel_id": None,
     "bj_ruleset": "realistic",
+    "bj_basic_hint_enabled": True,
     # Percent chances (0-100) for passive AI features. Stored as int.
     "unsolicited_chance_pct": 0,
     "silas_banter_chance_pct": 0,
@@ -185,6 +186,7 @@ PROTECTED_ADMIN_COMMANDS = {
     "setfeaturemode",
     "setfeaturechannels",
     "bjruleset",
+    "bjhint",
     "settings",
     "restart",
 }
@@ -312,6 +314,9 @@ def load_runtime_settings():
         str(bj_ruleset).strip().lower()
         if str(bj_ruleset).strip().lower() in {"realistic", "arcade"}
         else SETTINGS_DEFAULTS["bj_ruleset"]
+    )
+    runtime_settings["bj_basic_hint_enabled"] = bool(
+        _load_json_setting("bj_basic_hint_enabled", SETTINGS_DEFAULTS["bj_basic_hint_enabled"])
     )
     for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct"):
         raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
