@@ -468,6 +468,27 @@ class AICog(commands.Cog):
             self.silas_gambler.start()
     
 
+    @commands.Cog.listener("on_message_edit")
+    async def on_message_edit(self, before, after):
+        """Handle Silas editing his hangman message in place."""
+        if after.author.id != SILAS_BOT_ID:
+            return
+        if not self.gamble_state.get("hangman_active"):
+            return
+        # Extract text from the edited message
+        silas_text = after.content
+        if after.embeds:
+            parts = []
+            for e in after.embeds:
+                if e.title:
+                    parts.append(e.title)
+                if e.description:
+                    parts.append(e.description)
+            silas_text = silas_text or "\n".join(parts)
+        if not silas_text:
+            return
+        await self._handle_silas_gambling_message(after, silas_text)
+
     @commands.Cog.listener("on_message")
     async def on_message(self, message):
         # Ignore our own messages
