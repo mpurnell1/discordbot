@@ -114,8 +114,6 @@ def start_c4(host, opponent):
 
 active_hangman = {}  # channel_id -> game state
 hangman_msg = {}     # channel_id -> Message to edit in place
-hangman_last_played = {}  # channel_id -> datetime (UTC) of last game end
-HANGMAN_COOLDOWN_HOURS = 6
 
 HANGMAN_WORDS = [
     "python", "discord", "hangman", "keyboard", "monitor", "algorithm", "function",
@@ -364,7 +362,7 @@ class GamesCog(commands.Cog):
         if game:
             del active_hangman[ctx.channel.id]
             hangman_msg.pop(ctx.channel.id, None)
-            hangman_last_played[ctx.channel.id] = datetime.now(timezone.utc)
+
             return await ctx.send(f"Hangman game ended. The word was **{game['word']}**.")
         await ctx.send("No active game to forfeit.")
     
@@ -444,7 +442,7 @@ class GamesCog(commands.Cog):
     async def _hangman_end(self, channel, embed):
         """Send a final hangman result and clean up the tracked message."""
         hangman_msg.pop(channel.id, None)
-        hangman_last_played[channel.id] = datetime.now(timezone.utc)
+
         await channel.send(embed=embed)
 
     async def _guess_hangman(self, channel, guess_raw: str):
@@ -508,17 +506,6 @@ class GamesCog(commands.Cog):
         """Start a hangman game. Tag someone to invite them, or play solo."""
         if ctx.channel.id in active_hangman:
             return await ctx.send("There's already a hangman game in this channel. Finish it first.")
-        last = hangman_last_played.get(ctx.channel.id)
-        if last:
-            now = datetime.now(timezone.utc)
-            elapsed = now - last
-            remaining = timedelta(hours=HANGMAN_COOLDOWN_HOURS) - elapsed
-            if remaining.total_seconds() > 0:
-                h, m = divmod(int(remaining.total_seconds()) // 60, 60)
-                return await ctx.send(embed=make_embed(
-                    "Hangman Cooldown",
-                    f"Next game available in **{h}h {m}m**.",
-                    COLOR_ERROR))
         word = random.choice(HANGMAN_WORDS)
         players = {ctx.author.id}
         if player:
