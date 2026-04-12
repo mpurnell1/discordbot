@@ -17,6 +17,7 @@ class AICog(commands.Cog):
     BJ_STOP_LOSS_PCT = 0.35
     BJ_TAKE_PROFIT_PCT = 0.60
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
+    BJ_ACTIVE_TIMEOUT = timedelta(minutes=3)
     GAMBLE_REPORT_CHANNEL_ID = REDACTED_CHANNEL_ID
     GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
@@ -24,7 +25,9 @@ class AICog(commands.Cog):
         self.bot = bot
         loaded = load_gary_gamble_state()
         last_action_raw = loaded.get("last_action_at")
+        blackjack_started_raw = loaded.get("blackjack_started_at")
         last_action = None
+        blackjack_started = None
         if isinstance(last_action_raw, str) and last_action_raw:
             try:
                 last_action = datetime.fromisoformat(last_action_raw)
@@ -32,11 +35,19 @@ class AICog(commands.Cog):
                     last_action = last_action.replace(tzinfo=timezone.utc)
             except ValueError:
                 last_action = None
+        if isinstance(blackjack_started_raw, str) and blackjack_started_raw:
+            try:
+                blackjack_started = datetime.fromisoformat(blackjack_started_raw)
+                if blackjack_started.tzinfo is None:
+                    blackjack_started = blackjack_started.replace(tzinfo=timezone.utc)
+            except ValueError:
+                blackjack_started = None
         self.gamble_state = {
             "day": loaded.get("day", ""),
             "scratchoffs_used": loaded.get("scratchoffs_used", 0),
             "blackjack_active": loaded.get("blackjack_active", False),
             "last_action_at": last_action,
+            "blackjack_started_at": blackjack_started,
             "last_known_balance": loaded.get("last_known_balance"),
             "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
@@ -44,12 +55,14 @@ class AICog(commands.Cog):
 
     def _persist_gamble_state(self):
         last_action = self.gamble_state.get("last_action_at")
+        blackjack_started = self.gamble_state.get("blackjack_started_at")
         save_gary_gamble_state(
             {
                 "day": self.gamble_state.get("day", ""),
                 "scratchoffs_used": self.gamble_state.get("scratchoffs_used", 0),
                 "blackjack_active": self.gamble_state.get("blackjack_active", False),
                 "last_action_at": last_action.isoformat() if isinstance(last_action, datetime) else None,
+                "blackjack_started_at": blackjack_started.isoformat() if isinstance(blackjack_started, datetime) else None,
                 "last_known_balance": self.gamble_state.get("last_known_balance"),
                 "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
             }
@@ -242,10 +255,14 @@ class AICog(commands.Cog):
         )
         if resolved_blackjack:
             self.gamble_state["blackjack_active"] = False
+            self.gamble_state["blackjack_started_at"] = None
             self._persist_gamble_state()
             return
 
         if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"]:
+            if self.gamble_state.get("blackjack_started_at") is None:
+                self.gamble_state["blackjack_started_at"] = datetime.now(timezone.utc)
+                self._persist_gamble_state()
             parsed = self._parse_blackjack_prompt(silas_text)
             if parsed is None:
                 await message.channel.send("stand")
@@ -273,8 +290,20 @@ class AICog(commands.Cog):
             self.gamble_state["day"] = cycle_key
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
+            self.gamble_state["blackjack_started_at"] = None
             self.gamble_state["session_anchor_balance"] = None
             self._persist_gamble_state()
+
+        started_at = self.gamble_state.get("blackjack_started_at")
+        if (
+            self.gamble_state.get("blackjack_active")
+            and isinstance(started_at, datetime)
+            and now - started_at > self.BJ_ACTIVE_TIMEOUT
+        ):
+            self.gamble_state["blackjack_active"] = False
+            self.gamble_state["blackjack_started_at"] = None
+            self._persist_gamble_state()
+            return "Cleared stale blackjack_active after timeout."
 
         last_action = self.gamble_state["last_action_at"]
         if (
@@ -315,6 +344,7 @@ class AICog(commands.Cog):
                 return f"Balance {balance} below minimum bankroll threshold."
             await channel.send(f"!bj {bet}")
             self.gamble_state["blackjack_active"] = True
+            self.gamble_state["blackjack_started_at"] = now
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
             return f"Started blackjack with `!bj {bet}`."
