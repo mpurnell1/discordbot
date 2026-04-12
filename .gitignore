@@ -4,4 +4,4 @@ __pycache__/
 *.pyc
 *venv*
 
-.claude
+.claude/settings.local.json
