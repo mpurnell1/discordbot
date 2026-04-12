@@ -140,11 +140,6 @@ class AICog(commands.Cog):
                 cooldown_left = f"{int(remaining.total_seconds())}s"
         balance = self.gamble_state.get("last_known_balance")
         anchor = self.gamble_state.get("session_anchor_balance")
-        next_bet = (
-            self._compute_blackjack_bet(balance, anchor or balance)
-            if isinstance(balance, int) and balance > 0
-            else None
-        )
         now_central = now.astimezone(CENTRAL_TZ)
         await channel.send(
             "Gary Gamble Report\n"
@@ -153,7 +148,6 @@ class AICog(commands.Cog):
             f"Blackjack active: {self.gamble_state.get('blackjack_active')}\n"
             f"Balance: {balance if balance is not None else 'unknown'} | "
             f"Anchor: {anchor if anchor is not None else 'unknown'} | "
-            f"Next bet: {next_bet if next_bet is not None else 'n/a'} | "
             f"Cooldown: {cooldown_left}"
         )
         self._last_gamble_report_at = now
@@ -373,6 +367,11 @@ class AICog(commands.Cog):
         if resolved_blackjack:
             self.gamble_state["blackjack_active"] = False
             self.gamble_state["blackjack_started_at"] = None
+            # If result text didn't expose a parseable balance, request a refresh
+            # so next blackjack bet sizing uses current funds.
+            if bal is None:
+                await message.channel.send("!b")
+                self.gamble_state["last_action_at"] = datetime.now(timezone.utc)
             self._persist_gamble_state()
             return
 
@@ -476,10 +475,10 @@ class AICog(commands.Cog):
 
         balance = self.gamble_state.get("last_known_balance")
         if balance is None:
-            await channel.send("!balance")
+            await channel.send("!b")
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
-            return "Requested balance with `!balance`."
+            return "Requested balance with `!b`."
 
         anchor = self.gamble_state.get("session_anchor_balance")
         if anchor is None:
@@ -501,7 +500,7 @@ class AICog(commands.Cog):
                 remaining = self.HM_COOLDOWN - (now - hm_ended)
                 h, m = divmod(int(remaining.total_seconds()) // 60, 60)
                 return f"BJ stopped, hangman on cooldown ({h}h {m}m left)."
-            await channel.send("!hang")
+            await channel.send("!hm")
             self.gamble_state["hangman_active"] = True
             self.gamble_state["hangman_started_at"] = now
             self._persist_gamble_state()
@@ -547,15 +546,16 @@ class AICog(commands.Cog):
             return
         if message.author.id != SILAS_BOT_ID:
             return
-        silas_text = message.content
+        parts = []
+        if message.content:
+            parts.append(message.content)
         if message.embeds:
-            parts = []
             for e in message.embeds:
                 if e.title:
                     parts.append(e.title)
                 if e.description:
                     parts.append(e.description)
-            silas_text = silas_text or "\n".join(parts)
+        silas_text = "\n".join(parts)
         if not silas_text:
             return
         await self._handle_silas_gambling_message(message, silas_text)
@@ -608,15 +608,16 @@ class AICog(commands.Cog):
                         return
     
             # Extract Silas's text from message or embeds
-            silas_text = message.content
+            parts = []
+            if message.content:
+                parts.append(message.content)
             if message.embeds:
-                parts = []
                 for e in message.embeds:
                     if e.title:
                         parts.append(e.title)
                     if e.description:
                         parts.append(e.description)
-                silas_text = silas_text or "\n".join(parts)
+            silas_text = "\n".join(parts)
 
             await self._handle_silas_gambling_message(message, silas_text or "")
     
@@ -808,8 +809,7 @@ class AICog(commands.Cog):
     @tasks.loop(seconds=30)
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
-        # Don't run or report when the feature is off — otherwise the report
-        # channel gets a throttled "OFF" message every 5 minutes forever.
+        # Don't run or report when the feature is off.
         if not runtime_settings.get("gary_gamble_enabled", False):
             return
         result = await self.run_gamble_step(bypass_cooldown=False)
@@ -824,10 +824,18 @@ class AICog(commands.Cog):
             "BJ stop-loss",
             "BJ take-profit",
         )
+        # Keep report volume low: only emit for non-routine, actionable states.
+        REPORTABLE_PREFIXES = (
+            "Sent `!scratches`.",
+            "Requested balance",
+            "Cleared stale",
+            "Gamble channel is not set.",
+            "Configured gamble channel is unavailable.",
+            "BJ stop-loss",
+            "BJ take-profit",
+            "Balance",
+        )
         is_idle = result.startswith(IDLE_PREFIXES)
-        # Idle/terminal states report once then go silent until something changes.
-        # Compare by prefix so changing countdowns (e.g. "5h 47m" vs "5h 46m")
-        # don't look like new results.
         if is_idle:
             result_key = next((p for p in IDLE_PREFIXES if result.startswith(p)), result)
             if result_key == self._last_gamble_result:
@@ -837,14 +845,8 @@ class AICog(commands.Cog):
             self._last_gamble_result = result
         self.gamble_state["last_report_key"] = self._last_gamble_result
         self._persist_gamble_state()
-        force = result.startswith(
-            (
-                "Sent `!scratches`.",
-                "Started blackjack with",
-                "Requested balance",
-            )
-        )
-        await self._send_gamble_report(result, force=force)
+        if result.startswith(REPORTABLE_PREFIXES):
+            await self._send_gamble_report(result, force=True)
     
     # ---------------------------------------------------------------------------
     # EXPLICIT COMMANDS: !ask (Ollama)
