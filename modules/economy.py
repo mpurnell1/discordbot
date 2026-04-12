@@ -5,6 +5,7 @@ from datetime import datetime
 
 from discord.ext import commands
 
+import shared
 from shared import *
 
 # ECONOMY: LUCKY GUESS
@@ -204,71 +205,247 @@ PUZZLE_TITLES = {
 }
 SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
 active_blackjack = {}
-def make_deck():
-    suits = ["♠", "♥", "♦", "♣"]
-    ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
-    deck = [(r, s) for s in suits for r in ranks]
-    random.shuffle(deck)
-    return deck
-def hand_value(hand):
-    value = 0
-    aces = 0
-    for rank, _ in hand:
-        if rank in ("J", "Q", "K"):
-            value += 10
-        elif rank == "A":
-            value += 11
-            aces += 1
-        else:
-            value += int(rank)
-    while value > 21 and aces:
-        value -= 10
-        aces -= 1
-    return value
-def display_hand(hand):
-    return " ".join(f"`{r}{s}`" for r, s in hand)
+BLACKJACK_RULE_PRESETS = {
+    "realistic": {
+        "decks": 6,
+        "reshuffle_at_cards": 78,
+        "blackjack_payout": 1.5,  # 3:2
+        "dealer_hits_soft_17": False,
+        "double_any_two": True,
+        "double_after_split": True,
+        "allow_split": True,
+        "allow_ten_value_split": True,
+        "max_hands": 4,
+        "resplit_aces": False,
+        "draw_to_split_aces": False,
+        "late_surrender": True,
+        "five_card_charlie": False,
+    },
+    "arcade": {
+        "decks": 6,
+        "reshuffle_at_cards": 78,
+        "blackjack_payout": 2.0,  # player-favorable: 2:1 blackjack payout
+        "dealer_hits_soft_17": False,
+        "double_any_two": True,
+        "double_after_split": True,
+        "allow_split": True,
+        "allow_ten_value_split": True,
+        "max_hands": 4,
+        "resplit_aces": True,
+        "draw_to_split_aces": True,
+        "late_surrender": True,
+        "five_card_charlie": True,
+    },
+}
+BLACKJACK_RULES = {}
 
-def dealer_up_value(card):
-    rank = card[0]
+BLACKJACK_SUITS = ["♠", "♥", "♦", "♣"]
+BLACKJACK_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
+blackjack_shoe = []
+
+
+def get_blackjack_ruleset_name():
+    raw = runtime_settings.get("bj_ruleset", "realistic")
+    name = str(raw).strip().lower()
+    return name if name in BLACKJACK_RULE_PRESETS else "realistic"
+
+
+def apply_blackjack_ruleset(name: str):
+    selected = str(name).strip().lower()
+    if selected not in BLACKJACK_RULE_PRESETS:
+        selected = "realistic"
+    BLACKJACK_RULES.clear()
+    BLACKJACK_RULES.update(BLACKJACK_RULE_PRESETS[selected])
+    return selected
+
+
+def make_shoe():
+    shoe = []
+    for _ in range(BLACKJACK_RULES["decks"]):
+        shoe.extend((r, s) for s in BLACKJACK_SUITS for r in BLACKJACK_RANKS)
+    random.shuffle(shoe)
+    return shoe
+
+
+def shoe_needs_shuffle():
+    return len(blackjack_shoe) <= BLACKJACK_RULES["reshuffle_at_cards"]
+
+
+def draw_from_shoe():
+    global blackjack_shoe
+    if not blackjack_shoe or shoe_needs_shuffle():
+        blackjack_shoe = make_shoe()
+    return blackjack_shoe.pop()
+
+
+def card_points(rank):
     if rank in ("J", "Q", "K"):
         return 10
     if rank == "A":
         return 11
     return int(rank)
 
-def is_soft_hand(hand):
+
+def hand_total_and_soft(hand):
     total = 0
-    aces = 0
+    aces_as_eleven = 0
     for rank, _ in hand:
-        if rank in ("J", "Q", "K"):
-            total += 10
-        elif rank == "A":
-            total += 11
-            aces += 1
-        else:
-            total += int(rank)
-    while total > 21 and aces:
+        total += card_points(rank)
+        if rank == "A":
+            aces_as_eleven += 1
+    while total > 21 and aces_as_eleven:
         total -= 10
-        aces -= 1
-    # Soft hand means at least one ace still valued as 11.
-    return any(rank == "A" for rank, _ in hand) and total <= 21 and aces > 0
+        aces_as_eleven -= 1
+    return total, aces_as_eleven > 0
+
+
+def hand_value(hand):
+    total, _ = hand_total_and_soft(hand)
+    return total
+
+
+def is_soft_hand(hand):
+    _, soft = hand_total_and_soft(hand)
+    return soft
+
+
+def is_blackjack(hand):
+    return len(hand) == 2 and hand_value(hand) == 21
+
+
+def display_hand(hand):
+    return " ".join(f"`{r}{s}`" for r, s in hand)
+
+
+def dealer_up_value(card):
+    return card_points(card[0])
+
+
+def split_rank_key(card):
+    rank = card[0]
+    if rank in ("10", "J", "Q", "K") and BLACKJACK_RULES["allow_ten_value_split"]:
+        return "10"
+    return rank
+
+
+def can_split_cards(hand):
+    if len(hand) != 2:
+        return False
+    return split_rank_key(hand[0]) == split_rank_key(hand[1])
+
+
+def dealer_should_hit(dealer_hand):
+    total, soft = hand_total_and_soft(dealer_hand)
+    if total < 17:
+        return True
+    if total == 17 and soft and BLACKJACK_RULES["dealer_hits_soft_17"]:
+        return True
+    return False
+
+
+def make_player_hand(cards, bet, from_split=False, split_aces=False):
+    return {
+        "cards": cards,
+        "bet": bet,
+        "from_split": from_split,
+        "split_aces": split_aces,
+        "stood": False,
+        "bust": False,
+        "surrendered": False,
+        "doubled": False,
+        "action_count": 0,
+    }
+
+
+def hand_done(hand):
+    return hand["stood"] or hand["bust"] or hand["surrendered"]
+
+
+def available_actions(game, hand):
+    actions = ["stand", "hit"]
+    if len(hand["cards"]) == 2:
+        if (
+            (BLACKJACK_RULES["double_any_two"] or hand_value(hand["cards"]) in (9, 10, 11))
+            and (BLACKJACK_RULES["double_after_split"] or not hand["from_split"])
+        ):
+            actions.append("double")
+        can_split = (
+            BLACKJACK_RULES["allow_split"]
+            and can_split_cards(hand["cards"])
+            and len(game["hands"]) < BLACKJACK_RULES["max_hands"]
+        )
+        if can_split:
+            if split_rank_key(hand["cards"][0]) != "A" or BLACKJACK_RULES["resplit_aces"]:
+                actions.append("split")
+        if BLACKJACK_RULES["late_surrender"] and not hand["from_split"] and hand["action_count"] == 0:
+            actions.append("surrender")
+    return actions
+
+
+def advance_to_next_hand(game):
+    while game["current_hand"] < len(game["hands"]) and hand_done(game["hands"][game["current_hand"]]):
+        game["current_hand"] += 1
+    return game["current_hand"] >= len(game["hands"])
+
 
 def blackjack_recommendation(player_hand, dealer_up_card):
     total = hand_value(player_hand)
     up = dealer_up_value(dealer_up_card)
     soft = is_soft_hand(player_hand)
 
+    if can_split_cards(player_hand):
+        pair = split_rank_key(player_hand[0])
+        if pair in ("A", "8"):
+            return "split", f"pair of {pair}s"
+        if pair in ("10", "5"):
+            pass
+        elif pair == "9":
+            if up in (7, 10, 11):
+                return "stand", "9,9 vs 7/10/A"
+            return "split", "9,9 vs 2-6/8-9"
+        elif pair == "7":
+            if 2 <= up <= 7:
+                return "split", "7,7 vs 2-7"
+        elif pair == "6":
+            if 2 <= up <= 6:
+                return "split", "6,6 vs 2-6"
+        elif pair in ("2", "3"):
+            if 2 <= up <= 7:
+                return "split", f"{pair},{pair} vs 2-7"
+        elif pair == "4":
+            if 5 <= up <= 6:
+                return "split", "4,4 vs 5-6"
+
     if soft:
         if total >= 19:
             return "stand", "soft 19+"
         if total == 18:
+            if up in (3, 4, 5, 6):
+                return "double", "soft 18 vs 3-6"
             if up in (9, 10, 11):
                 return "hit", "soft 18 vs 9/10/A"
-            return "stand", "soft 18 vs 2-8"
+            return "stand", "soft 18 vs 2/7/8"
+        if total == 17 and up in (3, 4, 5, 6):
+            return "double", "soft 17 vs 3-6"
+        if total in (15, 16) and up in (4, 5, 6):
+            return "double", f"soft {total} vs 4-6"
+        if total in (13, 14) and up in (5, 6):
+            return "double", f"soft {total} vs 5-6"
         return "hit", "soft 17 or less"
 
     if total >= 17:
         return "stand", "hard 17+"
+    if total == 16 and up in (9, 10, 11):
+        return "surrender", "hard 16 vs 9/10/A"
+    if total == 15 and up == 10:
+        return "surrender", "hard 15 vs 10"
+    if total in (9, 10, 11):
+        if total == 9 and 3 <= up <= 6:
+            return "double", "hard 9 vs 3-6"
+        if total == 10 and 2 <= up <= 9:
+            return "double", "hard 10 vs 2-9"
+        if total == 11 and 2 <= up <= 10:
+            return "double", "hard 11 vs 2-10"
     if 13 <= total <= 16:
         if 2 <= up <= 6:
             return "stand", "hard 13-16 vs 2-6"
@@ -278,6 +455,9 @@ def blackjack_recommendation(player_hand, dealer_up_card):
             return "stand", "hard 12 vs 4-6"
         return "hit", "hard 12 vs 2-3/7-A"
     return "hit", "hard 11 or less"
+
+
+apply_blackjack_ruleset(get_blackjack_ruleset_name())
 
 class EconomyCog(commands.Cog):
     def __init__(self, bot):
@@ -596,68 +776,245 @@ class EconomyCog(commands.Cog):
             await ctx.send(embed=make_embed(
                 f"🎰 {display}",
                 f"No match. You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
-    
     # ---------------------------------------------------------------------------
     # GAMBLING: BLACKJACK
     # ---------------------------------------------------------------------------
 
+    def _current_blackjack_hand(self, game):
+        idx = game["current_hand"]
+        if idx >= len(game["hands"]):
+            return None
+        return game["hands"][idx]
+
+    def _format_hand_line(self, idx, hand, active=False):
+        cards = display_hand(hand["cards"])
+        total = hand_value(hand["cards"])
+        marker = "-> " if active else ""
+        label = f"{marker}Hand {idx + 1}"
+        flags = []
+        if hand["doubled"]:
+            flags.append("doubled")
+        if hand["surrendered"]:
+            flags.append("surrendered")
+        if hand["bust"]:
+            flags.append("bust")
+        if hand["stood"] and not hand["bust"] and not hand["surrendered"]:
+            flags.append("stand")
+        if BLACKJACK_RULES["five_card_charlie"] and len(hand["cards"]) >= 5 and total <= 21:
+            flags.append("charlie")
+        suffix = f" ({', '.join(flags)})" if flags else ""
+        return f"{label}: {cards} -> **{total}** | Bet: **{hand['bet']}**{suffix}"
+
+    def _build_blackjack_embed(self, game, reveal_dealer=False, footer_note=None):
+        dealer_cards = game["dealer"] if reveal_dealer else game["dealer"][:1]
+        dealer_suffix = f" -> **{hand_value(game['dealer'])}**" if reveal_dealer else " `??`"
+        lines = [f"Dealer: {display_hand(dealer_cards)}{dealer_suffix}", ""]
+        for idx, hand in enumerate(game["hands"]):
+            lines.append(self._format_hand_line(idx, hand, active=(idx == game["current_hand"] and not reveal_dealer)))
+
+        if not reveal_dealer:
+            current = self._current_blackjack_hand(game)
+            if current:
+                dealer_up = game["dealer"][0]
+                rec_action, rec_reason = blackjack_recommendation(current["cards"], dealer_up)
+                actions = ", ".join(f"`{PREFIX}{a}`" for a in available_actions(game, current))
+                lines.extend([
+                    "",
+                    f"Actions: {actions}",
+                    f"Basic strategy: **{rec_action}** ({rec_reason})",
+                ])
+
+        if footer_note:
+            lines.extend(["", footer_note])
+
+        return make_embed("Blackjack", "\n".join(lines))
+
+    async def _finish_blackjack_round(self, ctx, game):
+        live_hands = [
+            hand for hand in game["hands"]
+            if not hand["bust"] and not hand["surrendered"]
+        ]
+        if live_hands:
+            while dealer_should_hit(game["dealer"]):
+                game["dealer"].append(draw_from_shoe())
+
+        dealer_value = hand_value(game["dealer"])
+        dealer_bust = dealer_value > 21
+        total_delta = 0
+        settlement = []
+
+        for idx, hand in enumerate(game["hands"]):
+            hv = hand_value(hand["cards"])
+            bet = hand["bet"]
+
+            if hand["surrendered"]:
+                loss = bet // 2
+                total_delta -= loss
+                settlement.append(f"Hand {idx + 1}: surrendered (-{loss})")
+                continue
+
+            if hand["bust"]:
+                total_delta -= bet
+                settlement.append(f"Hand {idx + 1}: bust (-{bet})")
+                continue
+
+            if BLACKJACK_RULES["five_card_charlie"] and len(hand["cards"]) >= 5 and hv <= 21:
+                total_delta += bet
+                settlement.append(f"Hand {idx + 1}: five-card charlie (+{bet})")
+                continue
+
+            if dealer_bust or hv > dealer_value:
+                total_delta += bet
+                settlement.append(f"Hand {idx + 1}: win (+{bet})")
+            elif hv < dealer_value:
+                total_delta -= bet
+                settlement.append(f"Hand {idx + 1}: lose (-{bet})")
+            else:
+                settlement.append(f"Hand {idx + 1}: push (+0)")
+
+        if total_delta:
+            update_balance(ctx.author.id, total_delta)
+        new_bal = get_balance(ctx.author.id)
+
+        if total_delta > 0:
+            result = f"Net result: **+{total_delta}**"
+            color = COLOR_SUCCESS
+        elif total_delta < 0:
+            result = f"Net result: **{total_delta}**"
+            color = COLOR_ERROR
+        else:
+            result = "Net result: **0**"
+            color = COLOR_WARNING
+
+        footer = f"{result}\nBalance: **{new_bal}**\n" + "\n".join(settlement)
+        embed = self._build_blackjack_embed(game, reveal_dealer=True, footer_note=footer)
+        embed.color = color
+        await ctx.send(embed=embed)
+
+    async def _advance_or_finish_blackjack(self, ctx, game):
+        if advance_to_next_hand(game):
+            del active_blackjack[ctx.author.id]
+            await self._finish_blackjack_round(ctx, game)
+            return
+        await ctx.send(embed=self._build_blackjack_embed(game))
+
+    def _blackjack_rules_summary(self):
+        current = get_blackjack_ruleset_name()
+        rules = BLACKJACK_RULES
+        payout_display = "3:2" if abs(rules["blackjack_payout"] - 1.5) < 1e-9 else f"{rules['blackjack_payout']}:1"
+        return (
+            "Blackjack ruleset: "
+            f"**{current}**\n"
+            f"Decks: **{rules['decks']}** | BJ payout: **{payout_display}** | "
+            f"S17: **{'yes' if not rules['dealer_hits_soft_17'] else 'no'}** | "
+            f"Late surrender: **{'yes' if rules['late_surrender'] else 'no'}** | "
+            f"Five-card Charlie: **{'yes' if rules['five_card_charlie'] else 'no'}**"
+        )
+
+    @commands.command(aliases=["bjtable"])
+    async def bjrules(self, ctx):
+        """Show the active blackjack table rules."""
+        await ctx.send(self._blackjack_rules_summary())
+
+    @commands.command()
+    async def bjruleset(self, ctx, mode: str = "status"):
+        """Admin only: set blackjack ruleset (`realistic` or `arcade`) or show status."""
+        if ctx.author.id != ADMIN_ID:
+            return
+
+        action = mode.strip().lower()
+        if action == "status":
+            return await ctx.send(self._blackjack_rules_summary())
+
+        if action not in BLACKJACK_RULE_PRESETS:
+            return await ctx.send(f"Usage: `{PREFIX}bjruleset <realistic|arcade|status>`")
+
+        if active_blackjack:
+            return await ctx.send("Cannot switch blackjack rules while a hand is active. Finish current hands first.")
+
+        selected = apply_blackjack_ruleset(action)
+        runtime_settings["bj_ruleset"] = selected
+        shared._save_json_setting("bj_ruleset", selected)
+        blackjack_shoe.clear()
+        await ctx.send(f"Blackjack ruleset set to **{selected}**.")
+
     @commands.command(aliases=["bj"])
     async def blackjack(self, ctx, amount: int):
-        """Play a hand of blackjack."""
+        """Play a rules-based blackjack hand with split/double/surrender."""
         if ctx.author.id in active_blackjack:
-            return await ctx.send(f"You already have a hand going! Use `{PREFIX}hit` or `{PREFIX}stand`.")
+            return await ctx.send(
+                f"You already have a hand going! Use `{PREFIX}hit`, `{PREFIX}stand`, "
+                f"`{PREFIX}double`, `{PREFIX}split`, or `{PREFIX}surrender`."
+            )
         if await check_bet(ctx, amount):
             return
-    
-        deck = make_deck()
-        player = [deck.pop(), deck.pop()]
-        dealer = [deck.pop(), deck.pop()]
-        pv = hand_value(player)
-    
-        if pv == 21:
-            winnings = int(amount * 1.5)
-            update_balance(ctx.author.id, winnings)
-            new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed("🃏 BLACKJACK!",
-                f"Your hand: {display_hand(player)} → **21**\n"
-                f"Dealer: {display_hand(dealer)} → **{hand_value(dealer)}**\n\n"
-                f"You won **{winnings}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
-            return
-    
-        active_blackjack[ctx.author.id] = {
-            "deck": deck, "player": player, "dealer": dealer, "bet": amount
+
+        player = [draw_from_shoe(), draw_from_shoe()]
+        dealer = [draw_from_shoe(), draw_from_shoe()]
+        game = {
+            "dealer": dealer,
+            "hands": [make_player_hand(player, amount)],
+            "current_hand": 0,
         }
-        await ctx.send(embed=make_embed("🃏 Blackjack",
-            f"Your hand: {display_hand(player)} → **{pv}**\n"
-            f"Dealer shows: {display_hand(dealer[:1])} `??`\n\n"
-            f"Type `{PREFIX}hit` or `{PREFIX}stand`"))
-    
+
+        player_bj = is_blackjack(player)
+        dealer_bj = is_blackjack(dealer)
+        if player_bj or dealer_bj:
+            total_delta = 0
+            if player_bj and dealer_bj:
+                note = "Both sides have blackjack. Push."
+                color = COLOR_WARNING
+            elif player_bj:
+                win = int(amount * BLACKJACK_RULES["blackjack_payout"])
+                total_delta = win
+                note = f"Blackjack pays {BLACKJACK_RULES['blackjack_payout']}:1. You win **+{win}**."
+                color = COLOR_SUCCESS
+            else:
+                total_delta = -amount
+                note = f"Dealer has blackjack. You lose **-{amount}**."
+                color = COLOR_ERROR
+
+            if total_delta:
+                update_balance(ctx.author.id, total_delta)
+            new_bal = get_balance(ctx.author.id)
+            await ctx.send(embed=make_embed(
+                "Blackjack",
+                f"Dealer: {display_hand(dealer)} -> **{hand_value(dealer)}**\n"
+                f"Hand 1: {display_hand(player)} -> **{hand_value(player)}** | Bet: **{amount}**\n\n"
+                f"{note}\nBalance: **{new_bal}**",
+                color,
+            ))
+            return
+
+        active_blackjack[ctx.author.id] = game
+        await ctx.send(embed=self._build_blackjack_embed(game))
 
     @commands.command()
     async def hit(self, ctx):
         """Draw another card in blackjack."""
         game = active_blackjack.get(ctx.author.id)
         if not game:
-            return await ctx.send(f"You don't have an active blackjack hand. Start one with `{PREFIX}blackjack <amount>`.")
-    
-        game["player"].append(game["deck"].pop())
-        pv = hand_value(game["player"])
-    
-        if pv > 21:
-            update_balance(ctx.author.id, -game["bet"])
-            new_bal = get_balance(ctx.author.id)
+            return await ctx.send(
+                f"You don't have an active blackjack hand. Start one with `{PREFIX}blackjack <amount>`."
+            )
+
+        hand = self._current_blackjack_hand(game)
+        if hand is None:
             del active_blackjack[ctx.author.id]
-            await ctx.send(embed=make_embed("🃏 Bust!",
-                f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
-                f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
-        elif pv == 21:
-            await self.stand(ctx)
-        else:
-            await ctx.send(embed=make_embed("🃏 Blackjack",
-                f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
-                f"Dealer shows: {display_hand(game['dealer'][:1])} `??`\n\n"
-                f"Type `{PREFIX}hit` or `{PREFIX}stand`"))
-    
+            return await ctx.send("Blackjack state reset. Start a new hand.")
+
+        if "hit" not in available_actions(game, hand):
+            return await ctx.send("You cannot hit this hand right now.")
+
+        hand["cards"].append(draw_from_shoe())
+        hand["action_count"] += 1
+        hv = hand_value(hand["cards"])
+        if hv > 21:
+            hand["bust"] = True
+        elif hv == 21:
+            hand["stood"] = True
+
+        await self._advance_or_finish_blackjack(ctx, game)
 
     @commands.command()
     async def stand(self, ctx):
@@ -665,35 +1022,102 @@ class EconomyCog(commands.Cog):
         game = active_blackjack.get(ctx.author.id)
         if not game:
             return await ctx.send("You don't have an active blackjack hand.")
-    
-        while hand_value(game["dealer"]) < 17:
-            game["dealer"].append(game["deck"].pop())
-    
-        pv = hand_value(game["player"])
-        dv = hand_value(game["dealer"])
-        del active_blackjack[ctx.author.id]
-    
-        result_lines = (
-            f"Your hand: {display_hand(game['player'])} → **{pv}**\n"
-            f"Dealer: {display_hand(game['dealer'])} → **{dv}**\n\n"
-        )
-    
-        if dv > 21 or pv > dv:
-            update_balance(ctx.author.id, game["bet"])
-            new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed("🃏 You Win!", result_lines +
-                f"You won **{game['bet']}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
-        elif pv < dv:
-            update_balance(ctx.author.id, -game["bet"])
-            new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed("🃏 Dealer Wins", result_lines +
-                f"You lost **{game['bet']}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
-        else:
-            new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed("🃏 Push!", result_lines +
-                f"It's a tie. Your **{game['bet']}** coins are returned.\nBalance: **{new_bal}**", COLOR_WARNING))
-    
 
+        hand = self._current_blackjack_hand(game)
+        if hand is None:
+            del active_blackjack[ctx.author.id]
+            return await ctx.send("Blackjack state reset. Start a new hand.")
+
+        hand["stood"] = True
+        hand["action_count"] += 1
+        await self._advance_or_finish_blackjack(ctx, game)
+
+    @commands.command()
+    async def double(self, ctx):
+        """Double down: double your bet, draw once, then stand."""
+        game = active_blackjack.get(ctx.author.id)
+        if not game:
+            return await ctx.send("You don't have an active blackjack hand.")
+
+        hand = self._current_blackjack_hand(game)
+        if hand is None:
+            del active_blackjack[ctx.author.id]
+            return await ctx.send("Blackjack state reset. Start a new hand.")
+
+        if "double" not in available_actions(game, hand):
+            return await ctx.send("You cannot double this hand right now.")
+
+        extra = hand["bet"]
+        if get_balance(ctx.author.id) < extra:
+            return await ctx.send(f"You need at least **{extra}** coins available to double.")
+
+        hand["bet"] += extra
+        hand["doubled"] = True
+        hand["cards"].append(draw_from_shoe())
+        hand["action_count"] += 1
+        if hand_value(hand["cards"]) > 21:
+            hand["bust"] = True
+        else:
+            hand["stood"] = True
+
+        await self._advance_or_finish_blackjack(ctx, game)
+
+    @commands.command()
+    async def split(self, ctx):
+        """Split a pair into two hands."""
+        game = active_blackjack.get(ctx.author.id)
+        if not game:
+            return await ctx.send("You don't have an active blackjack hand.")
+
+        hand = self._current_blackjack_hand(game)
+        if hand is None:
+            del active_blackjack[ctx.author.id]
+            return await ctx.send("Blackjack state reset. Start a new hand.")
+
+        if "split" not in available_actions(game, hand):
+            return await ctx.send("You cannot split this hand right now.")
+
+        extra = hand["bet"]
+        if get_balance(ctx.author.id) < extra:
+            return await ctx.send(f"You need at least **{extra}** coins available to split.")
+
+        c1, c2 = hand["cards"]
+        pair_key = split_rank_key(c1)
+        split_aces = pair_key == "A"
+        hand_a = make_player_hand([c1, draw_from_shoe()], hand["bet"], from_split=True, split_aces=split_aces)
+        hand_b = make_player_hand([c2, draw_from_shoe()], hand["bet"], from_split=True, split_aces=split_aces)
+
+        idx = game["current_hand"]
+        game["hands"][idx] = hand_a
+        game["hands"].insert(idx + 1, hand_b)
+
+        if split_aces and not BLACKJACK_RULES["draw_to_split_aces"]:
+            hand_a["stood"] = True
+            hand_b["stood"] = True
+
+        if hand_value(hand_a["cards"]) == 21:
+            hand_a["stood"] = True
+
+        await self._advance_or_finish_blackjack(ctx, game)
+
+    @commands.command()
+    async def surrender(self, ctx):
+        """Late surrender: forfeit half your current hand's bet."""
+        game = active_blackjack.get(ctx.author.id)
+        if not game:
+            return await ctx.send("You don't have an active blackjack hand.")
+
+        hand = self._current_blackjack_hand(game)
+        if hand is None:
+            del active_blackjack[ctx.author.id]
+            return await ctx.send("Blackjack state reset. Start a new hand.")
+
+        if "surrender" not in available_actions(game, hand):
+            return await ctx.send("You cannot surrender this hand right now.")
+
+        hand["surrendered"] = True
+        hand["action_count"] += 1
+        await self._advance_or_finish_blackjack(ctx, game)
 
 async def setup(bot):
     await bot.add_cog(EconomyCog(bot))

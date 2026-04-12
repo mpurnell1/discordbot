@@ -525,6 +525,7 @@ class MiscCog(commands.Cog):
         dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
         daily_reminder_state = "ON" if runtime_settings.get("daily_reminder_enabled", True) else "OFF"
         gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
+        bj_ruleset = str(runtime_settings.get("bj_ruleset", "realistic")).upper()
         gary_gamble_channel = runtime_settings.get("gary_gamble_channel_id")
         gary_gamble_channel_text = f"<#{int(gary_gamble_channel)}>" if gary_gamble_channel else "(not set)"
         disabled = sorted(
@@ -556,6 +557,7 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
         embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
+        embed.add_field(name="BJ Ruleset", value=bj_ruleset, inline=True)
         embed.add_field(name="Passive AI", value=passive_value, inline=False)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
@@ -729,7 +731,9 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Gambling", value=(
             f"`{p}coinflip <amt>` - Double or nothing\n"
             f"`{p}slots <amt>` - Slot machine\n"
-            f"`{p}blackjack <amt>` - Play 21"
+            f"`{p}blackjack <amt>` - Play blackjack\n"
+            f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
+            f"`{p}bjrules` - Show current blackjack table rules"
         ), inline=False)
         embed.add_field(name="Games", value=(
             f"`{p}ttt @user` - Tic-tac-toe\n"
@@ -771,7 +775,8 @@ class MiscCog(commands.Cog):
             f"`{p}settings` - Show runtime settings\n"
             f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
-            f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances"
+            f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances\n"
+            f"`{p}bjruleset <realistic|arcade|status>` - Blackjack table ruleset"
         ), inline=False)
         embed.add_field(name="Feature Gates", value=(
             f"`{p}setcommand <command> <on|off>` - Toggle command\n"

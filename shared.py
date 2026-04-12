@@ -172,6 +172,7 @@ SETTINGS_DEFAULTS = {
     "gary_gamble_enabled": False,
     "gary_gamble_channel_id": None,
     "gary_gamble_report_channel_id": None,
+    "bj_ruleset": "realistic",
     # Percent chances (0-100) for passive AI features. Stored as int.
     "unsolicited_chance_pct": 0,
     "silas_banter_chance_pct": 0,
@@ -183,6 +184,7 @@ PROTECTED_ADMIN_COMMANDS = {
     "setdeadchat",
     "setfeaturemode",
     "setfeaturechannels",
+    "bjruleset",
     "settings",
     "restart",
 }
@@ -305,6 +307,12 @@ def load_runtime_settings():
         "gary_gamble_report_channel_id", SETTINGS_DEFAULTS["gary_gamble_report_channel_id"]
     )
     runtime_settings["gary_gamble_report_channel_id"] = int(report_val) if report_val else None
+    bj_ruleset = _load_json_setting("bj_ruleset", SETTINGS_DEFAULTS["bj_ruleset"])
+    runtime_settings["bj_ruleset"] = (
+        str(bj_ruleset).strip().lower()
+        if str(bj_ruleset).strip().lower() in {"realistic", "arcade"}
+        else SETTINGS_DEFAULTS["bj_ruleset"]
+    )
     for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct"):
         raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
         try:
