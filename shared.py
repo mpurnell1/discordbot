@@ -365,6 +365,7 @@ def load_gary_gamble_state():
         "hangman_active": bool(raw.get("hangman_active", False)),
         "hangman_started_at": raw.get("hangman_started_at"),
         "hangman_ended_at": raw.get("hangman_ended_at"),
+        "last_report_key": raw.get("last_report_key"),
         "last_known_balance": (
             int(raw.get("last_known_balance"))
             if raw.get("last_known_balance") is not None
@@ -388,6 +389,7 @@ def save_gary_gamble_state(state: dict):
         "hangman_active": bool(state.get("hangman_active", False)),
         "hangman_started_at": state.get("hangman_started_at"),
         "hangman_ended_at": state.get("hangman_ended_at"),
+        "last_report_key": state.get("last_report_key"),
         "last_known_balance": (
             int(state.get("last_known_balance"))
             if state.get("last_known_balance") is not None
