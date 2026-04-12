@@ -539,6 +539,10 @@ class GamesCog(commands.Cog):
         # Plain-message guesses are single-letter only.
         if len(content) != 1 or not content.isalpha():
             return
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
         await self._guess_hangman(message.channel, content)
 
     @commands.command()
@@ -549,6 +553,10 @@ class GamesCog(commands.Cog):
             return await ctx.send("No active hangman game in this channel.")
         if ctx.author.id not in game.get("players", set()):
             return
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
         await self._guess_hangman(ctx.channel, guess)
 
 async def setup(bot):
