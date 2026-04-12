@@ -1,4 +1,5 @@
 ﻿import asyncio
+import logging
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,8 @@ import discord
 from discord.ext import commands, tasks
 
 import shared
+
+logger = logging.getLogger("garybot")
 from shared import *
 
 
@@ -496,6 +499,7 @@ class AICog(commands.Cog):
                 return "Hangman in progress; waiting for Silas."
             # Respect Silas's 6-hour hangman cooldown
             hm_ended = self.gamble_state.get("hangman_ended_at")
+            logger.info("Hangman cooldown check: hm_ended=%s type=%s now=%s", hm_ended, type(hm_ended).__name__, now)
             if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
                 remaining = self.HM_COOLDOWN - (now - hm_ended)
                 h, m = divmod(int(remaining.total_seconds()) // 60, 60)
