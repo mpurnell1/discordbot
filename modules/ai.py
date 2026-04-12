@@ -20,44 +20,40 @@ class AICog(commands.Cog):
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
     BJ_ACTIVE_TIMEOUT = timedelta(minutes=3)
     HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
+    HM_COOLDOWN = timedelta(hours=6)
     GAMBLE_REPORT_CHANNEL_ID_FALLBACK = 1492675170203340992
     GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
     def __init__(self, bot):
         self.bot = bot
         loaded = load_gary_gamble_state()
-        last_action_raw = loaded.get("last_action_at")
-        blackjack_started_raw = loaded.get("blackjack_started_at")
-        hangman_started_raw = loaded.get("hangman_started_at")
-        last_action = None
-        blackjack_started = None
-        hangman_started = None
-        for raw, name in [
-            (last_action_raw, "last_action"),
-            (blackjack_started_raw, "blackjack_started"),
-            (hangman_started_raw, "hangman_started"),
-        ]:
+        # Parse datetime fields from persisted state
+        dt_fields = {
+            "last_action_at": loaded.get("last_action_at"),
+            "blackjack_started_at": loaded.get("blackjack_started_at"),
+            "hangman_started_at": loaded.get("hangman_started_at"),
+            "hangman_ended_at": loaded.get("hangman_ended_at"),
+        }
+        parsed_dts = {}
+        for key, raw in dt_fields.items():
+            dt = None
             if isinstance(raw, str) and raw:
                 try:
                     dt = datetime.fromisoformat(raw)
                     if dt.tzinfo is None:
                         dt = dt.replace(tzinfo=timezone.utc)
                 except ValueError:
-                    dt = None
-                if name == "last_action":
-                    last_action = dt
-                elif name == "blackjack_started":
-                    blackjack_started = dt
-                else:
-                    hangman_started = dt
+                    pass
+            parsed_dts[key] = dt
         self.gamble_state = {
             "day": loaded.get("day", ""),
             "scratchoffs_used": loaded.get("scratchoffs_used", 0),
             "blackjack_active": loaded.get("blackjack_active", False),
-            "last_action_at": last_action,
-            "blackjack_started_at": blackjack_started,
+            "last_action_at": parsed_dts["last_action_at"],
+            "blackjack_started_at": parsed_dts["blackjack_started_at"],
             "hangman_active": loaded.get("hangman_active", False),
-            "hangman_started_at": hangman_started,
+            "hangman_started_at": parsed_dts["hangman_started_at"],
+            "hangman_ended_at": parsed_dts["hangman_ended_at"],
             "last_known_balance": loaded.get("last_known_balance"),
             "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
@@ -65,18 +61,19 @@ class AICog(commands.Cog):
         self._last_gamble_result = None
 
     def _persist_gamble_state(self):
-        last_action = self.gamble_state.get("last_action_at")
-        blackjack_started = self.gamble_state.get("blackjack_started_at")
-        hangman_started = self.gamble_state.get("hangman_started_at")
+        def _iso(key):
+            v = self.gamble_state.get(key)
+            return v.isoformat() if isinstance(v, datetime) else None
         save_gary_gamble_state(
             {
                 "day": self.gamble_state.get("day", ""),
                 "scratchoffs_used": self.gamble_state.get("scratchoffs_used", 0),
                 "blackjack_active": self.gamble_state.get("blackjack_active", False),
-                "last_action_at": last_action.isoformat() if isinstance(last_action, datetime) else None,
-                "blackjack_started_at": blackjack_started.isoformat() if isinstance(blackjack_started, datetime) else None,
+                "last_action_at": _iso("last_action_at"),
+                "blackjack_started_at": _iso("blackjack_started_at"),
                 "hangman_active": self.gamble_state.get("hangman_active", False),
-                "hangman_started_at": hangman_started.isoformat() if isinstance(hangman_started, datetime) else None,
+                "hangman_started_at": _iso("hangman_started_at"),
+                "hangman_ended_at": _iso("hangman_ended_at"),
                 "last_known_balance": self.gamble_state.get("last_known_balance"),
                 "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
             }
@@ -395,12 +392,22 @@ class AICog(commands.Cog):
             await message.channel.send(action)
             return
 
+        # --- Silas hangman cooldown detection ---
+        if "cooldown" in lower and "hangman" in lower:
+            self.gamble_state["hangman_active"] = False
+            self.gamble_state["hangman_started_at"] = None
+            if self.gamble_state.get("hangman_ended_at") is None:
+                self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+            self._persist_gamble_state()
+            return
+
         # --- Hangman handling ---
         hangman = self._parse_silas_hangman(silas_text)
         if hangman and self.gamble_state.get("hangman_active"):
             if hangman["status"] in ("won", "lost"):
                 self.gamble_state["hangman_active"] = False
                 self.gamble_state["hangman_started_at"] = None
+                self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
                 self._persist_gamble_state()
                 return
             if hangman["status"] == "active":
@@ -487,7 +494,12 @@ class AICog(commands.Cog):
         if bj_stopped:
             if self.gamble_state.get("hangman_active"):
                 return "Hangman in progress; waiting for Silas."
-            # Hangman is free — no cooldown needed between games.
+            # Respect Silas's 6-hour hangman cooldown
+            hm_ended = self.gamble_state.get("hangman_ended_at")
+            if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
+                remaining = self.HM_COOLDOWN - (now - hm_ended)
+                h, m = divmod(int(remaining.total_seconds()) // 60, 60)
+                return f"BJ stopped, hangman on cooldown ({h}h {m}m left)."
             await channel.send("!hang")
             self.gamble_state["hangman_active"] = True
             self.gamble_state["hangman_started_at"] = now
