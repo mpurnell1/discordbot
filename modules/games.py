@@ -501,7 +501,7 @@ class GamesCog(commands.Cog):
         await self._hangman_update(channel, make_embed("Hangman", hangman_render(game)))
         return True
 
-    @commands.command()
+    @commands.command(aliases=["hang", "hm"])
     async def hangman(self, ctx, player: discord.Member = None):
         """Start a hangman game. Tag someone to invite them, or play solo."""
         if ctx.channel.id in active_hangman:
