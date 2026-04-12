@@ -1,7 +1,18 @@
+# Environment
 .env
-*.db
-__pycache__/
-*.pyc
 *venv*
 
+# Databases
+*.db
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Agents / local tooling
 .claude/settings.local.json
+
+# Production runtime artifacts (RPi)
+.deploy-restart
+deploy/deploy.log
+logs/
