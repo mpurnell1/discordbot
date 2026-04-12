@@ -16,7 +16,9 @@ class AICog(commands.Cog):
     BJ_MIN_BALANCE = 200
     BJ_STOP_LOSS_PCT = 0.35
     BJ_TAKE_PROFIT_PCT = 0.60
-    GAMBLE_ACTION_COOLDOWN = timedelta(minutes=2)
+    GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
+    GAMBLE_REPORT_CHANNEL_ID = 1492675170203340992
+    GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
     def __init__(self, bot):
         self.bot = bot
@@ -38,6 +40,7 @@ class AICog(commands.Cog):
             "last_known_balance": loaded.get("last_known_balance"),
             "session_anchor_balance": loaded.get("session_anchor_balance"),
         }
+        self._last_gamble_report_at = None
 
     def _persist_gamble_state(self):
         last_action = self.gamble_state.get("last_action_at")
@@ -87,6 +90,43 @@ class AICog(commands.Cog):
         bet = max(1, raw)
         bet = min(bet, self.BJ_BET_CAP, balance)
         return bet
+
+    async def _send_gamble_report(self, summary: str, force: bool = False):
+        channel = self.bot.get_channel(self.GAMBLE_REPORT_CHANNEL_ID)
+        if channel is None:
+            return
+        now = datetime.now(timezone.utc)
+        if (
+            not force
+            and self._last_gamble_report_at is not None
+            and now - self._last_gamble_report_at < self.GAMBLE_REPORT_INTERVAL
+        ):
+            return
+
+        last_action = self.gamble_state.get("last_action_at")
+        cooldown_left = "ready"
+        if isinstance(last_action, datetime):
+            remaining = self.GAMBLE_ACTION_COOLDOWN - (now - last_action)
+            if remaining.total_seconds() > 0:
+                cooldown_left = f"{int(remaining.total_seconds())}s"
+        balance = self.gamble_state.get("last_known_balance")
+        anchor = self.gamble_state.get("session_anchor_balance")
+        next_bet = (
+            self._compute_blackjack_bet(balance, anchor or balance)
+            if isinstance(balance, int) and balance > 0
+            else None
+        )
+        await channel.send(
+            "Gary Gamble Report\n"
+            f"Summary: {summary}\n"
+            f"Day: {self.gamble_state.get('day')} | Scratches used: {self.gamble_state.get('scratchoffs_used')} | "
+            f"Blackjack active: {self.gamble_state.get('blackjack_active')}\n"
+            f"Balance: {balance if balance is not None else 'unknown'} | "
+            f"Anchor: {anchor if anchor is not None else 'unknown'} | "
+            f"Next bet: {next_bet if next_bet is not None else 'n/a'} | "
+            f"Cooldown: {cooldown_left}"
+        )
+        self._last_gamble_report_at = now
 
     def _scratch_reset_key(self, now_utc: datetime) -> str:
         """Return logical daily key where a new day starts at 5:00 AM Central."""
@@ -508,10 +548,20 @@ class AICog(commands.Cog):
                     response = random.choice(DEAD_CHAT_RESPONSES[new_stage])
                     await channel.send(response)
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=30)
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
-        await self.run_gamble_step(bypass_cooldown=False)
+        result = await self.run_gamble_step(bypass_cooldown=False)
+        force = result.startswith(
+            (
+                "Sent `!scratches`.",
+                "Started blackjack with",
+                "Requested balance",
+                "Stop-loss",
+                "Take-profit",
+            )
+        )
+        await self._send_gamble_report(result, force=force)
     
     # ---------------------------------------------------------------------------
     # EXPLICIT COMMANDS: !ask (Ollama)
