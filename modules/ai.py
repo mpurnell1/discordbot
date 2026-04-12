@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -58,7 +58,7 @@ class AICog(commands.Cog):
     def _extract_balance_from_text(self, text: str):
         patterns = [
             r"balance[^0-9\-]*([0-9][0-9,]*)",
-            r"\b([0-9][0-9,]*)\s*(?:coins?|🪙)\b",
+            r"\b([0-9][0-9,]*)\s*(?:coins?|ðŸª™)\b",
         ]
         for pattern in patterns:
             m = re.search(pattern, text, flags=re.IGNORECASE)
@@ -172,38 +172,52 @@ class AICog(commands.Cog):
         if total == 12:
             return "stand" if 4 <= dealer_up <= 6 else "hit"
         return "hit"
-
     def _parse_blackjack_prompt(self, text: str):
-        # Expected style (from Silas): "Your hand: `A♠` `7♦` → **18**" / "Dealer shows: `K♣` `??`"
-        total_match = re.search(r"your hand:.*?\*\*(\d+)\*\*", text, flags=re.IGNORECASE | re.DOTALL)
-        dealer_match = re.search(r"dealer shows:.*?`([^`]+)`", text, flags=re.IGNORECASE | re.DOTALL)
-        hand_line_match = re.search(r"your hand:(.*?)(?:\n|$)", text, flags=re.IGNORECASE | re.DOTALL)
-
-        if not total_match or not dealer_match or not hand_line_match:
-            return None
-
-        total = int(total_match.group(1))
-        dealer_card = dealer_match.group(1).strip()
-        dealer_rank = dealer_card[:-1] if len(dealer_card) > 1 else dealer_card
-        if dealer_rank == "10":
-            dealer_up = 10
-        else:
-            dealer_up = self._bj_rank_value(dealer_rank[0])
-
-        hand_tokens = re.findall(r"`([^`]+)`", hand_line_match.group(1))
+        # Support both old and new Silas prompt formats:
+        # Old: "Your hand: `A♠` `7♦` → **18**", "Dealer shows: `K♣` `??`"
+        # New: "Dealer: J♦ 🂠", "You (12): Q♠ 2♠"
+        total = None
+        dealer_up = None
         ranks = []
-        for token in hand_tokens:
-            token = token.strip()
-            if token == "??":
-                continue
-            rank = token[:-1] if len(token) > 1 else token
-            if rank == "10":
-                ranks.append("10")
-            elif rank:
-                ranks.append(rank[0].upper())
+
+        old_total = re.search(r"your hand:.*?\*\*(\d+)\*\*", text, flags=re.IGNORECASE | re.DOTALL)
+        new_total = re.search(r"you\s*\((\d+)\)\s*:", text, flags=re.IGNORECASE)
+        if old_total:
+            total = int(old_total.group(1))
+        elif new_total:
+            total = int(new_total.group(1))
+
+        old_dealer = re.search(r"dealer shows:.*?`([^`]+)`", text, flags=re.IGNORECASE | re.DOTALL)
+        new_dealer = re.search(r"dealer\s*:\s*([0-9]{1,2}|[JQKA])[♠♥♦♣]", text, flags=re.IGNORECASE)
+        if old_dealer:
+            dealer_card = old_dealer.group(1).strip()
+            dealer_rank = dealer_card[:-1] if len(dealer_card) > 1 else dealer_card
+            dealer_up = 10 if dealer_rank == "10" else self._bj_rank_value(dealer_rank[0])
+        elif new_dealer:
+            dealer_up = self._bj_rank_value(new_dealer.group(1).upper())
+
+        hand_line_old = re.search(r"your hand:(.*?)(?:\n|$)", text, flags=re.IGNORECASE | re.DOTALL)
+        if hand_line_old:
+            for token in re.findall(r"`([^`]+)`", hand_line_old.group(1)):
+                token = token.strip()
+                if token == "??":
+                    continue
+                rank = token[:-1] if len(token) > 1 else token
+                if rank == "10":
+                    ranks.append("10")
+                elif rank:
+                    ranks.append(rank[0].upper())
+        else:
+            hand_line_new = re.search(r"you\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
+            if hand_line_new:
+                cards = re.findall(r"([0-9]{1,2}|[JQKA])[♠♥♦♣]", hand_line_new.group(1), flags=re.IGNORECASE)
+                for card_rank in cards:
+                    ranks.append(card_rank.upper())
+
+        if total is None or dealer_up is None:
+            return None
         soft = self._bj_is_soft(ranks, total)
         return total, dealer_up, soft
-
     async def _handle_silas_gambling_message(self, message, silas_text: str):
         channel_id = runtime_settings.get("gary_gamble_channel_id")
         if not runtime_settings.get("gary_gamble_enabled", False):
@@ -325,7 +339,7 @@ class AICog(commands.Cog):
                     title = (e.title or "").lower()
                     if "roleplay invite" in title or ("invite" in title and self.bot.user.mentioned_in(message)):
                         try:
-                            await message.add_reaction("✅")
+                            await message.add_reaction("âœ…")
                         except discord.HTTPException:
                             pass
                         # Start a roleplay session as Gary
@@ -335,7 +349,7 @@ class AICog(commands.Cog):
                                 {"role": "system", "content": (
                                     "You are Gary, a Discord bot with attitude. You're in a roleplay with another bot named Silas. "
                                     "You're snarky, competitive, and think you're the better bot. "
-                                    "Stay in character as yourself — a witty, slightly unhinged bot who doesn't take anything too seriously. "
+                                    "Stay in character as yourself â€” a witty, slightly unhinged bot who doesn't take anything too seriously. "
                                     "Keep responses short (2-4 sentences). Use lowercase."
                                 )},
                             ],
@@ -519,7 +533,7 @@ class AICog(commands.Cog):
         # Process commands as normal
     
     
-    # DEAD CHAT CHECKER — background task
+    # DEAD CHAT CHECKER â€” background task
     # ---------------------------------------------------------------------------
 
     @tasks.loop(minutes=10)
@@ -574,7 +588,7 @@ class AICog(commands.Cog):
             response = await query_ollama(ASK_SYSTEM_PROMPT, question, model=OLLAMA_REASONING_MODEL)
     
         if response is None:
-            await ctx.send("Brain's offline right now — desktop must be asleep. Try again later.")
+            await ctx.send("Brain's offline right now â€” desktop must be asleep. Try again later.")
             return
     
         response = clean_reasoning(response)
@@ -625,3 +639,4 @@ class AICog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(AICog(bot))
+
