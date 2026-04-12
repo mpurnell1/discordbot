@@ -2,6 +2,7 @@
 import random
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import discord
 from discord.ext import commands, tasks
@@ -281,23 +282,70 @@ class AICog(commands.Cog):
 
         return {"status": "active", "word_pattern": word_pattern, "guessed": guessed, "lives": lives}
 
+    _silas_wordlist = None
+
+    @classmethod
+    def _load_silas_wordlist(cls):
+        if cls._silas_wordlist is None:
+            path = Path(__file__).resolve().parent.parent / "data" / "wordlist_10k.txt"
+            try:
+                cls._silas_wordlist = [
+                    w.strip().lower() for w in path.read_text(encoding="utf-8").splitlines()
+                    if w.strip()
+                ]
+            except FileNotFoundError:
+                cls._silas_wordlist = []
+        return cls._silas_wordlist
+
     def _pick_hangman_letter(self, word_pattern, guessed):
-        """Pick the best letter for Silas's hangman using the solver."""
-        from modules.games import best_hangman_letter, HANGMAN_WORDS, LETTER_PRIORITY
+        """Pick the best letter for Silas's hangman.
 
-        # Build a game dict compatible with the solver.
-        # Use '\x00' for unknown positions so the solver can filter candidates.
+        Priority: 10k word list candidates -> Gary's HANGMAN_WORDS -> letter frequency.
+        """
+        from modules.games import best_hangman_letter, LETTER_PRIORITY
+
         revealed = {ch for ch in word_pattern if ch != '_'}
-        wrong = [ch for ch in guessed if ch not in revealed]
-        word = "".join(ch if ch != '_' else '\x00' for ch in word_pattern)
+        wrong = {ch for ch in guessed if ch not in revealed}
+        tried = guessed | revealed
+        target_len = len(word_pattern)
 
-        game = {"word": word, "guessed": revealed, "wrong": wrong}
+        # --- Tier 1: 10k word list ---
+        candidates = []
+        for word in self._load_silas_wordlist():
+            if len(word) != target_len:
+                continue
+            if any(ch in word for ch in wrong):
+                continue
+            match = True
+            for i, pat in enumerate(word_pattern):
+                if pat != '_':
+                    if word[i] != pat:
+                        match = False
+                        break
+                else:
+                    if word[i] in revealed:
+                        match = False
+                        break
+            if match:
+                candidates.append(word)
+
+        if candidates:
+            counts = {}
+            for word in candidates:
+                for ch in set(word):
+                    if ch not in tried:
+                        counts[ch] = counts.get(ch, 0) + 1
+            if counts:
+                return max(counts, key=counts.get)
+
+        # --- Tier 2: Gary's built-in word list (covers edge cases) ---
+        word_str = "".join(ch if ch != '_' else '\x00' for ch in word_pattern)
+        game = {"word": word_str, "guessed": revealed, "wrong": list(wrong)}
         letter, _ = best_hangman_letter(game)
         if letter:
             return letter
 
-        # Final fallback: letter frequency
-        tried = guessed | revealed
+        # --- Tier 3: raw letter frequency ---
         for ch in LETTER_PRIORITY:
             if ch not in tried:
                 return ch
