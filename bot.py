@@ -108,6 +108,7 @@ COMMAND_USAGE = {
     "coinflip": "<amount>",
     "slots": "<amount>",
     "blackjack": "<amount>",
+    "bjrules": "",
     "weather": "<city>",
     "changenick": "@user <nickname>",
     "ask": "<question>",
@@ -118,6 +119,7 @@ COMMAND_USAGE = {
     "setdeadchat": "<on|off>",
     "setfeaturemode": "<feature> <all|off|whitelist|blacklist>",
     "setfeaturechannels": "<feature> <add|remove|clear> [#channel ...]",
+    "bjruleset": "<realistic|arcade|status>",
     "say": "<text>",
     "settings": "[dailyreminder <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
 }
