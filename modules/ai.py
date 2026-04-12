@@ -816,17 +816,28 @@ class AICog(commands.Cog):
         if not runtime_settings.get("gary_gamble_enabled", False):
             return
         result = await self.run_gamble_step(bypass_cooldown=False)
-        is_idle = result.startswith((
+        IDLE_PREFIXES = (
             "Stop-loss",
             "Take-profit",
             "Cooldown active",
             "Blackjack hand already active",
             "Balance",
-        ))
+            "Hangman in progress",
+            "BJ stopped, hangman on cooldown",
+            "BJ stop-loss",
+            "BJ take-profit",
+        )
+        is_idle = result.startswith(IDLE_PREFIXES)
         # Idle/terminal states report once then go silent until something changes.
-        if is_idle and result == self._last_gamble_result:
-            return
-        self._last_gamble_result = result
+        # Compare by prefix so changing countdowns (e.g. "5h 47m" vs "5h 46m")
+        # don't look like new results.
+        if is_idle:
+            result_key = next((p for p in IDLE_PREFIXES if result.startswith(p)), result)
+            if result_key == self._last_gamble_result:
+                return
+            self._last_gamble_result = result_key
+        else:
+            self._last_gamble_result = result
         force = result.startswith(
             (
                 "Sent `!scratches`.",
