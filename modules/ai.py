@@ -618,8 +618,6 @@ class AICog(commands.Cog):
                 "Sent `!scratches`.",
                 "Started blackjack with",
                 "Requested balance",
-                "Stop-loss",
-                "Take-profit",
             )
         )
         await self._send_gamble_report(result, force=force)
