@@ -113,6 +113,7 @@ def start_c4(host, opponent):
     return game
 
 active_hangman = {}  # channel_id -> game state
+hangman_msg = {}     # channel_id -> Message to edit in place
 hangman_last_played = {}  # channel_id -> datetime (UTC) of last game end
 HANGMAN_COOLDOWN_HOURS = 6
 
@@ -362,6 +363,7 @@ class GamesCog(commands.Cog):
         game = active_hangman.get(ctx.channel.id)
         if game:
             del active_hangman[ctx.channel.id]
+            hangman_msg.pop(ctx.channel.id, None)
             hangman_last_played[ctx.channel.id] = datetime.now(timezone.utc)
             return await ctx.send(f"Hangman game ended. The word was **{game['word']}**.")
         await ctx.send("No active game to forfeit.")
@@ -428,6 +430,23 @@ class GamesCog(commands.Cog):
     # ---------------------------------------------------------------------------
     # GAMES: HANGMAN
     # ---------------------------------------------------------------------------
+    async def _hangman_update(self, channel, embed):
+        """Edit the tracked hangman message in place, or send a new one."""
+        msg = hangman_msg.get(channel.id)
+        if msg:
+            try:
+                await msg.edit(embed=embed)
+                return
+            except discord.HTTPException:
+                pass
+        hangman_msg[channel.id] = await channel.send(embed=embed)
+
+    async def _hangman_end(self, channel, embed):
+        """Send a final hangman result and clean up the tracked message."""
+        hangman_msg.pop(channel.id, None)
+        hangman_last_played[channel.id] = datetime.now(timezone.utc)
+        await channel.send(embed=embed)
+
     async def _guess_hangman(self, channel, guess_raw: str):
         game = active_hangman.get(channel.id)
         if not game:
@@ -441,8 +460,7 @@ class GamesCog(commands.Cog):
         if len(guess) > 1:
             if guess == game["word"]:
                 del active_hangman[channel.id]
-                hangman_last_played[channel.id] = datetime.now(timezone.utc)
-                await channel.send(embed=make_embed(
+                await self._hangman_end(channel, make_embed(
                     "Hangman - You Win!",
                     f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
                     COLOR_SUCCESS))
@@ -450,26 +468,25 @@ class GamesCog(commands.Cog):
             game["wrong"].append(guess)
             if len(game["wrong"]) >= 6:
                 del active_hangman[channel.id]
-                hangman_last_played[channel.id] = datetime.now(timezone.utc)
-                await channel.send(embed=make_embed(
+                await self._hangman_end(channel, make_embed(
                     "Hangman - Game Over",
                     f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
                     COLOR_ERROR))
                 return True
-            await channel.send(embed=make_embed("Hangman", hangman_render(game)))
+            await self._hangman_update(channel, make_embed("Hangman", hangman_render(game)))
             return True
 
         # Single-letter guess path
         letter = guess
         if letter in game["guessed"] or letter in game["wrong"]:
-            await channel.send(f"**{letter}** was already guessed.")
+            await self._hangman_update(channel, make_embed("Hangman",
+                f"{hangman_render(game)}\n\n**{letter}** was already guessed."))
             return True
         if letter in game["word"]:
             game["guessed"].add(letter)
             if all(l in game["guessed"] for l in game["word"]):
                 del active_hangman[channel.id]
-                hangman_last_played[channel.id] = datetime.now(timezone.utc)
-                await channel.send(embed=make_embed(
+                await self._hangman_end(channel, make_embed(
                     "Hangman - You Win!",
                     f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
                     COLOR_SUCCESS))
@@ -478,13 +495,12 @@ class GamesCog(commands.Cog):
             game["wrong"].append(letter)
             if len(game["wrong"]) >= 6:
                 del active_hangman[channel.id]
-                hangman_last_played[channel.id] = datetime.now(timezone.utc)
-                await channel.send(embed=make_embed(
+                await self._hangman_end(channel, make_embed(
                     "Hangman - Game Over",
                     f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
                     COLOR_ERROR))
                 return True
-        await channel.send(embed=make_embed("Hangman", hangman_render(game)))
+        await self._hangman_update(channel, make_embed("Hangman", hangman_render(game)))
         return True
 
     @commands.command()
@@ -519,7 +535,7 @@ class GamesCog(commands.Cog):
         if player:
             msg = f"{ctx.author.mention} started a hangman game with {player.mention}!"
         msg += f" Type a single letter, or use `{PREFIX}g <guess>` for letter/word guesses."
-        await ctx.send(embed=make_embed("Hangman", f"{msg}\n\n{hangman_render(game)}"))
+        hangman_msg[ctx.channel.id] = await ctx.send(embed=make_embed("Hangman", f"{msg}\n\n{hangman_render(game)}"))
 
     @commands.Cog.listener("on_message")
     async def hangman_letter_listener(self, message):
