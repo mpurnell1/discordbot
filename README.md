@@ -103,7 +103,7 @@ Primary admin control command:
 
 Kids mode is server-specific and persisted in SQLite. It is intended for servers where Gary should keep safe utility/game features while removing unpredictable or adult-leaning behavior.
 
-- `.invite kids` -> low-permission invite link plus setup instructions
+- `.invite kids` -> low-permission invite link that auto-enables kids mode when Gary joins
 - `.settings kids on` or `.kidsmode on` -> enable kids mode for the current server
 - `.settings kids off` or `.kidsmode off` -> disable kids mode for the current server
 - `.settings kids status` or `.kidsmode status` -> show the current server policy
@@ -115,14 +115,15 @@ Kids mode disables:
 - All AI: `.ask`, `.rp`, `.stoprp`, mention replies, unsolicited AI, Silas roleplay/banter/reacts, and autonomous gambling in that server
 - All passive behavior: daily reminders, dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions
 - Social/moderation-risk commands: `.changenick`, `.quote`, `.quotes`, `.unquote`
+- Uncurated external/info commands: `.cat`, `.dog`, `.onthisday`, `.stats`, `.invite`
 
 Kids mode keeps:
 
-- Games: tic-tac-toe, Connect 4, Hangman, Rock Paper Scissors, dice rolls, quick math quiz, memory, trivia, scramble, daily puzzle with no coin reward, timer
-- Learning/utility: weather, cats/dogs, kid-safe Would You Rather, On This Day
-- Operational/info commands: `.help`, `.stats`, `.invite`, admin settings
+- Games: tic-tac-toe, Connect 4, Hangman, Rock Paper Scissors, dice rolls, quick math quiz, memory, trivia, scramble, practice puzzle with no coin reward, timer
+- Learning/utility: weather, kid-safe Would You Rather, clean jokes
+- Operational command: `.help`
 
-Discord does not notify the bot which invite variant was used after it joins a server, so `.invite kids` cannot auto-enable kids mode by itself. Run `.settings kids on` in the new server after inviting Gary.
+Gary infers a kids invite from the low-permission shape: no Manage Messages and no Manage Nicknames. If that shape is detected on join, Gary writes `kids_mode=true` for the server immediately and posts a join report with un-force SQL.
 
 ### Daily reminder
 

@@ -905,6 +905,11 @@ class MiscCog(commands.Cog):
                 f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
                 f"`{p}bjrules` - Show current blackjack table rules"
             ), inline=False)
+        puzzle_help = (
+            f"`{p}puzzle` / `{p}solve <answer>` - Practice puzzle"
+            if kids_mode
+            else f"`{p}puzzle` / `{p}solve <answer>` - Daily puzzle"
+        )
         embed.add_field(name="Games", value=(
             f"`{p}ttt @user` - Tic-tac-toe\n"
             f"`{p}c4 @user` - Connect 4\n"
@@ -915,7 +920,7 @@ class MiscCog(commands.Cog):
             f"`{p}memory` / `{p}memoryanswer <sequence>` - Memory game\n"
             f"`{p}trivia` / `{p}triviaanswer <A-D>` - Trivia\n"
             f"`{p}scramble` / `{p}unscramble <word>` - Word scramble\n"
-            f"`{p}puzzle` / `{p}solve <answer>` - Daily puzzle\n"
+            f"{puzzle_help}\n"
             f"`{p}timer <seconds>` - Start a timer\n"
             f"`{p}forfeit` - Quit current game"
         ), inline=False)
@@ -936,10 +941,11 @@ class MiscCog(commands.Cog):
                 f"`{p}rp <character>` - Roleplay with Silas\n"
                 f"`{p}stoprp` - End roleplay"
             ), inline=False)
-        embed.add_field(name="Info", value=(
-            (f"`{p}stats` - Bot stats and usage" if not kids_mode else "No extra info commands in kids mode.")
-            + (f"\n`{p}invite` / `{p}invite kids` - Get invite link" if not kids_mode else "")
-        ), inline=False)
+        if not kids_mode:
+            embed.add_field(name="Info", value=(
+                f"`{p}stats` - Bot stats and usage\n"
+                f"`{p}invite` / `{p}invite kids` - Get invite link"
+            ), inline=False)
         if not kids_mode:
             embed.add_field(name="Quotes", value=(
                 f"`{p}quote` - Reply to a message to save it\n"
