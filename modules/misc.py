@@ -821,7 +821,8 @@ class MiscCog(commands.Cog):
         if kids_invite:
             description = (
                 f"[Click here to invite me in a low-permission setup.]({link})\n\n"
-                "After Gary joins the server, Matt will be notified with the server ID so kids mode can be enabled in the DB.\n\n"
+                "This low-permission invite automatically enables kids mode when Gary joins. "
+                "Matt will also get a join report with the server ID and an un-force SQL fallback.\n\n"
                 f"{KIDS_MODE_SUMMARY}"
             )
             return await ctx.send(embed=make_embed("Kids Mode Invite", description, COLOR_SUCCESS))
