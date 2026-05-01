@@ -1,4 +1,5 @@
 import discord
+import asyncio
 import random
 from collections import Counter
 from datetime import datetime, timezone
@@ -10,6 +11,11 @@ from shared import *
 active_ttt = {}      # channel_id -> game state
 active_c4 = {}       # channel_id -> game state
 pending_games = {}   # message_id -> {"type": "ttt"/"c4", "host": Member, "channel_id": int, "created_at": datetime}
+active_math_quiz = {}  # user_id -> {"answer": int, "question": str}
+active_memory_games = {}  # user_id -> {"answer": str}
+active_trivia = {}  # user_id -> {"answer": str, "explanation": str}
+active_scrambles = {}  # user_id -> {"answer": str}
+active_timers = {}  # user_id -> seconds
 PENDING_GAME_TIMEOUT = 300  # seconds before a pending invite is cleaned up
 
 TTT_EMPTY = "⬛"
@@ -138,6 +144,66 @@ HANGMAN_STAGES = [
 
 LETTER_PRIORITY = "etaoinshrdlucmfwypvbgkjqxz"
 
+MEMORY_SYMBOLS = ["cat", "dog", "sun", "moon", "star", "tree", "fish", "book", "ball", "kite"]
+
+SCRAMBLE_WORDS = [
+    "apple", "banana", "basket", "butter", "castle", "circle", "dragon", "flower",
+    "forest", "garden", "guitar", "island", "jacket", "kitten", "ladder", "magnet",
+    "monkey", "orange", "pencil", "planet", "pocket", "rabbit", "rocket", "school",
+    "silver", "soccer", "summer", "turtle", "window", "yellow",
+]
+
+TRIVIA_QUESTIONS = [
+    {
+        "question": "Which planet is known as the Red Planet?",
+        "choices": ["Mars", "Venus", "Jupiter", "Neptune"],
+        "answer": "A",
+        "explanation": "Mars is called the Red Planet because of iron oxide on its surface.",
+    },
+    {
+        "question": "How many sides does a triangle have?",
+        "choices": ["2", "3", "4", "5"],
+        "answer": "B",
+        "explanation": "A triangle has 3 sides.",
+    },
+    {
+        "question": "What do bees make?",
+        "choices": ["Milk", "Honey", "Bread", "Cheese"],
+        "answer": "B",
+        "explanation": "Bees make honey.",
+    },
+    {
+        "question": "Which animal is the largest land animal?",
+        "choices": ["Giraffe", "Elephant", "Horse", "Bear"],
+        "answer": "B",
+        "explanation": "Elephants are the largest land animals.",
+    },
+    {
+        "question": "What is H2O commonly called?",
+        "choices": ["Salt", "Water", "Oxygen", "Sugar"],
+        "answer": "B",
+        "explanation": "H2O is water.",
+    },
+    {
+        "question": "Which direction does the sun rise from?",
+        "choices": ["North", "South", "East", "West"],
+        "answer": "C",
+        "explanation": "The sun rises in the east.",
+    },
+    {
+        "question": "How many continents are there?",
+        "choices": ["5", "6", "7", "8"],
+        "answer": "C",
+        "explanation": "There are 7 continents.",
+    },
+    {
+        "question": "What is the first letter of the alphabet?",
+        "choices": ["A", "B", "C", "D"],
+        "answer": "A",
+        "explanation": "A is the first letter of the alphabet.",
+    },
+]
+
 def hangman_render(game):
     word_display = " ".join(
         letter if letter in game["guessed"] else "\\_" for letter in game["word"]
@@ -261,6 +327,234 @@ class GamesCog(commands.Cog):
                 f"{pending['host'].mention}'s turn — use `{PREFIX}drop <1-7>`"))
     
     
+    # QUICK GAMES
+    # ---------------------------------------------------------------------------
+
+    @commands.command()
+    async def rps(self, ctx, choice: str):
+        """Play rock-paper-scissors against Gary."""
+        aliases = {
+            "r": "rock",
+            "rock": "rock",
+            "p": "paper",
+            "paper": "paper",
+            "s": "scissors",
+            "scissor": "scissors",
+            "scissors": "scissors",
+        }
+        player = aliases.get(choice.strip().lower())
+        if player is None:
+            return await ctx.send(f"Usage: `{PREFIX}rps <rock|paper|scissors>`")
+
+        gary = random.choice(["rock", "paper", "scissors"])
+        wins = {
+            "rock": "scissors",
+            "paper": "rock",
+            "scissors": "paper",
+        }
+        if player == gary:
+            result = "Tie."
+            color = COLOR_WARNING
+        elif wins[player] == gary:
+            result = "You win."
+            color = COLOR_SUCCESS
+        else:
+            result = "Gary wins."
+            color = COLOR_ERROR
+
+        await ctx.send(embed=make_embed(
+            "Rock Paper Scissors",
+            f"You picked **{player}**.\nGary picked **{gary}**.\n\n{result}",
+            color,
+        ))
+
+    @commands.command()
+    async def roll(self, ctx, sides: int = 6):
+        """Roll a die. Defaults to 6 sides."""
+        if sides < 2 or sides > 1000:
+            return await ctx.send("Pick between 2 and 1000 sides.")
+        await ctx.send(f"{ctx.author.mention} rolled **{random.randint(1, sides)}** on a d{sides}.")
+
+    def _new_math_question(self):
+        kind = random.choice(["add", "subtract", "multiply"])
+        if kind == "add":
+            a = random.randint(5, 50)
+            b = random.randint(5, 50)
+            return f"{a} + {b}", a + b
+        if kind == "subtract":
+            a = random.randint(20, 99)
+            b = random.randint(1, a)
+            return f"{a} - {b}", a - b
+        a = random.randint(2, 12)
+        b = random.randint(2, 12)
+        return f"{a} x {b}", a * b
+
+    @commands.command(aliases=["mathquiz"])
+    async def mathgame(self, ctx):
+        """Start a quick arithmetic question."""
+        question, answer = self._new_math_question()
+        active_math_quiz[ctx.author.id] = {"question": question, "answer": answer}
+        await ctx.send(embed=make_embed(
+            "Math Game",
+            f"{ctx.author.mention}, what is **{question}**?\nUse `{PREFIX}mathanswer <answer>`.",
+            COLOR_DEFAULT,
+        ))
+
+    @commands.command(aliases=["mathans"])
+    async def mathanswer(self, ctx, answer: int):
+        """Answer your current math game question."""
+        quiz = active_math_quiz.get(ctx.author.id)
+        if not quiz:
+            return await ctx.send(f"No math question active. Start one with `{PREFIX}mathgame`.")
+        if answer == quiz["answer"]:
+            del active_math_quiz[ctx.author.id]
+            return await ctx.send(embed=make_embed(
+                "Correct",
+                f"Nice. **{quiz['question']} = {quiz['answer']}**",
+                COLOR_SUCCESS,
+            ))
+        await ctx.send(embed=make_embed(
+            "Try Again",
+            f"Not quite. Try another answer or start over with `{PREFIX}mathgame`.",
+            COLOR_WARNING,
+        ))
+
+    @commands.command()
+    async def memory(self, ctx, level: int = 1):
+        """Start a short memory challenge."""
+        if ctx.author.id in active_memory_games:
+            return await ctx.send(f"You already have a memory game active. Answer it with `{PREFIX}memoryanswer <sequence>`.")
+        level = max(1, min(5, level))
+        length = level + 2
+        sequence = [random.choice(MEMORY_SYMBOLS) for _ in range(length)]
+        answer = " ".join(sequence)
+        active_memory_games[ctx.author.id] = {"answer": answer}
+        msg = await ctx.send(embed=make_embed(
+            "Memory Game",
+            f"Memorize this sequence:\n\n**{answer}**\n\nIt will hide in 8 seconds.",
+            COLOR_DEFAULT,
+        ))
+        await asyncio.sleep(8)
+        try:
+            await msg.edit(embed=make_embed(
+                "Memory Game",
+                f"Now repeat the sequence with `{PREFIX}memoryanswer <sequence>`.",
+                COLOR_DEFAULT,
+            ))
+        except discord.HTTPException:
+            pass
+
+    @commands.command(aliases=["memanswer", "memans"])
+    async def memoryanswer(self, ctx, *, answer: str):
+        """Answer your current memory challenge."""
+        game = active_memory_games.get(ctx.author.id)
+        if not game:
+            return await ctx.send(f"No memory game active. Start one with `{PREFIX}memory`.")
+        normalized = " ".join(answer.lower().strip().split())
+        if normalized == game["answer"]:
+            del active_memory_games[ctx.author.id]
+            return await ctx.send(embed=make_embed("Correct", "You remembered it.", COLOR_SUCCESS))
+        await ctx.send(embed=make_embed(
+            "Not Quite",
+            f"Try again with `{PREFIX}memoryanswer <sequence>`.",
+            COLOR_WARNING,
+        ))
+
+    @commands.command()
+    async def trivia(self, ctx):
+        """Start a kid-safe multiple-choice trivia question."""
+        item = random.choice(TRIVIA_QUESTIONS)
+        letters = ["A", "B", "C", "D"]
+        lines = [
+            f"**{letter}.** {choice}"
+            for letter, choice in zip(letters, item["choices"])
+        ]
+        active_trivia[ctx.author.id] = {
+            "answer": item["answer"],
+            "explanation": item["explanation"],
+        }
+        await ctx.send(embed=make_embed(
+            "Trivia",
+            f"{ctx.author.mention}, {item['question']}\n\n"
+            + "\n".join(lines)
+            + f"\n\nUse `{PREFIX}triviaanswer <A|B|C|D>`.",
+            COLOR_DEFAULT,
+        ))
+
+    @commands.command(aliases=["ta"])
+    async def triviaanswer(self, ctx, answer: str):
+        """Answer your current trivia question."""
+        game = active_trivia.get(ctx.author.id)
+        if not game:
+            return await ctx.send(f"No trivia question active. Start one with `{PREFIX}trivia`.")
+        choice = answer.strip().upper()
+        if choice not in {"A", "B", "C", "D"}:
+            return await ctx.send(f"Usage: `{PREFIX}triviaanswer <A|B|C|D>`")
+        if choice == game["answer"]:
+            del active_trivia[ctx.author.id]
+            return await ctx.send(embed=make_embed(
+                "Correct",
+                game["explanation"],
+                COLOR_SUCCESS,
+            ))
+        await ctx.send(embed=make_embed(
+            "Not Quite",
+            f"Try again. Use `{PREFIX}triviaanswer <A|B|C|D>`.",
+            COLOR_WARNING,
+        ))
+
+    @commands.command()
+    async def scramble(self, ctx):
+        """Start a kid-safe word scramble."""
+        word = random.choice(SCRAMBLE_WORDS)
+        letters = list(word)
+        while True:
+            random.shuffle(letters)
+            scrambled = "".join(letters)
+            if scrambled != word:
+                break
+        active_scrambles[ctx.author.id] = {"answer": word}
+        await ctx.send(embed=make_embed(
+            "Word Scramble",
+            f"Unscramble this word: **{scrambled}**\nUse `{PREFIX}unscramble <word>`.",
+            COLOR_DEFAULT,
+        ))
+
+    @commands.command()
+    async def unscramble(self, ctx, *, answer: str):
+        """Answer your current word scramble."""
+        game = active_scrambles.get(ctx.author.id)
+        if not game:
+            return await ctx.send(f"No scramble active. Start one with `{PREFIX}scramble`.")
+        guess = answer.lower().strip()
+        if guess == game["answer"]:
+            del active_scrambles[ctx.author.id]
+            return await ctx.send(embed=make_embed(
+                "Correct",
+                f"The word was **{game['answer']}**.",
+                COLOR_SUCCESS,
+            ))
+        await ctx.send(embed=make_embed(
+            "Try Again",
+            f"Not quite. Try again or start a new one with `{PREFIX}scramble`.",
+            COLOR_WARNING,
+        ))
+
+    @commands.command()
+    async def timer(self, ctx, seconds: int):
+        """Start a simple timer, capped at one hour."""
+        if seconds < 1 or seconds > 3600:
+            return await ctx.send("Timer must be between 1 and 3600 seconds.")
+        if ctx.author.id in active_timers:
+            return await ctx.send("You already have a timer running.")
+        active_timers[ctx.author.id] = seconds
+        try:
+            await ctx.send(f"Timer started for **{seconds}** seconds.")
+            await asyncio.sleep(seconds)
+            await ctx.send(f"{ctx.author.mention} timer done.")
+        finally:
+            active_timers.pop(ctx.author.id, None)
+
     # GAMES: TIC-TAC-TOE
     # ---------------------------------------------------------------------------
 

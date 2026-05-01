@@ -4,7 +4,7 @@ A modular friend-group Discord bot with economy, games, AI features, and admin r
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - A [Discord bot token](https://discord.com/developers/applications) with Message Content and Server Members intents enabled
 - An [OpenWeatherMap API key](https://openweathermap.org/api) (free tier)
 - [Ollama](https://ollama.com) running on a local/network machine (for AI features)
@@ -72,6 +72,13 @@ Rotation policy:
 | `.hangman` | | Start hangman |
 | plain single-letter message | | Hangman letter guess (when hangman active) |
 | `.g <guess>` | | Hangman guess (letter or word) |
+| `.rps <rock\|paper\|scissors>` | | Rock Paper Scissors |
+| `.roll [sides]` | | Roll a die |
+| `.mathgame` / `.mathanswer <answer>` | `.mathquiz`, `.mathans` | Quick arithmetic game |
+| `.memory` / `.memoryanswer <sequence>` | `.memanswer`, `.memans` | Memory sequence game |
+| `.trivia` / `.triviaanswer <A-D>` | `.ta` | Kid-safe multiple-choice trivia |
+| `.scramble` / `.unscramble <word>` | | Kid-safe word scramble |
+| `.timer <seconds>` | | Simple timer, capped at one hour |
 | `.forfeit` | | Quit current game |
 | `.weather [city]` | | Current weather (defaults to Champaign) |
 | `.cat` / `.dog` | | Random animal pics |
@@ -82,7 +89,7 @@ Rotation policy:
 | `.rp <character>` / `.stoprp` | | Silas roleplay controls |
 | `.quote` / `.quotes` / `.unquote <id>` | | Quote system (unquote is admin only) |
 | `.stats` | | Bot statistics |
-| `.invite` | | Bot invite link |
+| `.invite [kids]` | | Bot invite link |
 | `.help` | | Command list |
 | `.adminhelp` | | Admin command list (admin only) |
 
@@ -91,6 +98,31 @@ Rotation policy:
 Primary admin control command:
 
 - `.settings` -> show all runtime settings
+
+### Kids mode
+
+Kids mode is server-specific and persisted in SQLite. It is intended for servers where Gary should keep safe utility/game features while removing unpredictable or adult-leaning behavior.
+
+- `.invite kids` -> low-permission invite link plus setup instructions
+- `.settings kids on` or `.kidsmode on` -> enable kids mode for the current server
+- `.settings kids off` or `.kidsmode off` -> disable kids mode for the current server
+- `.settings kids status` or `.kidsmode status` -> show the current server policy
+
+Kids mode disables:
+
+- Economy commands: `.daily`, `.guess`, `.balance`, `.leaderboard`, `.give`, `.repuzzle`
+- Gambling commands: `.coinflip`, `.slots`, `.blackjack`, blackjack actions, and `.bjrules`
+- All AI: `.ask`, `.rp`, `.stoprp`, mention replies, unsolicited AI, Silas roleplay/banter/reacts, and autonomous gambling in that server
+- All passive behavior: daily reminders, dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions
+- Social/moderation-risk commands: `.changenick`, `.quote`, `.quotes`, `.unquote`
+
+Kids mode keeps:
+
+- Games: tic-tac-toe, Connect 4, Hangman, Rock Paper Scissors, dice rolls, quick math quiz, memory, trivia, scramble, daily puzzle with no coin reward, timer
+- Learning/utility: weather, cats/dogs, kid-safe Would You Rather, On This Day
+- Operational/info commands: `.help`, `.stats`, `.invite`, admin settings
+
+Discord does not notify the bot which invite variant was used after it joins a server, so `.invite kids` cannot auto-enable kids mode by itself. Run `.settings kids on` in the new server after inviting Gary.
 
 ### Daily reminder
 

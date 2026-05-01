@@ -87,12 +87,15 @@ async def on_command(ctx):
 
 @bot.check
 async def command_gatekeeper(ctx):
+    command_name = ctx.command.name.lower()
+    guild_id = ctx.guild.id if ctx.guild else None
+    if is_kids_mode_guild(guild_id) and not is_kids_command_allowed(command_name):
+        raise commands.CheckFailure("That command is disabled because this server is in kids mode.")
     if ctx.author.id == ADMIN_ID:
         return True
-    command_name = ctx.command.name.lower()
     if not is_command_enabled(command_name):
         raise commands.CheckFailure("That command is currently disabled by an admin.")
-    if not is_feature_allowed(f"cmd:{command_name}", ctx.channel.id):
+    if not is_feature_allowed(f"cmd:{command_name}", ctx.channel.id, guild_id):
         raise commands.CheckFailure("That command is not allowed in this channel.")
     return True
 
@@ -105,6 +108,17 @@ COMMAND_USAGE = {
     "m": "<1-9>",
     "drop": "<1-7>",
     "g": "<guess>",
+    "rps": "<rock|paper|scissors>",
+    "roll": "[sides]",
+    "mathgame": "",
+    "mathanswer": "<answer>",
+    "memory": "[level 1-5]",
+    "memoryanswer": "<sequence>",
+    "trivia": "",
+    "triviaanswer": "<A|B|C|D>",
+    "scramble": "",
+    "unscramble": "<word>",
+    "timer": "<seconds>",
     "coinflip": "<amount>",
     "slots": "<amount>",
     "blackjack": "<amount>",
@@ -122,7 +136,9 @@ COMMAND_USAGE = {
     "bjruleset": "<realistic|arcade|status>",
     "bjhint": "<on|off|status>",
     "say": "<text>",
-    "settings": "[dailyreminder <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
+    "kidsmode": "<on|off|status>",
+    "invite": "[kids]",
+    "settings": "[kids <on|off|status> | dailyreminder <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
 }
 
 

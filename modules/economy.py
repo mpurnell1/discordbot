@@ -10,7 +10,11 @@ from shared import *
 
 # ECONOMY: LUCKY GUESS
 # ---------------------------------------------------------------------------
-active_puzzles = {}  # user_id -> {"answer": str, "type": str, "display": str}
+active_puzzles = {}  # (scope, user_id) -> {"answer": str, "type": str, "display": str}
+
+def _puzzle_key(user_id: int, kids_mode: bool):
+    return ("kids" if kids_mode else "regular", user_id)
+
 def load_active_puzzle(user_id: int):
     row = db.execute(
         "SELECT active_puzzle_type, active_puzzle_answer, active_puzzle_display, active_puzzle_guesses "
@@ -36,6 +40,7 @@ def load_active_puzzle(user_id: int):
             guesses = []
         puzzle["guesses"] = [str(g).lower().strip() for g in guesses if isinstance(g, str)]
     return puzzle
+
 def save_active_puzzle(user_id: int, puzzle):
     get_balance(user_id)
     if puzzle is None:
@@ -552,6 +557,25 @@ class EconomyCog(commands.Cog):
     async def puzzle(self, ctx):
         """Get your daily puzzle for a coin bonus."""
         user_id = ctx.author.id
+        kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
+        key = _puzzle_key(user_id, kids_mode)
+
+        if kids_mode:
+            if key not in active_puzzles:
+                kind, question, answer = generate_puzzle()
+                p = {"answer": answer.lower().strip(), "type": kind, "display": question, "attempts": 0}
+                if kind == "wordle":
+                    p["guesses"] = []
+                active_puzzles[key] = p
+            p = active_puzzles[key]
+            limit = WORDLE_MAX_GUESSES if p["type"] == "wordle" else PUZZLE_MAX_ATTEMPTS
+            attempts = len(p.get("guesses", [])) if p["type"] == "wordle" else p.get("attempts", 0)
+            remaining = limit - attempts
+            return await ctx.send(embed=make_embed(
+                PUZZLE_TITLES[p["type"]],
+                f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
+                f"Practice puzzle. No coin reward | Attempts left: **{remaining}**"))
+
         get_balance(user_id)
     
         now = datetime.now(CENTRAL_TZ)
@@ -564,54 +588,110 @@ class EconomyCog(commands.Cog):
         puzzle_attempts = row[2] if row else 0
     
         if puzzle_date == today and puzzle_solved:
-            active_puzzles.pop(user_id, None)
+            active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             return await ctx.send(embed=make_embed("Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
         if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
-            active_puzzles.pop(user_id, None)
+            active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             return await ctx.send(embed=make_embed("Out of Attempts", f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!", COLOR_ERROR))
     
         if puzzle_date != today:
             puzzle_attempts = 0
-            active_puzzles.pop(user_id, None)
+            active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             db.execute("UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id))
             db.commit()
     
-        if user_id not in active_puzzles:
+        if key not in active_puzzles:
             loaded = load_active_puzzle(user_id)
             if loaded:
-                active_puzzles[user_id] = loaded
+                active_puzzles[key] = loaded
     
-        if user_id not in active_puzzles:
+        if key not in active_puzzles:
             kind, question, answer = generate_puzzle()
             p = {"answer": answer.lower().strip(), "type": kind, "display": question}
             if kind == "wordle":
                 p["guesses"] = []
-            active_puzzles[user_id] = p
+            active_puzzles[key] = p
             save_active_puzzle(user_id, p)
     
-        p = active_puzzles[user_id]
-        remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
+        p = active_puzzles[key]
+        remaining = (
+            WORDLE_MAX_GUESSES - len(p.get("guesses", []))
+            if p["type"] == "wordle"
+            else PUZZLE_MAX_ATTEMPTS - puzzle_attempts
+        )
+        reward_line = (
+            "No coin reward in kids mode"
+            if kids_mode
+            else f"Reward: **{PUZZLE_REWARD}** coins"
+        )
         await ctx.send(embed=make_embed(
             PUZZLE_TITLES[p["type"]],
             f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
-            f"Reward: **{PUZZLE_REWARD}** coins | Attempts left: **{remaining}**"))
+            f"{reward_line} | Attempts left: **{remaining}**"))
     
 
     @commands.command()
     async def solve(self, ctx, *, answer: str):
         """Submit your answer to the daily puzzle."""
         user_id = ctx.author.id
-        get_balance(user_id)
+        kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
+        key = _puzzle_key(user_id, kids_mode)
     
-        if user_id not in active_puzzles:
+        if not kids_mode:
+            get_balance(user_id)
+        if not kids_mode and key not in active_puzzles:
             loaded = load_active_puzzle(user_id)
             if loaded:
-                active_puzzles[user_id] = loaded
-        if user_id not in active_puzzles:
+                active_puzzles[key] = loaded
+        if key not in active_puzzles:
             return await ctx.send(f"You don't have an active puzzle. Start one with `{PREFIX}puzzle`.")
+
+        p = active_puzzles[key]
+
+        if kids_mode:
+            guess = answer.lower().strip()
+            if p["type"] == "wordle":
+                if len(guess) != 5 or not guess.isalpha():
+                    return await ctx.send("Guess must be a 5-letter word.")
+                p["guesses"].append(guess)
+                if guess == p["answer"]:
+                    active_puzzles.pop(key, None)
+                    return await ctx.send(embed=make_embed(
+                        f"Wordle Solved in {len(p['guesses'])}!",
+                        f"{wordle_display(p)}\n\nSolved. No coin reward in kids mode.",
+                        COLOR_SUCCESS))
+                if len(p["guesses"]) >= WORDLE_MAX_GUESSES:
+                    active_puzzles.pop(key, None)
+                    return await ctx.send(embed=make_embed(
+                        "Wordle Failed",
+                        f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.",
+                        COLOR_ERROR))
+                return await ctx.send(embed=make_embed(
+                    "Wordle",
+                    f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
+
+            p["attempts"] = p.get("attempts", 0) + 1
+            if guess == p["answer"]:
+                active_puzzles.pop(key, None)
+                return await ctx.send(embed=make_embed(
+                    "Correct!",
+                    "Solved. No coin reward in kids mode.",
+                    COLOR_SUCCESS))
+            remaining = PUZZLE_MAX_ATTEMPTS - p["attempts"]
+            if remaining <= 0:
+                correct = p["answer"]
+                active_puzzles.pop(key, None)
+                return await ctx.send(embed=make_embed(
+                    "Out of Attempts",
+                    f"The answer was **{correct}**. Start another practice puzzle with `{PREFIX}puzzle`.",
+                    COLOR_ERROR))
+            return await ctx.send(embed=make_embed(
+                "Wrong",
+                f"That's not it. Attempts left: **{remaining}**",
+                COLOR_ERROR))
     
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
@@ -623,15 +703,14 @@ class EconomyCog(commands.Cog):
         puzzle_attempts = row[2] if row else 0
     
         if puzzle_date == today and puzzle_solved:
-            active_puzzles.pop(user_id, None)
+            active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             return await ctx.send(embed=make_embed("Already Solved", "You already solved today's puzzle!", COLOR_SUCCESS))
         if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
-            active_puzzles.pop(user_id, None)
+            active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             return await ctx.send(embed=make_embed("Out of Attempts", "No attempts left today!", COLOR_ERROR))
     
-        p = active_puzzles[user_id]
         guess = answer.lower().strip()
     
         if p["type"] == "wordle":
@@ -640,18 +719,21 @@ class EconomyCog(commands.Cog):
             p["guesses"].append(guess)
             save_active_puzzle(user_id, p)
             if guess == p["answer"]:
-                active_puzzles.pop(user_id, None)
+                active_puzzles.pop(key, None)
                 save_active_puzzle(user_id, None)
-                update_balance(user_id, PUZZLE_REWARD)
-                bal = get_balance(user_id)
                 db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
                 db.commit()
+                reward_text = "Solved. No coin reward in kids mode."
+                if not kids_mode:
+                    update_balance(user_id, PUZZLE_REWARD)
+                    bal = get_balance(user_id)
+                    reward_text = f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**"
                 return await ctx.send(embed=make_embed(
                     f"Wordle Solved in {len(p['guesses'])}!",
-                    f"{wordle_display(p)}\n\nYou earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**",
+                    f"{wordle_display(p)}\n\n{reward_text}",
                     COLOR_SUCCESS))
             if len(p["guesses"]) >= WORDLE_MAX_GUESSES:
-                active_puzzles.pop(user_id, None)
+                active_puzzles.pop(key, None)
                 save_active_puzzle(user_id, None)
                 return await ctx.send(embed=make_embed(
                     "Wordle Failed",
@@ -666,21 +748,24 @@ class EconomyCog(commands.Cog):
         db.commit()
     
         if guess == p["answer"]:
-            active_puzzles.pop(user_id, None)
+            active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            update_balance(user_id, PUZZLE_REWARD)
-            bal = get_balance(user_id)
             db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
             db.commit()
+            reward_text = "Solved. No coin reward in kids mode."
+            if not kids_mode:
+                update_balance(user_id, PUZZLE_REWARD)
+                bal = get_balance(user_id)
+                reward_text = f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**"
             await ctx.send(embed=make_embed(
                 "Correct!",
-                f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**",
+                reward_text,
                 COLOR_SUCCESS))
         else:
             remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
             if remaining <= 0:
                 correct = p["answer"]
-                active_puzzles.pop(user_id, None)
+                active_puzzles.pop(key, None)
                 save_active_puzzle(user_id, None)
                 await ctx.send(embed=make_embed(
                     "Out of Attempts",
@@ -699,7 +784,8 @@ class EconomyCog(commands.Cog):
         if ctx.author.id != ADMIN_ID:
             return
         target = member or ctx.author
-        active_puzzles.pop(target.id, None)
+        active_puzzles.pop(_puzzle_key(target.id, False), None)
+        active_puzzles.pop(_puzzle_key(target.id, True), None)
         save_active_puzzle(target.id, None)
         db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
         db.commit()
