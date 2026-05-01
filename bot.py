@@ -72,6 +72,68 @@ async def on_ready():
     logger.info("Logged in as %s (%s)", bot.user, bot.user.id)
 
 
+async def notify_admin_guild_join(guild):
+    permissions = guild.me.guild_permissions if guild.me else discord.Permissions.none()
+    likely_kids_invite = not permissions.manage_messages and not permissions.manage_nicknames
+    owner_text = f"{guild.owner} ({guild.owner_id})" if guild.owner_id else "unknown"
+    sql = (
+        "INSERT INTO guild_settings (guild_id, key, value)\n"
+        f"VALUES ({guild.id}, 'kids_mode', 'true')\n"
+        "ON CONFLICT(guild_id, key)\n"
+        "DO UPDATE SET value = excluded.value;"
+    )
+    description = (
+        f"Gary was added to **{guild.name}**.\n\n"
+        f"Guild ID: `{guild.id}`\n"
+        f"Owner: `{owner_text}`\n"
+        f"Members: `{guild.member_count}`\n"
+        f"Likely kids invite: **{'YES' if likely_kids_invite else 'NO'}**\n"
+        f"Manage Messages: **{permissions.manage_messages}**\n"
+        f"Manage Nicknames: **{permissions.manage_nicknames}**\n\n"
+        "If this should be kids mode, update the DB and restart Gary so cached guild settings reload:\n"
+        f"```sql\n{sql}\n```"
+    )
+    try:
+        report_channel = bot.get_channel(GUILD_JOIN_REPORT_CHANNEL_ID)
+        if report_channel is None:
+            report_channel = await bot.fetch_channel(GUILD_JOIN_REPORT_CHANNEL_ID)
+        await report_channel.send(embed=make_embed("Gary Joined New Server", description, COLOR_WARNING))
+    except discord.HTTPException:
+        logger.warning("Could not post guild join report for guild %s", guild.id)
+        try:
+            admin = bot.get_user(ADMIN_ID) or await bot.fetch_user(ADMIN_ID)
+            await admin.send(embed=make_embed("Gary Joined New Server", description, COLOR_WARNING))
+        except discord.HTTPException:
+            logger.warning("Could not DM admin about guild join for guild %s", guild.id)
+
+
+@bot.event
+async def on_guild_join(guild):
+    logger.info("Joined guild %s (%s)", guild.name, guild.id)
+    await notify_admin_guild_join(guild)
+    target = guild.system_channel
+    if target is not None:
+        permissions = target.permissions_for(guild.me)
+        if not permissions.send_messages:
+            target = None
+    if target is None:
+        for channel in guild.text_channels:
+            permissions = channel.permissions_for(guild.me)
+            if permissions.send_messages:
+                target = channel
+                break
+    if target is None:
+        return
+    try:
+        await target.send(embed=make_embed(
+            "Gary Added",
+            f"Gary is ready. Use `{PREFIX}help` to see available commands.",
+            COLOR_DEFAULT,
+        ))
+    except discord.HTTPException:
+        logger.warning("Could not send guild join setup message in guild %s", guild.id)
+
+
 @bot.event
 async def on_command(ctx):
     command_usage[ctx.command.name] += 1
