@@ -174,6 +174,9 @@ SETTINGS_DEFAULTS = {
     "gary_gamble_report_channel_id": None,
     "bj_ruleset": "realistic",
     "bj_basic_hint_enabled": True,
+    "weather_alert_channel_id": None,
+    "weather_alert_city": "Champaign",
+    "weather_alert_last_date": None,
     # Percent chances (0-100) for passive AI features. Stored as int.
     "unsolicited_chance_pct": 0,
     "silas_banter_chance_pct": 0,
@@ -317,6 +320,16 @@ def load_runtime_settings():
     )
     runtime_settings["bj_basic_hint_enabled"] = bool(
         _load_json_setting("bj_basic_hint_enabled", SETTINGS_DEFAULTS["bj_basic_hint_enabled"])
+    )
+    weather_channel_val = _load_json_setting(
+        "weather_alert_channel_id", SETTINGS_DEFAULTS["weather_alert_channel_id"]
+    )
+    runtime_settings["weather_alert_channel_id"] = int(weather_channel_val) if weather_channel_val else None
+    runtime_settings["weather_alert_city"] = str(
+        _load_json_setting("weather_alert_city", SETTINGS_DEFAULTS["weather_alert_city"])
+    )
+    runtime_settings["weather_alert_last_date"] = _load_json_setting(
+        "weather_alert_last_date", SETTINGS_DEFAULTS["weather_alert_last_date"]
     )
     for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct"):
         raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])

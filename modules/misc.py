@@ -51,20 +51,21 @@ class MiscCog(commands.Cog):
     async def _start_misc_tasks(self):
         if not self.restore_nicknames.is_running():
             self.restore_nicknames.start()
+        if not self.weather_alert_check.is_running():
+            self.weather_alert_check.start()
     
     # ---------------------------------------------------------------------------
     # WEATHER
     # ---------------------------------------------------------------------------
 
-    @commands.command()
-    async def weather(self, ctx, *, city: str = "Champaign"):
-        """Get the weather for a city."""
+    async def _fetch_weather_embed(self, city: str, title_prefix: str = "Weather in"):
+        """Fetch weather and return an embed, or None on failure."""
         cleaned = city.strip()
         if cleaned.lower() in LOCAL_CITIES:
             cleaned = cleaned + ",IL,US"
         elif re.match(r'^.+,\s*[A-Za-z]{2}$', cleaned):
             cleaned = cleaned + ",US"
-    
+
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {"q": cleaned, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
         try:
@@ -72,11 +73,11 @@ class MiscCog(commands.Cog):
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url, params=params) as resp:
                     if resp.status != 200:
-                        return await ctx.send(f"Couldn't find weather for **{city}**.")
+                        return None
                     data = await resp.json()
         except (aiohttp.ClientError, asyncio.TimeoutError):
-            return await ctx.send("Weather service is unavailable right now. Try again in a bit.")
-    
+            return None
+
         desc = data["weather"][0]["description"].title()
         temp = data["main"]["temp"]
         feels = data["main"]["feels_like"]
@@ -84,15 +85,46 @@ class MiscCog(commands.Cog):
         wind = data["wind"]["speed"]
         icon = data["weather"][0]["icon"]
         name = data["name"]
-    
-        embed = discord.Embed(title=f"Weather in {name}", color=COLOR_DEFAULT)
+
+        embed = discord.Embed(title=f"{title_prefix} {name}", color=COLOR_DEFAULT)
         embed.set_thumbnail(url=f"https://openweathermap.org/img/wn/{icon}@2x.png")
         embed.add_field(name="Condition", value=desc, inline=True)
         embed.add_field(name="Temp", value=f"{temp:.0f}F", inline=True)
         embed.add_field(name="Feels Like", value=f"{feels:.0f}F", inline=True)
         embed.add_field(name="Humidity", value=f"{humidity}%", inline=True)
         embed.add_field(name="Wind", value=f"{wind:.0f} mph", inline=True)
+        return embed
+
+    @commands.command()
+    async def weather(self, ctx, *, city: str = "Champaign"):
+        """Get the weather for a city."""
+        embed = await self._fetch_weather_embed(city)
+        if embed is None:
+            return await ctx.send(f"Couldn't find weather for **{city}** (or service unavailable).")
         await ctx.send(embed=embed)
+
+    @tasks.loop(minutes=5)
+    async def weather_alert_check(self):
+        """Send daily 8 AM Central weather alert to the configured channel."""
+        channel_id = runtime_settings.get("weather_alert_channel_id")
+        if not channel_id:
+            return
+        now_central = datetime.now(CENTRAL_TZ)
+        if now_central.hour != 8:
+            return
+        today_key = now_central.strftime("%Y-%m-%d")
+        if runtime_settings.get("weather_alert_last_date") == today_key:
+            return
+        channel = self.bot.get_channel(int(channel_id))
+        if channel is None:
+            return
+        city = runtime_settings.get("weather_alert_city", "Champaign")
+        embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —")
+        if embed is None:
+            return
+        await channel.send(embed=embed)
+        runtime_settings["weather_alert_last_date"] = today_key
+        shared._save_json_setting("weather_alert_last_date", today_key)
     
     # ---------------------------------------------------------------------------
     # ANIMALS
@@ -520,6 +552,45 @@ class MiscCog(commands.Cog):
                     f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`"
                 )
 
+            if sec == "weather":
+                channel_id = runtime_settings.get("weather_alert_channel_id")
+                city = runtime_settings.get("weather_alert_city", "Champaign")
+                channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+                if not args:
+                    state = "ON" if channel_id else "OFF"
+                    return await ctx.send(
+                        f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)"
+                    )
+                action = args[0].strip().lower()
+                if action == "on":
+                    target = ctx.channel
+                    if ctx.message.channel_mentions:
+                        target = ctx.message.channel_mentions[0]
+                    runtime_settings["weather_alert_channel_id"] = target.id
+                    shared._save_json_setting("weather_alert_channel_id", target.id)
+                    return await ctx.send(
+                        f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central."
+                    )
+                if action == "off":
+                    runtime_settings["weather_alert_channel_id"] = None
+                    shared._save_json_setting("weather_alert_channel_id", None)
+                    return await ctx.send("Daily weather alert is now **OFF**.")
+                if action == "status":
+                    state = "ON" if channel_id else "OFF"
+                    return await ctx.send(
+                        f"Daily weather alert: **{state}** in {channel_text} for **{city}**"
+                    )
+                if action == "city":
+                    if len(args) < 2:
+                        return await ctx.send(f"Usage: `{PREFIX}settings weather city <city name>`")
+                    new_city = " ".join(args[1:]).strip()
+                    runtime_settings["weather_alert_city"] = new_city
+                    shared._save_json_setting("weather_alert_city", new_city)
+                    return await ctx.send(f"Weather alert city set to **{new_city}**.")
+                return await ctx.send(
+                    f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
+                )
+
             return await ctx.send(f"Unknown settings section: `{sec}`")
 
         dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
@@ -558,6 +629,11 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
         embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
+        weather_channel_id = runtime_settings.get("weather_alert_channel_id")
+        weather_state = "ON" if weather_channel_id else "OFF"
+        weather_text = f"<#{int(weather_channel_id)}>" if weather_channel_id else "(not set)"
+        weather_city = runtime_settings.get("weather_alert_city", "Champaign")
+        embed.add_field(name="Weather Alert", value=f"{weather_state}\n{weather_text}\n{weather_city}", inline=True)
         embed.add_field(name="BJ Ruleset", value=bj_ruleset, inline=True)
         embed.add_field(name="BJ Hint", value=bj_hint_state, inline=True)
         embed.add_field(name="Passive AI", value=passive_value, inline=False)
@@ -777,6 +853,7 @@ class MiscCog(commands.Cog):
             f"`{p}settings` - Show runtime settings\n"
             f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
+            f"`{p}settings weather <on [#channel]|off|status|city <name>>` - Daily 8 AM weather alert\n"
             f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances\n"
             f"`{p}bjruleset <realistic|arcade|status>` - Blackjack table ruleset\n"
             f"`{p}bjhint <on|off|status>` - Basic strategy hint toggle"
