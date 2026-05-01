@@ -346,6 +346,9 @@ class AICog(commands.Cog):
         return None
 
     async def _handle_silas_gambling_message(self, message, silas_text: str):
+        guild_id = message.guild.id if message.guild else None
+        if is_kids_mode_guild(guild_id):
+            return
         channel_id = runtime_settings.get("gary_gamble_channel_id")
         if not runtime_settings.get("gary_gamble_enabled", False):
             return
@@ -439,6 +442,9 @@ class AICog(commands.Cog):
         channel = self.bot.get_channel(int(channel_id))
         if channel is None:
             return "Configured gamble channel is unavailable."
+        guild_id = channel.guild.id if getattr(channel, "guild", None) else None
+        if is_kids_mode_guild(guild_id):
+            return "Gary autonomous gambling is blocked by kids mode in that server."
 
         now = datetime.now(timezone.utc)
         cycle_key = self._scratch_reset_key(now)
@@ -612,11 +618,14 @@ class AICog(commands.Cog):
         if message.author.id == self.bot.user.id:
             return
         shared.messages_seen += 1
+        guild_id = message.guild.id if message.guild else None
+        if is_kids_mode_guild(guild_id):
+            return
     
         # --- Silas interaction ---
         if message.author.id == SILAS_BOT_ID:
             channel_id = message.channel.id
-            if not is_feature_allowed("silas", channel_id):
+            if not is_feature_allowed("silas", channel_id, guild_id):
                 return
     
             # Auto-accept roleplay invites from Silas
@@ -715,7 +724,7 @@ class AICog(commands.Cog):
         now_central = now.astimezone(CENTRAL_TZ)
     
         # --- Track message times for dead chat ---
-        if runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id):
+        if runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id, guild_id):
             last_message_time[channel_id] = now
             dead_chat_stage[channel_id] = -1  # reset escalation
     
@@ -734,7 +743,7 @@ class AICog(commands.Cog):
         content = message.content.strip()
         if (
             runtime_settings.get("daily_reminder_enabled", True)
-            and is_feature_allowed("daily_reminder", channel_id)
+            and is_feature_allowed("daily_reminder", channel_id, guild_id)
             and content
             and not content.startswith(PREFIX)
         ):
@@ -757,7 +766,7 @@ class AICog(commands.Cog):
         if (
             self.bot.user.mentioned_in(message)
             and not message.mention_everyone
-            and is_feature_allowed("mention_reply", channel_id)
+            and is_feature_allowed("mention_reply", channel_id, guild_id)
         ):
             context = recent_messages.get(channel_id, [])
             chat_log = "\n".join(f"{m['author']}: {m['content']}" for m in context[-10:])
@@ -780,7 +789,7 @@ class AICog(commands.Cog):
         hour_central = now.astimezone(CENTRAL_TZ).hour
         if (
             LATE_NIGHT_START <= hour_central < LATE_NIGHT_END
-            and is_feature_allowed("late_night", channel_id)
+            and is_feature_allowed("late_night", channel_id, guild_id)
         ):
             today_str = now.strftime("%Y-%m-%d")
             user_key = f"{message.author.id}-{today_str}"
@@ -796,7 +805,7 @@ class AICog(commands.Cog):
         # --- Unsolicited opinions (Ollama) ---
         unsolicited_chance = runtime_settings.get("unsolicited_chance_pct", 0) / 100.0
         if (
-            is_feature_allowed("unsolicited_ai", channel_id)
+            is_feature_allowed("unsolicited_ai", channel_id, guild_id)
             and random.random() < unsolicited_chance
             and len(message.content) > 5
         ):
@@ -833,8 +842,6 @@ class AICog(commands.Cog):
             return
         now = datetime.now(timezone.utc)
         for channel_id, last_time in list(last_message_time.items()):
-            if not is_feature_allowed("dead_chat", channel_id):
-                continue
             minutes_silent = (now - last_time).total_seconds() / 60
             current_stage = dead_chat_stage.get(channel_id, -1)
     
@@ -848,6 +855,9 @@ class AICog(commands.Cog):
             if new_stage > current_stage:
                 dead_chat_stage[channel_id] = new_stage
                 channel = self.bot.get_channel(channel_id)
+                guild_id = channel.guild.id if channel and getattr(channel, "guild", None) else None
+                if not is_feature_allowed("dead_chat", channel_id, guild_id):
+                    continue
                 if channel and channel.name == DEAD_CHAT_CHANNEL:
                     response = random.choice(DEAD_CHAT_RESPONSES[new_stage])
                     await channel.send(response)

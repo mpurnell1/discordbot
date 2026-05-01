@@ -36,6 +36,34 @@ WYR_QUESTIONS = [
     ("Have hands for feet", "Have feet for hands"),
 ]
 
+KIDS_WYR_QUESTIONS = [
+    ("Have a pet dragon", "Have a pet unicorn"),
+    ("Visit the moon", "Visit the bottom of the ocean"),
+    ("Be able to talk to animals", "Be able to speak every language"),
+    ("Have ice cream for dessert", "Have cookies for dessert"),
+    ("Be super fast", "Be super strong"),
+    ("Live in a treehouse", "Live in a castle"),
+    ("Be great at drawing", "Be great at music"),
+    ("Have a robot helper", "Have a magic backpack"),
+    ("Explore a jungle", "Explore a coral reef"),
+    ("Always know the answer in math", "Always spell every word correctly"),
+    ("Ride a flying bike", "Ride a tiny train"),
+    ("Have recess twice a day", "Have art class every day"),
+]
+
+CLEAN_JOKES = [
+    ("Why did the teddy bear skip dessert?", "Because it was already stuffed."),
+    ("What do you call a sleeping bull?", "A bulldozer."),
+    ("Why did the math book look sad?", "Because it had too many problems."),
+    ("What has hands but cannot clap?", "A clock."),
+    ("Why did the cookie go to the nurse?", "Because it felt crummy."),
+    ("What do planets like to read?", "Comet books."),
+    ("Why was the broom late?", "It overswept."),
+    ("What do you call cheese that is not yours?", "Nacho cheese."),
+    ("Why did the bicycle fall over?", "Because it was two tired."),
+    ("What kind of tree fits in your hand?", "A palm tree."),
+]
+
 def format_quote(content, name, date, prefix=""):
     year = date[2:4] if date else "??"
     short = content[:80] + "..." if len(content) > 80 else content
@@ -167,12 +195,19 @@ class MiscCog(commands.Cog):
     @commands.command()
     async def wyr(self, ctx):
         """Would You Rather — vote with reactions!"""
-        a, b = random.choice(WYR_QUESTIONS)
+        pool = KIDS_WYR_QUESTIONS if ctx.guild and is_kids_mode_guild(ctx.guild.id) else WYR_QUESTIONS
+        a, b = random.choice(pool)
         embed = make_embed("🤔 Would You Rather...",
             f"🅰️ {a}\n\n**OR**\n\n🅱️ {b}", COLOR_PINK)
         msg = await ctx.send(embed=embed)
         await msg.add_reaction("🅰️")
         await msg.add_reaction("🅱️")
+
+    @commands.command()
+    async def joke(self, ctx):
+        """Tell a clean curated joke."""
+        setup, punchline = random.choice(CLEAN_JOKES)
+        await ctx.send(embed=make_embed("Joke", f"{setup}\n\n||{punchline}||", COLOR_WARNING))
     
     # ---------------------------------------------------------------------------
     # ON THIS DAY
@@ -207,6 +242,7 @@ class MiscCog(commands.Cog):
     # ---------------------------------------------------------------------------
 
     @commands.command()
+    @commands.guild_only()
     async def changenick(self, ctx, member: discord.Member, *, new_nick: str):
         """Pay coins to change someone's nickname for 24 hours."""
         if member.id == ctx.author.id:
@@ -282,6 +318,7 @@ class MiscCog(commands.Cog):
     # ---------------------------------------------------------------------------
 
     @commands.command()
+    @commands.guild_only()
     async def quote(self, ctx):
         """Save a quote by replying to a message."""
         if not ctx.message.reference:
@@ -302,6 +339,7 @@ class MiscCog(commands.Cog):
     
 
     @commands.command()
+    @commands.guild_only()
     async def quotes(self, ctx, flag: str = ""):
         """Show recent quotes. Admin can use .quotes ids to show IDs."""
         show_ids = flag.lower() == "ids" and ctx.author.id == ADMIN_ID
@@ -317,6 +355,7 @@ class MiscCog(commands.Cog):
     
 
     @commands.command()
+    @commands.guild_only()
     async def unquote(self, ctx, quote_id: int):
         """Delete a quote by ID (admin only)."""
         if ctx.author.id != ADMIN_ID:
@@ -331,6 +370,38 @@ class MiscCog(commands.Cog):
     # ---------------------------------------------------------------------------
     # ADMIN
     # ---------------------------------------------------------------------------
+
+    async def _set_kids_mode(self, ctx, action: str = "status"):
+        if ctx.author.id != ADMIN_ID:
+            return
+        if ctx.guild is None:
+            return await ctx.send("Kids mode is server-specific. Run this in the target server.")
+
+        value = action.strip().lower()
+        if value in {"", "status"}:
+            enabled = is_kids_mode_guild(ctx.guild.id)
+            state = "ON" if enabled else "OFF"
+            return await ctx.send(embed=make_embed(
+                "Kids Mode",
+                f"Kids mode is **{state}** for **{ctx.guild.name}**.\n\n{KIDS_MODE_SUMMARY}",
+                COLOR_DEFAULT,
+            ))
+        if value not in {"on", "off"}:
+            return await ctx.send(f"Usage: `{PREFIX}kidsmode <on|off|status>`")
+
+        enabled = value == "on"
+        set_kids_mode_guild(ctx.guild.id, enabled)
+        state = "ON" if enabled else "OFF"
+        await ctx.send(embed=make_embed(
+            "Kids Mode Updated",
+            f"Kids mode is now **{state}** for **{ctx.guild.name}**.\n\n{KIDS_MODE_SUMMARY}",
+            COLOR_SUCCESS if enabled else COLOR_WARNING,
+        ))
+
+    @commands.command()
+    async def kidsmode(self, ctx, action: str = "status"):
+        """Admin only: enable, disable, or show kids mode for this server."""
+        await self._set_kids_mode(ctx, action)
 
     @commands.command()
     async def setcommand(self, ctx, command_name: str, state: str):
@@ -441,6 +512,10 @@ class MiscCog(commands.Cog):
 
         if section:
             sec = section.strip().lower()
+            if sec in {"kids", "kidsmode"}:
+                action = args[0] if args else "status"
+                return await self._set_kids_mode(ctx, action)
+
             if sec in {"dailyreminder", "daily"}:
                 if not args:
                     enabled = runtime_settings.get("daily_reminder_enabled", True)
@@ -506,6 +581,8 @@ class MiscCog(commands.Cog):
                     )
 
                 action = args[0].strip().lower()
+                if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
+                    return await ctx.send("Gary autonomous gambling cannot be configured from a kids-mode server.")
                 if action == "on":
                     runtime_settings["gary_gamble_enabled"] = True
                     runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
@@ -594,6 +671,7 @@ class MiscCog(commands.Cog):
             return await ctx.send(f"Unknown settings section: `{sec}`")
 
         dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
+        kids_mode_state = "ON" if ctx.guild and is_kids_mode_guild(ctx.guild.id) else "OFF"
         daily_reminder_state = "ON" if runtime_settings.get("daily_reminder_enabled", True) else "OFF"
         gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
         bj_ruleset = str(runtime_settings.get("bj_ruleset", "realistic")).upper()
@@ -626,6 +704,7 @@ class MiscCog(commands.Cog):
         )
 
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
+        embed.add_field(name="Kids Mode", value=kids_mode_state, inline=True)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
         embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
@@ -726,18 +805,26 @@ class MiscCog(commands.Cog):
     
 
     @commands.command()
-    async def invite(self, ctx):
+    async def invite(self, ctx, mode: str = ""):
         """Generate an invite link with the permissions the bot needs."""
+        kids_invite = mode.strip().lower() in {"kid", "kids", "kidsmode"}
         perms = discord.Permissions(
             send_messages=True,
             embed_links=True,
             add_reactions=True,
-            manage_messages=True,
-            manage_nicknames=True,
+            manage_messages=not kids_invite,
+            manage_nicknames=not kids_invite,
             read_message_history=True,
             read_messages=True,
         )
         link = discord.utils.oauth_url(self.bot.user.id, permissions=perms)
+        if kids_invite:
+            description = (
+                f"[Click here to invite me in a low-permission setup.]({link})\n\n"
+                "After Gary joins the server, Matt will be notified with the server ID so kids mode can be enabled in the DB.\n\n"
+                f"{KIDS_MODE_SUMMARY}"
+            )
+            return await ctx.send(embed=make_embed("Kids Mode Invite", description, COLOR_SUCCESS))
         await ctx.send(embed=make_embed("🔗 Invite Link", f"[Click here to invite me!]({link})"))
     
 
@@ -770,6 +857,7 @@ class MiscCog(commands.Cog):
     # ---------------------------------------------------------------------------
 
     @commands.command(aliases=["lb", "top"])
+    @commands.guild_only()
     async def leaderboard(self, ctx):
         """Show the richest users in the server."""
         rows = db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC").fetchall()
@@ -799,47 +887,63 @@ class MiscCog(commands.Cog):
         """Show all commands."""
         embed = discord.Embed(title="Bot Commands", color=COLOR_DEFAULT)
         p = PREFIX
-        embed.add_field(name="Economy", value=(
-            f"`{p}daily` - Claim daily coins\n"
-            f"`{p}guess <1-10>` - Guess for a free coin (3x/day)\n"
-            f"`{p}puzzle` - Daily puzzle for {PUZZLE_REWARD} coins\n"
-            f"`{p}balance` - Check balance\n"
-            f"`{p}leaderboard` - Top 10 richest"
-        ), inline=False)
-        embed.add_field(name="Gambling", value=(
-            f"`{p}coinflip <amt>` - Double or nothing\n"
-            f"`{p}slots <amt>` - Slot machine\n"
-            f"`{p}blackjack <amt>` - Play blackjack\n"
-            f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
-            f"`{p}bjrules` - Show current blackjack table rules"
-        ), inline=False)
+        kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
+        if not kids_mode:
+            embed.add_field(name="Economy", value=(
+                f"`{p}daily` - Claim daily coins\n"
+                f"`{p}guess <1-10>` - Guess for a free coin (3x/day)\n"
+                f"`{p}puzzle` - Daily puzzle for {PUZZLE_REWARD} coins\n"
+                f"`{p}balance` - Check balance\n"
+                f"`{p}leaderboard` - Top 10 richest"
+            ), inline=False)
+        if not kids_mode:
+            embed.add_field(name="Gambling", value=(
+                f"`{p}coinflip <amt>` - Double or nothing\n"
+                f"`{p}slots <amt>` - Slot machine\n"
+                f"`{p}blackjack <amt>` - Play blackjack\n"
+                f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
+                f"`{p}bjrules` - Show current blackjack table rules"
+            ), inline=False)
         embed.add_field(name="Games", value=(
             f"`{p}ttt @user` - Tic-tac-toe\n"
             f"`{p}c4 @user` - Connect 4\n"
             f"`{p}hangman` - Hangman (plain single letters or `{p}g <guess>`)\n"
+            f"`{p}rps <rock|paper|scissors>` - Rock Paper Scissors\n"
+            f"`{p}roll [sides]` - Roll a die\n"
+            f"`{p}mathgame` / `{p}mathanswer <answer>` - Quick math quiz\n"
+            f"`{p}memory` / `{p}memoryanswer <sequence>` - Memory game\n"
+            f"`{p}trivia` / `{p}triviaanswer <A-D>` - Trivia\n"
+            f"`{p}scramble` / `{p}unscramble <word>` - Word scramble\n"
+            f"`{p}puzzle` / `{p}solve <answer>` - Daily puzzle\n"
+            f"`{p}timer <seconds>` - Start a timer\n"
             f"`{p}forfeit` - Quit current game"
         ), inline=False)
         embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)", inline=False)
-        embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
-        embed.add_field(name="Fun", value=(
-            f"`{p}wyr` - Would You Rather\n"
-            f"`{p}onthisday` - Historical event today\n"
-            f"`{p}changenick @user name` - Change nickname ({NICKNAME_COST} coins)"
-        ), inline=False)
-        embed.add_field(name="AI", value=(
-            f"`{p}ask <question>` - Ask the AI (needs desktop on)\n"
-            f"`{p}rp <character>` - Roleplay with Silas\n"
-            f"`{p}stoprp` - End roleplay"
-        ), inline=False)
+        if not kids_mode:
+            embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
+        fun_lines = [
+            f"`{p}wyr` - Would You Rather",
+            f"`{p}joke` - Clean joke",
+        ]
+        if not kids_mode:
+            fun_lines.append(f"`{p}onthisday` - Historical event today")
+            fun_lines.append(f"`{p}changenick @user name` - Change nickname ({NICKNAME_COST} coins)")
+        embed.add_field(name="Fun", value="\n".join(fun_lines), inline=False)
+        if not kids_mode:
+            embed.add_field(name="AI", value=(
+                f"`{p}ask <question>` - Ask the AI (needs desktop on)\n"
+                f"`{p}rp <character>` - Roleplay with Silas\n"
+                f"`{p}stoprp` - End roleplay"
+            ), inline=False)
         embed.add_field(name="Info", value=(
-            f"`{p}stats` - Bot stats and usage\n"
-            f"`{p}invite` - Get invite link\n"
-            f"`{p}adminhelp` - Admin command list (admin only)"
+            f"`{p}stats` - Bot stats and usage"
+            + (f"\n`{p}invite` / `{p}invite kids` - Get invite link" if not kids_mode else "")
         ), inline=False)
-        embed.add_field(name="Quotes", value=(
-            f"`{p}quote` - Reply to a message to save it\n"
-            f"`{p}quotes` - Show recent quotes"
-        ), inline=False)
+        if not kids_mode:
+            embed.add_field(name="Quotes", value=(
+                f"`{p}quote` - Reply to a message to save it\n"
+                f"`{p}quotes` - Show recent quotes"
+            ), inline=False)
         await ctx.send(embed=embed)
 
     @commands.command()
@@ -851,6 +955,8 @@ class MiscCog(commands.Cog):
         embed = discord.Embed(title="Admin Commands", color=COLOR_DEFAULT)
         embed.add_field(name="Runtime", value=(
             f"`{p}settings` - Show runtime settings\n"
+            f"`{p}settings kids <on|off|status>` - Server kids mode\n"
+            f"`{p}kidsmode <on|off|status>` - Shortcut for kids mode\n"
             f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
             f"`{p}settings weather <on [#channel]|off|status|city <name>>` - Daily 8 AM weather alert\n"

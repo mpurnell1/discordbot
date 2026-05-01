@@ -57,6 +57,7 @@ DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 UNSOLICITED_CHANCE = 0 # 0.12  # ~12% of messages get evaluated
 
 ADMIN_ID = 393568333644955648
+GUILD_JOIN_REPORT_CHANNEL_ID = 1499629710739771503
 SILAS_BOT_ID = 1489403251303518322
 
 # --- Silas interaction config ---
@@ -147,6 +148,14 @@ def init_db():
             value TEXT NOT NULL
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS guild_settings (
+            guild_id INTEGER,
+            key TEXT,
+            value TEXT NOT NULL,
+            PRIMARY KEY (guild_id, key)
+        )
+    """)
     db.commit()
     return db
 
@@ -184,6 +193,7 @@ SETTINGS_DEFAULTS = {
 }
 PROTECTED_ADMIN_COMMANDS = {
     "adminhelp",
+    "kidsmode",
     "setcommand",
     "setdeadchat",
     "setfeaturemode",
@@ -194,8 +204,87 @@ PROTECTED_ADMIN_COMMANDS = {
     "restart",
 }
 
+KIDS_MODE_BLOCKED_COMMANDS = {
+    # Economy is intentionally excluded from kids mode.
+    "daily",
+    "guess",
+    "repuzzle",
+    "balance",
+    "leaderboard",
+    "give",
+    "invite",
+    # Gambling and blackjack-adjacent actions.
+    "coinflip",
+    "slots",
+    "blackjack",
+    "hit",
+    "stand",
+    "double",
+    "split",
+    "surrender",
+    "bjrules",
+    # Free-form AI and bot-to-bot roleplay are not predictable enough for kids mode.
+    "ask",
+    "rp",
+    "stoprp",
+    # Moderation/social commands that can be used to embarrass or preserve messages.
+    "changenick",
+    "quote",
+    "quotes",
+    "unquote",
+    # External uncurated content is not exposed in kids mode.
+    "cat",
+    "dog",
+    "onthisday",
+}
+
+KIDS_MODE_BLOCKED_FEATURES = {
+    "cmd:coinflip",
+    "cmd:slots",
+    "cmd:blackjack",
+    "cmd:hit",
+    "cmd:stand",
+    "cmd:double",
+    "cmd:split",
+    "cmd:surrender",
+    "cmd:bjrules",
+    "cmd:ask",
+    "cmd:rp",
+    "cmd:stoprp",
+    "cmd:changenick",
+    "cmd:quote",
+    "cmd:quotes",
+    "cmd:unquote",
+    "cmd:cat",
+    "cmd:dog",
+    "cmd:onthisday",
+    "cmd:daily",
+    "cmd:guess",
+    "cmd:repuzzle",
+    "cmd:balance",
+    "cmd:leaderboard",
+    "cmd:give",
+    "cmd:invite",
+    "dead_chat",
+    "daily_reminder",
+    "late_night",
+    "mention_reply",
+    "silas",
+    "unsolicited_ai",
+}
+
+KIDS_MODE_SUMMARY = (
+    "Kids mode keeps Gary useful while removing unpredictable or adult-leaning behavior:\n"
+    "- disables economy and coin rewards\n"
+    "- disables gambling commands and blackjack actions\n"
+    "- disables all AI and passive behavior, including reminders, Silas handling, mention replies, unsolicited AI, late-night roasts, and dead-chat callouts\n"
+    "- disables nickname changes, quote saving/browsing, and uncurated external content\n"
+    "- keeps curated games, weather, stats, and help"
+)
+
 # Loaded from SQLite on startup and updated live by admin commands.
 runtime_settings = dict(SETTINGS_DEFAULTS)
+guild_runtime_settings = {}
 
 # ---------------------------------------------------------------------------
 # HELPERS
@@ -288,6 +377,59 @@ def _save_json_setting(key: str, value):
     db.commit()
 
 
+def _load_guild_json_setting(guild_id: int, key: str, default):
+    row = db.execute(
+        "SELECT value FROM guild_settings WHERE guild_id = ? AND key = ?",
+        (guild_id, key),
+    ).fetchone()
+    if not row:
+        return default
+    try:
+        return json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
+def _save_guild_json_setting(guild_id: int, key: str, value):
+    db.execute(
+        "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?) "
+        "ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value",
+        (guild_id, key, json.dumps(value)),
+    )
+    db.commit()
+
+
+def load_guild_settings():
+    guild_runtime_settings.clear()
+    rows = db.execute(
+        "SELECT guild_id, key, value FROM guild_settings"
+    ).fetchall()
+    for guild_id, key, raw in rows:
+        settings = guild_runtime_settings.setdefault(int(guild_id), {})
+        try:
+            settings[key] = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+
+def is_kids_mode_guild(guild_id: int | None) -> bool:
+    if not guild_id:
+        return False
+    settings = guild_runtime_settings.get(int(guild_id), {})
+    return bool(settings.get("kids_mode", False))
+
+
+def set_kids_mode_guild(guild_id: int, enabled: bool):
+    guild_id = int(guild_id)
+    settings = guild_runtime_settings.setdefault(guild_id, {})
+    settings["kids_mode"] = bool(enabled)
+    _save_guild_json_setting(guild_id, "kids_mode", bool(enabled))
+
+
+def is_kids_command_allowed(command_name: str) -> bool:
+    return command_name.strip().lower() not in KIDS_MODE_BLOCKED_COMMANDS
+
+
 def load_runtime_settings():
     runtime_settings["dead_chat_enabled"] = bool(
         _load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"])
@@ -349,9 +491,12 @@ def is_command_enabled(command_name: str) -> bool:
     return bool(toggles.get(command_name, True))
 
 
-def is_feature_allowed(feature: str, channel_id: int) -> bool:
+def is_feature_allowed(feature: str, channel_id: int, guild_id: int | None = None) -> bool:
+    normalized = normalize_feature_name(feature)
+    if is_kids_mode_guild(guild_id) and normalized in KIDS_MODE_BLOCKED_FEATURES:
+        return False
     rules = runtime_settings.get("feature_channel_rules", {})
-    rule = rules.get(normalize_feature_name(feature))
+    rule = rules.get(normalized)
     if not rule:
         return True
     mode = rule.get("mode", "all")
@@ -431,6 +576,7 @@ def save_gary_gamble_state(state: dict):
 
 
 load_runtime_settings()
+load_guild_settings()
 
 async def check_bet(ctx, amount: int) -> bool:
     """Validate a bet. Returns True if the bet is invalid (caller should return)."""
