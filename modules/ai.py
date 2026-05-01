@@ -15,12 +15,14 @@ from shared import *
 
 
 class AICog(commands.Cog):
-    BJ_BET_PCT = 0.025
-    BJ_BET_CAP = 75
+    BJ_BET_PCT_MIN = 1   # percent when losing (< 80 % of anchor)
+    BJ_BET_PCT_BASE = 3  # percent at or near anchor
+    BJ_BET_PCT_MAX = 15  # percent at take-profit threshold
     BJ_MIN_BALANCE = 200
     BJ_STOP_LOSS_PCT = 0.35
     BJ_TAKE_PROFIT_PCT = 0.60
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
+    BJ_ACTIVE_TIMEOUT = timedelta(minutes=5)
     HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
     HM_COOLDOWN = timedelta(hours=6)
     GAMBLE_REPORT_CHANNEL_ID_FALLBACK = REDACTED_CHANNEL_ID
@@ -58,6 +60,7 @@ class AICog(commands.Cog):
             "hangman_ended_at": parsed_dts["hangman_ended_at"],
             "last_known_balance": loaded.get("last_known_balance"),
             "session_anchor_balance": loaded.get("session_anchor_balance"),
+            "morning_hangman_done": loaded.get("morning_hangman_done", False),
         }
         self._last_gamble_report_at = None
         self._last_gamble_result = self.gamble_state.get("last_report_key")
@@ -79,6 +82,7 @@ class AICog(commands.Cog):
                 "last_report_key": self.gamble_state.get("last_report_key"),
                 "last_known_balance": self.gamble_state.get("last_known_balance"),
                 "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
+                "morning_hangman_done": self.gamble_state.get("morning_hangman_done", False),
             }
         )
 
@@ -101,22 +105,22 @@ class AICog(commands.Cog):
         return None
 
     def _compute_blackjack_bet(self, balance: int, anchor: int):
+        """Return bet percentage to send as `!bj x%`.
+
+        Scales linearly from BJ_BET_PCT_BASE at the session anchor up to
+        BJ_BET_PCT_MAX at the take-profit threshold, with BJ_BET_PCT_MIN
+        when the balance has dropped below 80 % of the anchor.
+        """
         if balance < self.BJ_MIN_BALANCE:
             return 0
         if anchor <= 0:
             anchor = balance
-
-        ratio = balance / anchor if anchor else 1.0
-        risk_scale = 1.0
-        if ratio < 0.65:
-            risk_scale = 0.4
-        elif ratio < 0.80:
-            risk_scale = 0.6
-
-        raw = int(balance * self.BJ_BET_PCT * risk_scale)
-        bet = max(1, raw)
-        bet = min(bet, self.BJ_BET_CAP, balance)
-        return bet
+        ratio = balance / anchor
+        if ratio < 0.80:
+            return self.BJ_BET_PCT_MIN
+        t = min(1.0, max(0.0, (ratio - 1.0) / self.BJ_TAKE_PROFIT_PCT))
+        pct = self.BJ_BET_PCT_BASE + t * (self.BJ_BET_PCT_MAX - self.BJ_BET_PCT_BASE)
+        return max(self.BJ_BET_PCT_MIN, min(self.BJ_BET_PCT_MAX, round(pct)))
 
     async def _send_gamble_report(self, summary: str, force: bool = False):
         report_id = runtime_settings.get("gary_gamble_report_channel_id") or self.GAMBLE_REPORT_CHANNEL_ID_FALLBACK
@@ -374,10 +378,16 @@ class AICog(commands.Cog):
             self._persist_gamble_state()
             return
 
+        # "Already Playing" — Silas has a game open we can't inspect; stand to resolve it.
+        if "already playing" in lower:
+            await message.channel.send("stand")
+            return
+
         if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"]:
             if self.gamble_state.get("blackjack_started_at") is None:
                 self.gamble_state["blackjack_started_at"] = datetime.now(timezone.utc)
-                self._persist_gamble_state()
+            self.gamble_state["last_action_at"] = datetime.now(timezone.utc)
+            self._persist_gamble_state()
             parsed = self._parse_blackjack_prompt(silas_text)
             if parsed is None:
                 await self._send_gamble_report(
@@ -406,6 +416,7 @@ class AICog(commands.Cog):
                 self.gamble_state["hangman_active"] = False
                 self.gamble_state["hangman_started_at"] = None
                 self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+                self.gamble_state["morning_hangman_done"] = True
                 self._persist_gamble_state()
                 return
             if hangman["status"] == "active":
@@ -439,6 +450,7 @@ class AICog(commands.Cog):
             self.gamble_state["hangman_active"] = False
             self.gamble_state["hangman_started_at"] = None
             self.gamble_state["session_anchor_balance"] = None
+            self.gamble_state["morning_hangman_done"] = False
             self._persist_gamble_state()
 
         # Clear stale active games
@@ -484,6 +496,22 @@ class AICog(commands.Cog):
             anchor = balance
             self._persist_gamble_state()
 
+        if not self.gamble_state.get("morning_hangman_done"):
+            if self.gamble_state.get("hangman_active"):
+                return "Morning hangman in progress; waiting for Silas."
+            hm_ended = self.gamble_state.get("hangman_ended_at")
+            if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
+                # Previous hangman too recent — skip morning hangman and head straight to BJ.
+                self.gamble_state["morning_hangman_done"] = True
+                self._persist_gamble_state()
+            else:
+                await channel.send("!hm")
+                self.gamble_state["hangman_active"] = True
+                self.gamble_state["hangman_started_at"] = now
+                self.gamble_state["last_action_at"] = now
+                self._persist_gamble_state()
+                return "Morning hangman started."
+
         bj_stopped = (
             balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT))
             or balance >= int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT))
@@ -505,16 +533,36 @@ class AICog(commands.Cog):
             reason = "stop-loss" if balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT)) else "take-profit"
             return f"BJ {reason} at {balance}; started hangman."
 
+        # Play hangman opportunistically whenever the cooldown resets, between BJ hands.
+        if not self.gamble_state["blackjack_active"] and not self.gamble_state.get("hangman_active"):
+            hm_ended = self.gamble_state.get("hangman_ended_at")
+            if isinstance(hm_ended, datetime) and now - hm_ended >= self.HM_COOLDOWN:
+                await channel.send("!hm")
+                self.gamble_state["hangman_active"] = True
+                self.gamble_state["hangman_started_at"] = now
+                self.gamble_state["last_action_at"] = now
+                self._persist_gamble_state()
+                return "Hangman cooldown reset; starting opportunistic hangman."
+
         if not self.gamble_state["blackjack_active"]:
             bet = self._compute_blackjack_bet(balance, anchor)
             if bet <= 0:
                 return f"Balance {balance} below minimum bankroll threshold."
-            await channel.send(f"!bj {bet}")
+            await channel.send(f"!bj {bet}%")
             self.gamble_state["blackjack_active"] = True
             self.gamble_state["blackjack_started_at"] = now
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
-            return f"Started blackjack with `!bj {bet}`."
+            return f"Started blackjack with `!bj {bet}%`."
+
+        # Silas sometimes silently drops the response to !bj or a hit/stand move, leaving
+        # a game open indefinitely. If no activity for BJ_ACTIVE_TIMEOUT, send stand to
+        # force resolution (harmless if no game is actually open on Silas's end).
+        if isinstance(last_action, datetime) and now - last_action > self.BJ_ACTIVE_TIMEOUT:
+            await channel.send("stand")
+            self.gamble_state["last_action_at"] = now
+            self._persist_gamble_state()
+            return "Stale BJ game detected; sent stand to resolve."
 
         return "Blackjack hand already active; waiting to play hit/stand."
 
