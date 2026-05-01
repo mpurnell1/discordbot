@@ -936,7 +936,7 @@ class MiscCog(commands.Cog):
                 f"`{p}stoprp` - End roleplay"
             ), inline=False)
         embed.add_field(name="Info", value=(
-            f"`{p}stats` - Bot stats and usage"
+            (f"`{p}stats` - Bot stats and usage" if not kids_mode else "No extra info commands in kids mode.")
             + (f"\n`{p}invite` / `{p}invite kids` - Get invite link" if not kids_mode else "")
         ), inline=False)
         if not kids_mode:
