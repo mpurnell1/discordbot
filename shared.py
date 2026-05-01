@@ -213,6 +213,7 @@ KIDS_MODE_BLOCKED_COMMANDS = {
     "leaderboard",
     "give",
     "invite",
+    "stats",
     # Gambling and blackjack-adjacent actions.
     "coinflip",
     "slots",
@@ -265,6 +266,7 @@ KIDS_MODE_BLOCKED_FEATURES = {
     "cmd:leaderboard",
     "cmd:give",
     "cmd:invite",
+    "cmd:stats",
     "dead_chat",
     "daily_reminder",
     "late_night",
@@ -279,7 +281,7 @@ KIDS_MODE_SUMMARY = (
     "- disables gambling commands and blackjack actions\n"
     "- disables all AI and passive behavior, including reminders, Silas handling, mention replies, unsolicited AI, late-night roasts, and dead-chat callouts\n"
     "- disables nickname changes, quote saving/browsing, and uncurated external content\n"
-    "- keeps curated games, weather, stats, and help"
+    "- keeps curated games, weather, and help"
 )
 
 # Loaded from SQLite on startup and updated live by admin commands.

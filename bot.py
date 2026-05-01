@@ -75,12 +75,14 @@ async def on_ready():
 async def notify_admin_guild_join(guild):
     permissions = guild.me.guild_permissions if guild.me else discord.Permissions.none()
     likely_kids_invite = not permissions.manage_messages and not permissions.manage_nicknames
+    kids_mode_auto_enabled = False
+    if likely_kids_invite:
+        set_kids_mode_guild(guild.id, True)
+        kids_mode_auto_enabled = True
     owner_text = f"{guild.owner} ({guild.owner_id})" if guild.owner_id else "unknown"
-    sql = (
-        "INSERT INTO guild_settings (guild_id, key, value)\n"
-        f"VALUES ({guild.id}, 'kids_mode', 'true')\n"
-        "ON CONFLICT(guild_id, key)\n"
-        "DO UPDATE SET value = excluded.value;"
+    unforce_sql = (
+        "DELETE FROM guild_settings\n"
+        f"WHERE guild_id = {guild.id} AND key = 'kids_mode';"
     )
     description = (
         f"Gary was added to **{guild.name}**.\n\n"
@@ -88,10 +90,11 @@ async def notify_admin_guild_join(guild):
         f"Owner: `{owner_text}`\n"
         f"Members: `{guild.member_count}`\n"
         f"Likely kids invite: **{'YES' if likely_kids_invite else 'NO'}**\n"
+        f"Kids mode auto-enabled: **{'YES' if kids_mode_auto_enabled else 'NO'}**\n"
         f"Manage Messages: **{permissions.manage_messages}**\n"
         f"Manage Nicknames: **{permissions.manage_nicknames}**\n\n"
-        "If this should be kids mode, update the DB and restart Gary so cached guild settings reload:\n"
-        f"```sql\n{sql}\n```"
+        "Un-force kids mode SQL if this server was auto-enabled by mistake:\n"
+        f"```sql\n{unforce_sql}\n```"
     )
     try:
         report_channel = bot.get_channel(GUILD_JOIN_REPORT_CHANNEL_ID)
