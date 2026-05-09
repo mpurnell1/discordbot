@@ -229,6 +229,7 @@ PUZZLE_TITLES = {
 }
 SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
 active_blackjack = {}
+BLACKJACK_RAW_ACTIONS = {"hit", "stand", "double", "split", "surrender"}
 BLACKJACK_RULE_PRESETS = {
     "realistic": {
         "decks": 6,
@@ -509,6 +510,22 @@ apply_blackjack_ruleset(get_blackjack_ruleset_name())
 class EconomyCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @commands.Cog.listener("on_message")
+    async def blackjack_raw_action_listener(self, message):
+        if message.author.bot or message.content.startswith(PREFIX):
+            return
+        action = message.content.strip().lower()
+        if action not in BLACKJACK_RAW_ACTIONS:
+            return
+        if message.author.id not in active_blackjack:
+            return
+
+        ctx = await self.bot.get_context(message)
+        command = self.bot.get_command(action)
+        if command is None:
+            return
+        await ctx.invoke(command)
 
     @commands.command()
     async def guess(self, ctx, number: int):

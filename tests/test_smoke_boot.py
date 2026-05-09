@@ -1,4 +1,6 @@
 """Smoke test: bot boots, all cogs load, every documented command registers."""
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 import bot as bot_module
@@ -91,3 +93,44 @@ async def test_requested_aliases_resolve_to_commands(loaded_bot):
     }
     for alias, command_name in expected.items():
         assert loaded_bot.get_command(alias).name == command_name
+
+
+async def test_raw_blackjack_action_dispatches_when_hand_is_active():
+    from modules.economy import EconomyCog, active_blackjack
+
+    author = FakeAuthor(user_id=1234)
+    ctx = MagicMock()
+    ctx.invoke = AsyncMock()
+    command = MagicMock()
+    bot = MagicMock()
+    bot.get_context = AsyncMock(return_value=ctx)
+    bot.get_command = MagicMock(return_value=command)
+    cog = EconomyCog(bot)
+    message = MagicMock()
+    message.author = author
+    message.content = "stand"
+    active_blackjack[author.id] = {"active": True}
+
+    try:
+        await cog.blackjack_raw_action_listener(message)
+    finally:
+        active_blackjack.pop(author.id, None)
+
+    bot.get_command.assert_called_once_with("stand")
+    ctx.invoke.assert_awaited_once_with(command)
+
+
+async def test_raw_blackjack_action_ignores_chat_without_active_hand():
+    from modules.economy import EconomyCog
+
+    author = FakeAuthor(user_id=5678)
+    bot = MagicMock()
+    bot.get_context = AsyncMock()
+    cog = EconomyCog(bot)
+    message = MagicMock()
+    message.author = author
+    message.content = "hit"
+
+    await cog.blackjack_raw_action_listener(message)
+
+    bot.get_context.assert_not_awaited()
