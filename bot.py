@@ -173,6 +173,17 @@ async def post_kids_log(content: str):
         logger.warning("Could not post to kids interaction log channel")
 
 
+async def post_error_log(title: str, body: str):
+    channel_id = shared.runtime_settings.get("bug_report_channel_id")
+    if not channel_id:
+        return
+    try:
+        channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+        await channel.send(embed=make_embed(title, body[:4000], shared.COLOR_ERROR))
+    except discord.HTTPException:
+        logger.warning("Could not post to error log channel")
+
+
 def summarize_bot_message(message: discord.Message) -> str:
     parts = []
     if message.content:
@@ -317,6 +328,8 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CommandNotFound):
         logger.info("Unknown command from %s (%s)", ctx.author, ctx.author.id)
     else:
+        import traceback as _tb
+        tb_text = _tb.format_exc()
         logger.exception(
             "Unhandled command error: command=%s user=%s (%s)",
             getattr(ctx.command, "name", "unknown"),
@@ -324,6 +337,35 @@ async def on_command_error(ctx, error):
             ctx.author.id,
         )
         await ctx.send("That command failed unexpectedly. Check logs and try again.")
+        await post_error_log(
+            "⚠️ Unhandled Command Error",
+            f"**Command:** `{PREFIX}{getattr(ctx.command, 'name', 'unknown')}`\n"
+            f"**User:** {ctx.author} (`{ctx.author.id}`)\n"
+            f"**Guild:** {getattr(ctx.guild, 'name', 'DM')} (`{getattr(ctx.guild, 'id', 'N/A')}`)\n"
+            f"**Error:** `{type(error).__name__}: {error}`\n"
+            f"```\n{tb_text[-1500:]}\n```"
+        )
+
+
+@bot.event
+async def on_error(event, *args, **kwargs):
+    import traceback as _tb
+    tb_text = _tb.format_exc()
+    logger.exception("Unhandled error in event listener: %s", event)
+    await post_error_log(
+        "⚠️ Event Listener Error",
+        f"**Event:** `{event}`\n```\n{tb_text[-1800:]}\n```"
+    )
+
+
+@bot.event
+async def on_disconnect():
+    logger.warning("Disconnected from Discord gateway")
+
+
+@bot.event
+async def on_resumed():
+    logger.info("Resumed Discord gateway session")
 
 
 if __name__ == "__main__":
