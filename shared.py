@@ -148,6 +148,51 @@ def init_db():
             PRIMARY KEY (guild_id, key)
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS command_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            command_name TEXT NOT NULL,
+            guild_id INTEGER,
+            timestamp TEXT NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS balance_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            balance INTEGER NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS puzzle_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            attempts INTEGER NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS game_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            opponent_id INTEGER NOT NULL,
+            game_type TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS gambling_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            game_type TEXT NOT NULL,
+            wager INTEGER NOT NULL,
+            delta INTEGER NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
     db.commit()
     return db
 
@@ -205,7 +250,7 @@ KIDS_MODE_BLOCKED_COMMANDS = {
     "leaderboard",
     "give",
     "invite",
-    "stats",
+    "botstat",
     # Gambling and blackjack-adjacent actions.
     "coinflip",
     "slots",
@@ -277,11 +322,20 @@ guild_runtime_settings = {}
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
+def log_balance(user_id: int, balance: int):
+    db.execute(
+        "INSERT INTO balance_history (user_id, balance, timestamp) VALUES (?, ?, ?)",
+        (user_id, balance, datetime.now(timezone.utc).isoformat()),
+    )
+    db.commit()
+
+
 def get_balance(user_id: int) -> int:
     row = db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
     if row is None:
         db.execute("INSERT INTO users (user_id, balance) VALUES (?, ?)", (user_id, STARTING_BALANCE))
         db.commit()
+        log_balance(user_id, STARTING_BALANCE)
         return STARTING_BALANCE
     return row[0]
 
@@ -291,9 +345,149 @@ def peek_balance(user_id: int) -> int:
     return row[0] if row else 0
 
 def update_balance(user_id: int, amount: int):
-    get_balance(user_id)
+    old_bal = get_balance(user_id)
     db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
     db.commit()
+    log_balance(user_id, old_bal + amount)
+
+
+def log_command(user_id: int, command_name: str, guild_id: int | None):
+    db.execute(
+        "INSERT INTO command_log (user_id, command_name, guild_id, timestamp) VALUES (?, ?, ?, ?)",
+        (user_id, command_name, guild_id, datetime.now(timezone.utc).isoformat()),
+    )
+    db.commit()
+
+
+def log_game_result(user_id: int, opponent_id: int, game_type: str, outcome: str):
+    db.execute(
+        "INSERT INTO game_results (user_id, opponent_id, game_type, outcome, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (user_id, opponent_id, game_type, outcome, datetime.now(timezone.utc).isoformat()),
+    )
+    db.commit()
+
+
+def log_game_win(winner_id: int, loser_id: int, game_type: str):
+    now = datetime.now(timezone.utc).isoformat()
+    db.executemany(
+        "INSERT INTO game_results (user_id, opponent_id, game_type, outcome, timestamp) VALUES (?, ?, ?, ?, ?)",
+        [(winner_id, loser_id, game_type, "win", now),
+         (loser_id, winner_id, game_type, "loss", now)],
+    )
+    db.commit()
+
+
+def log_game_draw(p1_id: int, p2_id: int, game_type: str):
+    now = datetime.now(timezone.utc).isoformat()
+    db.executemany(
+        "INSERT INTO game_results (user_id, opponent_id, game_type, outcome, timestamp) VALUES (?, ?, ?, ?, ?)",
+        [(p1_id, p2_id, game_type, "draw", now),
+         (p2_id, p1_id, game_type, "draw", now)],
+    )
+    db.commit()
+
+
+def log_puzzle_solve(user_id: int, date: str, attempts: int):
+    db.execute(
+        "INSERT INTO puzzle_history (user_id, date, attempts) VALUES (?, ?, ?)",
+        (user_id, date, attempts),
+    )
+    db.commit()
+
+
+def log_gambling(user_id: int, game_type: str, wager: int, delta: int):
+    db.execute(
+        "INSERT INTO gambling_log (user_id, game_type, wager, delta, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (user_id, game_type, wager, delta, datetime.now(timezone.utc).isoformat()),
+    )
+    db.commit()
+
+
+def get_gambling_stats(user_id: int) -> dict:
+    rows = db.execute(
+        "SELECT game_type, wager, delta FROM gambling_log WHERE user_id = ?",
+        (user_id,),
+    ).fetchall()
+    stats: dict[str, dict] = {
+        "coinflip": {"net": 0, "wagered": 0, "hands": 0},
+        "slots":    {"net": 0, "wagered": 0, "hands": 0},
+        "blackjack":{"net": 0, "wagered": 0, "hands": 0},
+    }
+    for game_type, wager, delta in rows:
+        if game_type in stats:
+            stats[game_type]["net"] += delta
+            stats[game_type]["wagered"] += wager
+            stats[game_type]["hands"] += 1
+    return stats
+
+
+def get_puzzle_stats(user_id: int) -> dict:
+    rows = db.execute(
+        "SELECT date, attempts FROM puzzle_history WHERE user_id = ? ORDER BY date DESC",
+        (user_id,),
+    ).fetchall()
+    total = len(rows)
+    avg = sum(r[1] for r in rows) / total if total else 0.0
+    solved_dates = {r[0] for r in rows}
+    today = datetime.now(CENTRAL_TZ).date()
+    start = today if str(today) in solved_dates else today - timedelta(days=1)
+    streak = 0
+    check = start
+    while str(check) in solved_dates:
+        streak += 1
+        check -= timedelta(days=1)
+    return {"total_solves": total, "avg_attempts": avg, "streak": streak}
+
+
+def get_game_stats(user_id: int, opponent_id: int | None = None) -> dict:
+    if opponent_id is not None:
+        rows = db.execute(
+            "SELECT game_type, outcome FROM game_results WHERE user_id = ? AND opponent_id = ?",
+            (user_id, opponent_id),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT game_type, outcome FROM game_results WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+    stats = {
+        "ttt": {"win": 0, "loss": 0, "draw": 0},
+        "c4": {"win": 0, "loss": 0, "draw": 0},
+    }
+    for game_type, outcome in rows:
+        if game_type in stats and outcome in stats[game_type]:
+            stats[game_type][outcome] += 1
+    return stats
+
+
+def get_economy_stats(user_id: int) -> dict:
+    rows = db.execute(
+        "SELECT balance, timestamp FROM balance_history WHERE user_id = ? ORDER BY timestamp",
+        (user_id,),
+    ).fetchall()
+    if not rows:
+        return {"peak_balance": get_balance(user_id), "best_day_gain": 0, "worst_day_loss": 0}
+    peak_balance = max(r[0] for r in rows)
+    day_first: dict[str, int] = {}
+    day_last: dict[str, int] = {}
+    for balance, ts in rows:
+        day = ts[:10]
+        if day not in day_first:
+            day_first[day] = balance
+        day_last[day] = balance
+    best_day_gain = 0
+    worst_day_loss = 0
+    for day in day_first:
+        net = day_last[day] - day_first[day]
+        if net > best_day_gain:
+            best_day_gain = net
+        if net < worst_day_loss:
+            worst_day_loss = net
+    return {
+        "peak_balance": peak_balance,
+        "best_day_gain": best_day_gain,
+        "worst_day_loss": worst_day_loss,
+    }
 
 
 def make_embed(title, description, color=COLOR_DEFAULT):

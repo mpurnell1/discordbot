@@ -32,7 +32,10 @@ import shared  # noqa: E402  (must come after env-var setup)
 # --------------------------------------------------------------------------
 # DB / settings reset
 # --------------------------------------------------------------------------
-_TABLES = ("users", "nick_changes", "quotes", "settings", "guild_settings")
+_TABLES = (
+    "users", "nick_changes", "quotes", "settings", "guild_settings",
+    "command_log", "balance_history", "puzzle_history", "game_results", "gambling_log",
+)
 
 
 @pytest.fixture(autouse=True)

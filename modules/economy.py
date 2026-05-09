@@ -25,6 +25,8 @@ from shared import (
     check_bet,
     make_embed,
     is_kids_mode_guild,
+    log_puzzle_solve,
+    log_gambling,
 )
 
 active_puzzles = {}  # (scope, user_id) -> {"answer": str, "type": str, "display": str}
@@ -759,6 +761,7 @@ class EconomyCog(commands.Cog):
                 shared.db.commit()
                 reward_text = "Solved. No coin reward in kids mode."
                 if not kids_mode:
+                    log_puzzle_solve(user_id, today, len(p["guesses"]))
                     update_balance(user_id, PUZZLE_REWARD)
                     bal = get_balance(user_id)
                     reward_text = f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**"
@@ -788,6 +791,7 @@ class EconomyCog(commands.Cog):
             shared.db.commit()
             reward_text = "Solved. No coin reward in kids mode."
             if not kids_mode:
+                log_puzzle_solve(user_id, today, puzzle_attempts)
                 update_balance(user_id, PUZZLE_REWARD)
                 bal = get_balance(user_id)
                 reward_text = f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**"
@@ -852,12 +856,14 @@ class EconomyCog(commands.Cog):
     
         if result == call:
             update_balance(ctx.author.id, amount)
+            log_gambling(ctx.author.id, "coinflip", amount, amount)
             new_bal = get_balance(ctx.author.id)
             await ctx.send(embed=make_embed(
                 f"🪙 {result.title()}! You win!",
                 f"You won **{amount}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
         else:
             update_balance(ctx.author.id, -amount)
+            log_gambling(ctx.author.id, "coinflip", amount, -amount)
             new_bal = get_balance(ctx.author.id)
             await ctx.send(embed=make_embed(
                 f"🪙 {result.title()}! You lose!",
@@ -885,6 +891,7 @@ class EconomyCog(commands.Cog):
                 multiplier = 3
             winnings = amount * multiplier
             update_balance(ctx.author.id, winnings)
+            log_gambling(ctx.author.id, "slots", amount, winnings)
             new_bal = get_balance(ctx.author.id)
             await ctx.send(embed=make_embed(
                 f"🎰 {display}",
@@ -892,12 +899,14 @@ class EconomyCog(commands.Cog):
         elif reels[0] == reels[1] or reels[1] == reels[2]:
             winnings = amount
             update_balance(ctx.author.id, winnings)
+            log_gambling(ctx.author.id, "slots", amount, winnings)
             new_bal = get_balance(ctx.author.id)
             await ctx.send(embed=make_embed(
                 f"🎰 {display}",
                 f"Two in a row! You won **{winnings}** coins!\nBalance: **{new_bal}**", COLOR_WARNING))
         else:
             update_balance(ctx.author.id, -amount)
+            log_gambling(ctx.author.id, "slots", amount, -amount)
             new_bal = get_balance(ctx.author.id)
             await ctx.send(embed=make_embed(
                 f"🎰 {display}",
@@ -998,6 +1007,8 @@ class EconomyCog(commands.Cog):
 
         if total_delta:
             update_balance(ctx.author.id, total_delta)
+        total_wager = sum(hand["bet"] for hand in game["hands"])
+        log_gambling(ctx.author.id, "blackjack", total_wager, total_delta)
         new_bal = get_balance(ctx.author.id)
 
         if total_delta > 0:
