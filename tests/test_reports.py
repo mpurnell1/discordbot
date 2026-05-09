@@ -128,7 +128,10 @@ async def test_bugreport_posts_public_report_and_tracking_controls():
     assert "Bob" in public_fields["Last 5 Messages Before Report"]
     assert "Public Report" in tracking_fields
     assert f"Channel ID: `{shared.BUG_REPORT_CHANNEL_ID}`" in tracking_fields["Public Report"]
-    assert "Thanks, I sent your bug report" in ctx.sent[-1]["content"]
+    assert "Sorry you ran into an issue!" in ctx.sent[-1]["content"]
+    assert "Track the status of your report here:" in ctx.sent[-1]["content"]
+    assert f"<#{shared.BUG_REPORT_CHANNEL_ID}>" not in ctx.sent[-1]["content"]
+    assert bug_channel.sent[0]["message"].jump_url in ctx.sent[-1]["content"]
 
 
 async def test_featurerequest_posts_without_recent_message_context():
@@ -149,7 +152,10 @@ async def test_featurerequest_posts_without_recent_message_context():
     assert "Last 5 Messages Before Report" not in public_fields
     assert "Add weekly leaderboards" in public_fields["Message"]
     assert f"Channel ID: `{shared.FEATURE_REQUEST_CHANNEL_ID}`" in tracking_fields["Public Report"]
-    assert "Thanks, I sent your feature request" in ctx.sent[-1]["content"]
+    assert "Thank you for your feedback!" in ctx.sent[-1]["content"]
+    assert "Track the status of your request here:" in ctx.sent[-1]["content"]
+    assert f"<#{shared.FEATURE_REQUEST_CHANNEL_ID}>" not in ctx.sent[-1]["content"]
+    assert feature_channel.sent[0]["message"].jump_url in ctx.sent[-1]["content"]
 
 
 async def test_status_button_updates_tracking_and_public_report():

@@ -556,8 +556,14 @@ class MiscCog(commands.Cog):
         except discord.HTTPException:
             return await ctx.send("I couldn't post that report. Matt may need to check my report-channel permissions.")
 
-        label = "bug report" if kind == "bug" else "feature request"
-        await ctx.send(f"Thanks, I sent your {label} to <#{channel_id}>: {report_message.jump_url}")
+        if kind == "bug":
+            await ctx.send(
+                f"Sorry you ran into an issue! Track the status of your report here: {report_message.jump_url}"
+            )
+        else:
+            await ctx.send(
+                f"Thank you for your feedback! Track the status of your request here: {report_message.jump_url}"
+            )
 
     @commands.command(aliases=["bug", "issue", "report"])
     async def bugreport(self, ctx, *, description: str = ""):
