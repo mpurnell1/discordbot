@@ -110,8 +110,10 @@ class AICog(commands.Cog):
 
     def _extract_balance_from_text(self, text: str):
         patterns = [
-            r"balance[^0-9\-]*([0-9][0-9,]*)",
-            r"\b([0-9][0-9,]*)\s*(?:coins?|🪙)\b",
+            # "Balance: 12,345 🪙" / "Wallet: 12,345 🪙" — all Silas balance-report messages
+            r"(?:balance|wallet)[^0-9]*([0-9][0-9,]*)\s*🪙",
+            # "Gary: 12,345 🪙" — direct !b response (entire message is name: amount 🪙)
+            r"^[^:]+:\s*([0-9][0-9,]+)\s*🪙\s*$",
         ]
         for pattern in patterns:
             m = re.search(pattern, text, flags=re.IGNORECASE)
