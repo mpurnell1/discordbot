@@ -112,6 +112,17 @@ async def test_requested_aliases_resolve_to_commands(loaded_bot):
         assert loaded_bot.get_command(alias).name == command_name
 
 
+async def test_help_command_info_field_includes_alias(loaded_bot):
+    cog = loaded_bot.get_cog("MiscCog")
+    ctx = FakeContext()
+
+    await cog.help.callback(cog, ctx)
+
+    embed = ctx.sent[0]["embed"]
+    fields = {field.name: field.value for field in embed.fields}
+    assert "`.alias`" in fields["Info"]
+
+
 async def test_raw_blackjack_action_dispatches_when_hand_is_active():
     from modules.economy import EconomyCog, active_blackjack
 

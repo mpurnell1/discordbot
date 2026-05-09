@@ -1353,6 +1353,7 @@ class MiscCog(commands.Cog):
             embed.add_field(name="Info", value=(
                 f"`{p}stats` - Bot stats and usage\n"
                 f"`{p}invite` / `{p}invite kids` - Get invite link\n"
+                f"`{p}alias` - Show command aliases\n"
                 f"`{p}bugreport <description>` - Report a bug\n"
                 f"`{p}featurerequest <description>` - Request a feature"
             ), inline=False)
