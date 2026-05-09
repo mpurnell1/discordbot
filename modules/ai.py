@@ -12,7 +12,6 @@ import shared
 from shared import (
     PREFIX,
     CENTRAL_TZ,
-    SILAS_BOT_ID,
     OLLAMA_REASONING_MODEL,
     LATE_NIGHT_START,
     LATE_NIGHT_END,
@@ -49,7 +48,6 @@ class AICog(commands.Cog):
     BJ_ACTIVE_TIMEOUT = timedelta(minutes=5)
     HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
     HM_COOLDOWN = timedelta(hours=6)
-    GAMBLE_REPORT_CHANNEL_ID_FALLBACK = REDACTED_CHANNEL_ID
     GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
     def __init__(self, bot):
@@ -147,7 +145,9 @@ class AICog(commands.Cog):
         return max(self.BJ_BET_PCT_MIN, min(self.BJ_BET_PCT_MAX, round(pct)))
 
     async def _send_gamble_report(self, summary: str, force: bool = False):
-        report_id = shared.runtime_settings.get("gary_gamble_report_channel_id") or self.GAMBLE_REPORT_CHANNEL_ID_FALLBACK
+        report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
+        if not report_id:
+            return
         channel = self.bot.get_channel(int(report_id))
         if channel is None:
             return
@@ -621,7 +621,8 @@ class AICog(commands.Cog):
             message = await channel.fetch_message(payload.message_id)
         except discord.HTTPException:
             return
-        if message.author.id != SILAS_BOT_ID:
+        silas_id = shared.runtime_settings.get("silas_bot_id")
+        if not silas_id or message.author.id != silas_id:
             return
         parts = []
         if message.content:
@@ -648,7 +649,8 @@ class AICog(commands.Cog):
             return
     
         # --- Silas interaction ---
-        if message.author.id == SILAS_BOT_ID:
+        silas_id = shared.runtime_settings.get("silas_bot_id")
+        if silas_id and message.author.id == silas_id:
             channel_id = message.channel.id
             if not is_feature_allowed("silas", channel_id, guild_id):
                 return

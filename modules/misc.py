@@ -13,9 +13,6 @@ from shared import (
     PREFIX,
     CENTRAL_TZ,
     ADMIN_ID,
-    BUG_REPORT_CHANNEL_ID,
-    FEATURE_REQUEST_CHANNEL_ID,
-    REQUEST_TRACKING_CHANNEL_ID,
     OPENWEATHER_API_KEY,
     OLLAMA_URL,
     OLLAMA_MODEL,
@@ -526,10 +523,13 @@ class MiscCog(commands.Cog):
             command = "bugreport" if kind == "bug" else "featurerequest"
             return await ctx.send(f"Usage: `{PREFIX}{command} <description>`")
 
-        channel_id = BUG_REPORT_CHANNEL_ID if kind == "bug" else FEATURE_REQUEST_CHANNEL_ID
+        channel_id = shared.runtime_settings.get("bug_report_channel_id") if kind == "bug" else shared.runtime_settings.get("feature_request_channel_id")
+        tracking_channel_id = shared.runtime_settings.get("request_tracking_channel_id")
+        if not channel_id or not tracking_channel_id:
+            return await ctx.send("Report channels aren't configured yet.")
         try:
             report_channel = await self._get_report_channel(channel_id)
-            tracking_channel = await self._get_report_channel(REQUEST_TRACKING_CHANNEL_ID)
+            tracking_channel = await self._get_report_channel(tracking_channel_id)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound):
             return await ctx.send("I couldn't reach the report channel. Matt may need to check my channel access.")
 
@@ -764,109 +764,15 @@ class MiscCog(commands.Cog):
             COLOR_SUCCESS if enabled else COLOR_WARNING,
         ))
 
-    @commands.command()
-    async def kidsmode(self, ctx, action: str = "status"):
-        """Admin only: enable, disable, or show kids mode for this server."""
-        await self._set_kids_mode(ctx, action)
-
-    @commands.command()
-    async def setcommand(self, ctx, command_name: str, state: str):
-        """Admin only: enable/disable a command globally."""
-        if ctx.author.id != ADMIN_ID:
-            return
-        command_input = command_name.strip().lower()
-        target = self.bot.get_command(command_input)
-        if target is None:
-            return await ctx.send(f"Unknown command: `{command_input}`")
-        canonical_name = target.name.lower()
-        if canonical_name in PROTECTED_ADMIN_COMMANDS:
-            return await ctx.send("That admin control command cannot be disabled.")
-        value = state.strip().lower()
-        if value not in {"on", "off"}:
-            return await ctx.send(f"Usage: `{PREFIX}setcommand <command> <on|off>`")
-        toggles = shared.runtime_settings.get("command_toggles", {})
-        toggles[canonical_name] = (value == "on")
-        shared.runtime_settings["command_toggles"] = toggles
-        shared._save_json_setting("command_toggles", toggles)
-        await ctx.send(f"`{PREFIX}{canonical_name}` is now **{value.upper()}**.")
     
     
 
-    @commands.command()
-    async def setdeadchat(self, ctx, state: str):
-        """Admin only: enable/disable dead chat callouts."""
-        if ctx.author.id != ADMIN_ID:
-            return
-        value = state.strip().lower()
-        if value not in {"on", "off"}:
-            return await ctx.send(f"Usage: `{PREFIX}setdeadchat <on|off>`")
-        enabled = value == "on"
-        shared.runtime_settings["dead_chat_enabled"] = enabled
-        shared._save_json_setting("dead_chat_enabled", enabled)
-        # Clear tracking so toggling on doesn't instantly fire stale escalation.
-        shared.last_message_time.clear()
-        shared.dead_chat_stage.clear()
-        await ctx.send(f"Dead chat is now **{value.upper()}**.")
     
     
 
-    @commands.command()
-    async def setfeaturemode(self, ctx, feature: str, mode: str):
-        """Admin only: configure channel policy mode for a feature."""
-        if ctx.author.id != ADMIN_ID:
-            return
-        normalized_feature = normalize_feature_name(feature)
-        normalized_mode = mode.strip().lower()
-        if normalized_mode not in {"all", "off", "whitelist", "blacklist"}:
-            return await ctx.send(
-                f"Usage: `{PREFIX}setfeaturemode <feature> <all|off|whitelist|blacklist>`"
-            )
-        rules = shared.runtime_settings.get("feature_channel_rules", {})
-        existing = rules.get(normalized_feature, {"channels": []})
-        existing["mode"] = normalized_mode
-        existing["channels"] = [int(c) for c in existing.get("channels", [])]
-        rules[normalized_feature] = existing
-        shared.runtime_settings["feature_channel_rules"] = rules
-        shared._save_json_setting("feature_channel_rules", rules)
-        await ctx.send(f"Feature `{normalized_feature}` mode is now **{normalized_mode}**.")
     
     
 
-    @commands.command()
-    async def setfeaturechannels(self, ctx, feature: str, action: str):
-        """Admin only: add/remove/clear channel list for a feature rule."""
-        if ctx.author.id != ADMIN_ID:
-            return
-        normalized_feature = normalize_feature_name(feature)
-        normalized_action = action.strip().lower()
-        if normalized_action not in {"add", "remove", "clear"}:
-            return await ctx.send(
-                f"Usage: `{PREFIX}setfeaturechannels <feature> <add|remove|clear> [#channel ...]`"
-            )
-        rules = shared.runtime_settings.get("feature_channel_rules", {})
-        rule = rules.get(normalized_feature, {"mode": "all", "channels": []})
-        channels = {int(c) for c in rule.get("channels", [])}
-    
-        if normalized_action == "clear":
-            channels.clear()
-        else:
-            mentioned_channels = ctx.message.channel_mentions
-            if not mentioned_channels:
-                return await ctx.send(
-                    f"Mention one or more channels. Example: `{PREFIX}setfeaturechannels {normalized_feature} {normalized_action} #general`"
-                )
-            ids = {c.id for c in mentioned_channels}
-            if normalized_action == "add":
-                channels |= ids
-            else:
-                channels -= ids
-    
-        rule["channels"] = sorted(channels)
-        rules[normalized_feature] = rule
-        shared.runtime_settings["feature_channel_rules"] = rules
-        shared._save_json_setting("feature_channel_rules", rules)
-        pretty_channels = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
-        await ctx.send(f"Feature `{normalized_feature}` channels: {pretty_channels}")
     
     
 
@@ -1012,6 +918,190 @@ class MiscCog(commands.Cog):
                     f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
                 )
 
+            if sec == "deadchat":
+                if not args:
+                    state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
+                    return await ctx.send(f"Dead chat is **{state}**.")
+                action = args[0].strip().lower()
+                if action == "status":
+                    state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
+                    return await ctx.send(f"Dead chat is **{state}**.")
+                if action not in {"on", "off"}:
+                    return await ctx.send(f"Usage: `{PREFIX}settings deadchat <on|off|status>`")
+                enabled = action == "on"
+                shared.runtime_settings["dead_chat_enabled"] = enabled
+                shared._save_json_setting("dead_chat_enabled", enabled)
+                shared.last_message_time.clear()
+                shared.dead_chat_stage.clear()
+                return await ctx.send(f"Dead chat is now **{action.upper()}**.")
+
+            if sec in {"commands", "command"}:
+                if not args:
+                    toggles = shared.runtime_settings.get("command_toggles", {})
+                    disabled = sorted(name for name, en in toggles.items() if not en)
+                    disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
+                    return await ctx.send(f"Disabled commands: {disabled_str}")
+                command_input = args[0].strip().lower()
+                if len(args) < 2:
+                    target = self.bot.get_command(command_input)
+                    if target is None:
+                        return await ctx.send(f"Unknown command: `{command_input}`")
+                    canonical_name = target.name.lower()
+                    toggles = shared.runtime_settings.get("command_toggles", {})
+                    state = "ON" if toggles.get(canonical_name, True) else "OFF"
+                    return await ctx.send(f"`{PREFIX}{canonical_name}` is **{state}**.")
+                state_arg = args[1].strip().lower()
+                if state_arg not in {"on", "off"}:
+                    return await ctx.send(f"Usage: `{PREFIX}settings commands <command> <on|off>`")
+                target = self.bot.get_command(command_input)
+                if target is None:
+                    return await ctx.send(f"Unknown command: `{command_input}`")
+                canonical_name = target.name.lower()
+                if canonical_name in PROTECTED_ADMIN_COMMANDS:
+                    return await ctx.send("That command cannot be disabled.")
+                toggles = shared.runtime_settings.get("command_toggles", {})
+                toggles[canonical_name] = (state_arg == "on")
+                shared.runtime_settings["command_toggles"] = toggles
+                shared._save_json_setting("command_toggles", toggles)
+                return await ctx.send(f"`{PREFIX}{canonical_name}` is now **{state_arg.upper()}**.")
+
+            if sec in {"features", "feature"}:
+                rules = shared.runtime_settings.get("feature_channel_rules", {})
+                if not args:
+                    if not rules:
+                        return await ctx.send("No feature channel rules set.")
+                    lines = []
+                    for feat, rule in sorted(rules.items()):
+                        mode = rule.get("mode", "all")
+                        ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
+                        lines.append(f"`{feat}`: **{mode}** {ch_str}")
+                    return await ctx.send("\n".join(lines))
+                feat = normalize_feature_name(args[0])
+                if len(args) < 2:
+                    rule = rules.get(feat)
+                    if not rule:
+                        return await ctx.send(f"`{feat}`: **all** (no rule set)")
+                    mode = rule.get("mode", "all")
+                    ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
+                    return await ctx.send(f"`{feat}`: **{mode}** {ch_str}")
+                action = args[1].strip().lower()
+                if action in {"all", "off", "whitelist", "blacklist"}:
+                    existing = rules.get(feat, {"channels": []})
+                    existing["mode"] = action
+                    existing["channels"] = [int(c) for c in existing.get("channels", [])]
+                    rules[feat] = existing
+                    shared.runtime_settings["feature_channel_rules"] = rules
+                    shared._save_json_setting("feature_channel_rules", rules)
+                    return await ctx.send(f"`{feat}` mode is now **{action}**.")
+                if action in {"add", "remove", "clear"}:
+                    rule = rules.get(feat, {"mode": "all", "channels": []})
+                    channels = {int(c) for c in rule.get("channels", [])}
+                    if action == "clear":
+                        channels.clear()
+                    else:
+                        mentioned = ctx.message.channel_mentions
+                        if not mentioned:
+                            return await ctx.send(
+                                f"Mention one or more channels. Example: `{PREFIX}settings features {feat} {action} #general`"
+                            )
+                        ids = {c.id for c in mentioned}
+                        channels = channels | ids if action == "add" else channels - ids
+                    rule["channels"] = sorted(channels)
+                    rules[feat] = rule
+                    shared.runtime_settings["feature_channel_rules"] = rules
+                    shared._save_json_setting("feature_channel_rules", rules)
+                    ch_str = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
+                    return await ctx.send(f"`{feat}` channels: {ch_str}")
+                return await ctx.send(
+                    f"Usage: `{PREFIX}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>`"
+                )
+
+            if sec == "blackjack":
+                economy_cog = self.bot.get_cog("EconomyCog")
+                if economy_cog is None:
+                    return await ctx.send("Economy cog is not loaded.")
+                if not args:
+                    ruleset = str(shared.runtime_settings.get("bj_ruleset", "realistic")).upper()
+                    hint = "ON" if shared.runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
+                    return await ctx.send(f"BJ Ruleset: **{ruleset}** | Hints: **{hint}**")
+                sub = args[0].strip().lower()
+                rest = args[1].strip().lower() if len(args) > 1 else "status"
+                if sub in {"ruleset", "rules"}:
+                    return await economy_cog.bjruleset(ctx, rest)
+                if sub == "hint":
+                    return await economy_cog.bjhint(ctx, rest)
+                return await ctx.send(f"Usage: `{PREFIX}settings blackjack <ruleset|hint> [value]`")
+
+            if sec == "channels":
+                _CHANNEL_KEYS = {
+                    "guildjoin": "guild_join_report_channel_id",
+                    "kidslog": "kids_interaction_log_channel_id",
+                    "bugreport": "bug_report_channel_id",
+                    "featurerequest": "feature_request_channel_id",
+                    "tracking": "request_tracking_channel_id",
+                }
+                if not args:
+                    lines = []
+                    for name, key in _CHANNEL_KEYS.items():
+                        val = shared.runtime_settings.get(key)
+                        lines.append(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
+                    return await ctx.send("\n".join(lines))
+                name = args[0].strip().lower()
+                if name not in _CHANNEL_KEYS:
+                    opts = ", ".join(f"`{k}`" for k in _CHANNEL_KEYS)
+                    return await ctx.send(f"Unknown channel: `{name}`. Options: {opts}")
+                key = _CHANNEL_KEYS[name]
+                if len(args) < 2:
+                    val = shared.runtime_settings.get(key)
+                    return await ctx.send(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
+                if args[1].strip().lower() == "off":
+                    shared.runtime_settings[key] = None
+                    shared._save_json_setting(key, None)
+                    return await ctx.send(f"`{name}` channel cleared.")
+                mentioned = ctx.message.channel_mentions
+                if not mentioned:
+                    return await ctx.send(
+                        f"Mention a channel or use `off`. Example: `{PREFIX}settings channels {name} #general`"
+                    )
+                shared.runtime_settings[key] = mentioned[0].id
+                shared._save_json_setting(key, mentioned[0].id)
+                return await ctx.send(f"`{name}` channel set to {mentioned[0].mention}.")
+
+            if sec == "silas":
+                silas_id = shared.runtime_settings.get("silas_bot_id")
+                banter = shared.runtime_settings.get("silas_banter_chance_pct", 0)
+                react = shared.runtime_settings.get("silas_react_chance_pct", 0)
+                if not args:
+                    id_text = f"`{silas_id}`" if silas_id else "(not set)"
+                    return await ctx.send(
+                        f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**"
+                    )
+                sub = args[0].strip().lower()
+                if sub == "id":
+                    if len(args) < 2:
+                        id_text = f"`{silas_id}`" if silas_id else "(not set)"
+                        return await ctx.send(f"Silas bot ID: {id_text}")
+                    try:
+                        new_id = int(args[1].strip())
+                    except ValueError:
+                        return await ctx.send("Bot ID must be an integer.")
+                    shared.runtime_settings["silas_bot_id"] = new_id
+                    shared._save_json_setting("silas_bot_id", new_id)
+                    return await ctx.send(f"Silas bot ID set to `{new_id}`.")
+                if sub in {"banter", "react"}:
+                    key = f"silas_{sub}_chance_pct"
+                    if len(args) < 2:
+                        val = shared.runtime_settings.get(key, 0)
+                        return await ctx.send(f"Silas {sub}: **{val}%**")
+                    try:
+                        value = max(0, min(100, int(args[1])))
+                    except ValueError:
+                        return await ctx.send("Value must be an integer (0-100).")
+                    shared.runtime_settings[key] = value
+                    shared._save_json_setting(key, value)
+                    return await ctx.send(f"Silas {sub} is now **{value}%**.")
+                return await ctx.send(f"Usage: `{PREFIX}settings silas <id|banter|react> [value]`")
+
             return await ctx.send(f"Unknown settings section: `{sec}`")
 
         dead_chat_state = "ON" if shared.runtime_settings.get("dead_chat_enabled", True) else "OFF"
@@ -1055,8 +1145,16 @@ class MiscCog(commands.Cog):
         weather_text = f"<#{int(weather_channel_id)}>" if weather_channel_id else "(not set)"
         weather_city = shared.runtime_settings.get("weather_alert_city", "Champaign")
         embed.add_field(name="Weather Alert", value=f"{weather_state}\n{weather_text}\n{weather_city}", inline=True)
+        _channel_keys = (
+            "guild_join_report_channel_id", "kids_interaction_log_channel_id",
+            "bug_report_channel_id", "feature_request_channel_id", "request_tracking_channel_id",
+        )
+        channels_set = sum(1 for k in _channel_keys if shared.runtime_settings.get(k))
+        silas_id = shared.runtime_settings.get("silas_bot_id")
         embed.add_field(name="BJ Ruleset", value=bj_ruleset, inline=True)
         embed.add_field(name="BJ Hint", value=bj_hint_state, inline=True)
+        embed.add_field(name="Channels", value=f"{channels_set}/5 set (`.settings channels`)", inline=True)
+        embed.add_field(name="Silas ID", value=f"`{silas_id}`" if silas_id else "(not set)", inline=True)
         embed.add_field(name="Passive AI", value=passive_value, inline=False)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
@@ -1397,9 +1495,7 @@ class MiscCog(commands.Cog):
             self._add_alias_field(embed, "Quotes", ["quote", "quotes", "unquote"])
         if ctx.author.id == ADMIN_ID:
             self._add_alias_field(embed, "Admin", [
-                "adminhelp", "settings", "kidsmode", "setcommand", "setdeadchat",
-                "setfeaturemode", "setfeaturechannels", "bjruleset", "bjhint",
-                "say", "give", "clear", "restart"
+                "adminhelp", "settings", "say", "give", "clear", "restart"
             ])
         await ctx.send(embed=embed)
 
@@ -1411,20 +1507,17 @@ class MiscCog(commands.Cog):
         p = PREFIX
         embed = discord.Embed(title="Admin Commands", color=COLOR_DEFAULT)
         embed.add_field(name="Runtime", value=(
-            f"`{p}settings` - Show runtime settings\n"
+            f"`{p}settings` - Show all runtime settings\n"
             f"`{p}settings kids <on|off|status>` - Server kids mode\n"
-            f"`{p}kidsmode <on|off|status>` - Shortcut for kids mode\n"
-            f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
-            f"`{p}settings weather <on [#channel]|off|status|city <name>>` - Daily 8 AM weather alert\n"
-            f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances\n"
-            f"`{p}bjruleset <realistic|arcade|status>` - Blackjack table ruleset\n"
-            f"`{p}bjhint <on|off|status>` - Basic strategy hint toggle"
-        ), inline=False)
-        embed.add_field(name="Feature Gates", value=(
-            f"`{p}setcommand <command> <on|off>` - Toggle command\n"
-            f"`{p}setdeadchat <on|off>` - Toggle dead chat\n"
-            f"`{p}setfeaturemode <feature> <all|off|whitelist|blacklist>` - Feature policy\n"
-            f"`{p}setfeaturechannels <feature> <add|remove|clear> #channel` - Feature channels"
+            f"`{p}settings gamble <on|off|status|now|channel|report [#ch]>` - Gary gambling\n"
+            f"`{p}settings weather <on [#ch]|off|status|city <name>>` - 8 AM weather alert\n"
+            f"`{p}settings deadchat <on|off|status>` - Dead chat callouts\n"
+            f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI\n"
+            f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"
+            f"`{p}settings commands <command> <on|off>` - Toggle command globally\n"
+            f"`{p}settings features <feature> <mode|add|remove|clear [#ch]>` - Feature gates\n"
+            f"`{p}settings channels <name> [#channel|off]` - Configure channel IDs\n"
+            f"`{p}settings silas <id|banter|react> [value]` - Silas bot config"
         ), inline=False)
         embed.add_field(name="Admin Utils", value=(
             f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"

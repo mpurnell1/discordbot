@@ -1042,9 +1042,8 @@ class EconomyCog(commands.Cog):
         """Show the active blackjack table rules."""
         await ctx.send(self._blackjack_rules_summary())
 
-    @commands.command()
     async def bjhint(self, ctx, mode: str = "status"):
-        """Admin only: toggle blackjack basic-strategy hints (`on`, `off`, `status`)."""
+        """Toggle blackjack basic-strategy hints (`on`, `off`, `status`). Called from .settings blackjack hint."""
         if ctx.author.id != ADMIN_ID:
             return
 
@@ -1054,16 +1053,15 @@ class EconomyCog(commands.Cog):
             return await ctx.send(f"Blackjack strategy hints are **{'ON' if enabled else 'OFF'}**.")
 
         if action not in {"on", "off"}:
-            return await ctx.send(f"Usage: `{PREFIX}bjhint <on|off|status>`")
+            return await ctx.send(f"Usage: `{PREFIX}settings blackjack hint <on|off|status>`")
 
         enabled = action == "on"
         shared.runtime_settings["bj_basic_hint_enabled"] = enabled
         shared._save_json_setting("bj_basic_hint_enabled", enabled)
         await ctx.send(f"Blackjack strategy hints are now **{'ON' if enabled else 'OFF'}**.")
 
-    @commands.command()
     async def bjruleset(self, ctx, mode: str = "status"):
-        """Admin only: set blackjack ruleset (`realistic` or `arcade`) or show status."""
+        """Set blackjack ruleset (`realistic` or `arcade`) or show status. Called from .settings blackjack ruleset."""
         if ctx.author.id != ADMIN_ID:
             return
 
@@ -1072,7 +1070,7 @@ class EconomyCog(commands.Cog):
             return await ctx.send(self._blackjack_rules_summary())
 
         if action not in BLACKJACK_RULE_PRESETS:
-            return await ctx.send(f"Usage: `{PREFIX}bjruleset <realistic|arcade|status>`")
+            return await ctx.send(f"Usage: `{PREFIX}settings blackjack ruleset <realistic|arcade|status>`")
 
         if active_blackjack:
             return await ctx.send("Cannot switch blackjack rules while a hand is active. Finish current hands first.")
