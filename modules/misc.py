@@ -494,16 +494,16 @@ class MiscCog(commands.Cog):
 
     async def _format_recent_messages(self, ctx):
         try:
-            messages = [
+            newest_messages = [
                 message
                 async for message in ctx.channel.history(
                     limit=5,
                     before=ctx.message,
-                    oldest_first=True,
                 )
             ]
         except (discord.Forbidden, discord.HTTPException):
             return "(I could not read message history in that channel.)"
+        messages = list(reversed(newest_messages))
         if not messages:
             return "(No prior messages in this channel.)"
 
