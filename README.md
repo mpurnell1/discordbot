@@ -122,12 +122,13 @@ Kids mode disables:
 - All AI: `.ask`, `.rp`, `.stoprp`, mention replies, unsolicited AI, Silas roleplay/banter/reacts, and autonomous gambling in that server
 - All passive behavior: dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions
 - Social/moderation-risk commands: `.changenick`, `.quote`, `.quotes`, `.unquote`
-- Uncurated external/info commands: `.cat`, `.dog`, `.onthisday`, `.stats`, `.invite`
+- Uncurated external text content: `.onthisday`, `.invite`
 
 Kids mode keeps:
 
 - Games: tic-tac-toe, Connect 4, Hangman, Rock Paper Scissors, dice rolls, quick math quiz, memory, trivia, scramble, practice puzzle with no coin reward, timer
-- Learning/utility: weather, kid-safe Would You Rather, clean jokes
+- Learning/utility: weather, kid-safe Would You Rather, clean jokes, `.stats`
+- Animal pics: `.cat`, `.dog`
 - Operational command: `.help`
 
 Gary infers a kids invite from the low-permission shape: no Manage Messages and no Manage Nicknames. If that shape is detected on join, Gary writes `kids_mode=true` for the server immediately and posts a join report with un-force SQL.
