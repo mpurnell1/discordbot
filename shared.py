@@ -440,8 +440,8 @@ def update_activity_streak(user_id: int, prev_daily_iso: str | None) -> tuple[in
     row = db.execute(
         "SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)
     ).fetchone()
-    current_streak = row[0] if row else 0
-    max_streak = row[1] if row else 0
+    current_streak = row[0] or 0 if row else 0
+    max_streak = row[1] or 0 if row else 0
 
     today = datetime.now(CENTRAL_TZ).date()
     new_streak = 1
@@ -470,7 +470,7 @@ def get_activity_streak(user_id: int) -> tuple[int, int]:
     row = db.execute(
         "SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)
     ).fetchone()
-    return (row[0], row[1]) if row else (0, 0)
+    return (row[0] or 0, row[1] or 0) if row else (0, 0)
 
 
 def log_gary_session_start(start_balance: int) -> int:

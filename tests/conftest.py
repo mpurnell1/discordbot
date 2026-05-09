@@ -35,6 +35,7 @@ import shared  # noqa: E402  (must come after env-var setup)
 _TABLES = (
     "users", "nick_changes", "quotes", "settings", "guild_settings",
     "command_log", "balance_history", "puzzle_history", "game_results", "gambling_log",
+    "gary_sessions",
 )
 
 

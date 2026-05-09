@@ -485,6 +485,10 @@ class AICog(commands.Cog):
         now = datetime.now(timezone.utc)
         cycle_key = self._scratch_reset_key(now)
         if self.gamble_state["day"] != cycle_key:
+            sid = self.gamble_state.get("session_id")
+            if sid is not None:
+                bal_at_reset = self.gamble_state.get("last_known_balance") or 0
+                log_gary_session_end(sid, bal_at_reset, "daily_reset")
             self.gamble_state["day"] = cycle_key
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
@@ -492,6 +496,7 @@ class AICog(commands.Cog):
             self.gamble_state["hangman_active"] = False
             self.gamble_state["hangman_started_at"] = None
             self.gamble_state["session_anchor_balance"] = None
+            self.gamble_state["session_id"] = None
             self.gamble_state["morning_hangman_done"] = False
             self._persist_gamble_state()
 
@@ -536,6 +541,10 @@ class AICog(commands.Cog):
         if anchor is None:
             self.gamble_state["session_anchor_balance"] = balance
             anchor = balance
+            self.gamble_state["session_id"] = log_gary_session_start(balance)
+            self._persist_gamble_state()
+        elif self.gamble_state.get("session_id") is None:
+            # Anchor persists from before a stop-loss; balance recovered — start fresh session.
             self.gamble_state["session_id"] = log_gary_session_start(balance)
             self._persist_gamble_state()
 
