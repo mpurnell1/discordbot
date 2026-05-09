@@ -42,8 +42,8 @@ class AICog(commands.Cog):
     BJ_BET_PCT_BASE = 3  # percent at or near anchor
     BJ_BET_PCT_MAX = 15  # percent at take-profit threshold
     BJ_MIN_BALANCE = 200
-    BJ_STOP_LOSS_PCT = 0.35
-    BJ_TAKE_PROFIT_PCT = 0.60
+    BJ_STOP_LOSS_PCT = 0.25
+    BJ_TAKE_PROFIT_PCT = 0.50
     GAMBLE_ACTION_COOLDOWN = timedelta(minutes=1)
     BJ_ACTIVE_TIMEOUT = timedelta(minutes=5)
     HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
@@ -548,22 +548,26 @@ class AICog(commands.Cog):
         take_profit_limit = int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT))
         stop_loss_hit = balance <= stop_loss_limit
         take_profit_hit = balance >= take_profit_limit
-        bj_stopped = stop_loss_hit or take_profit_hit
-        if bj_stopped:
-            reason = "stop-loss" if stop_loss_hit else "take-profit"
+        if stop_loss_hit:
             if self.gamble_state.get("hangman_active"):
-                return f"BJ {reason} at {balance}; hangman in progress."
+                return f"BJ stop-loss at {balance}; hangman in progress."
             # Respect Silas's 6-hour hangman cooldown
             hm_ended = self.gamble_state.get("hangman_ended_at")
             if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
                 remaining = self.HM_COOLDOWN - (now - hm_ended)
                 h, m = divmod(int(remaining.total_seconds()) // 60, 60)
-                return f"BJ {reason} at {balance}; hangman on cooldown ({h}h {m}m left)."
+                return f"BJ stop-loss at {balance}; hangman on cooldown ({h}h {m}m left)."
             await channel.send("!hm")
             self.gamble_state["hangman_active"] = True
             self.gamble_state["hangman_started_at"] = now
             self._persist_gamble_state()
-            return f"BJ {reason} at {balance}; started hangman."
+            return f"BJ stop-loss at {balance}; started hangman."
+
+        if take_profit_hit:
+            await channel.send(f"Take-profit hit at **{balance}**! Resetting anchor and riding again.")
+            self.gamble_state["session_anchor_balance"] = balance
+            anchor = balance
+            self._persist_gamble_state()
 
         # Play hangman opportunistically whenever the cooldown resets, between BJ hands.
         if not self.gamble_state["blackjack_active"] and not self.gamble_state.get("hangman_active"):
