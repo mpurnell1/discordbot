@@ -18,6 +18,7 @@ Discord bot ("Gary") built with discord.py. Four cog modules:
 - Daily resets use **5am Central time**, not midnight UTC. The `_scratch_reset_key()` logic subtracts a day if hour < 5.
 - **Ollama is optional** — if it's down, `query_ollama` returns `None` and AI features silently degrade.
 - **Tests are expected for code changes**: add focused tests for new features, add regression tests when fixing bugs, and update existing tests when behavior intentionally changes. If a change truly cannot be tested automatically, document the manual verification performed and why automated coverage was not practical.
+- **Codex sandbox can block the Windows venv launcher**: this repo's local `.venv` is Python 3.10.6 and its launcher delegates to `C:\Users\Matt\AppData\Local\Programs\Python\Python310\python.exe`. Inside Codex's default sandbox, commands like `.\.venv\Scripts\python.exe -m pytest` may fail with `Unable to create process using ...` or `Access is denied`, even though the venv works normally. Re-run the same venv command with escalated sandbox permission rather than recreating the venv. Verified working command: `& '.\.venv\Scripts\python.exe' -m pytest`.
 
 ## Deployment
 
