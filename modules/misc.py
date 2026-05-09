@@ -584,12 +584,15 @@ class MiscCog(commands.Cog):
         """Get a random historical event that happened on this day."""
         today = datetime.now(CENTRAL_TZ)
         url = f"https://byabbe.se/on-this-day/{today.month}/{today.day}/events.json"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    return await ctx.send("Couldn't fetch historical events right now.")
-                data = await resp.json()
-    
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        return await ctx.send("Couldn't fetch historical events right now.")
+                    data = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return await ctx.send("Couldn't fetch historical events right now.")
+
         events = data.get("events", [])
         if not events:
             return await ctx.send("No events found for today!")
