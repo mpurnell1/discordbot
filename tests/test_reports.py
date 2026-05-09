@@ -61,8 +61,16 @@ class HistoryChannel:
         self.history_messages = messages or []
 
     def history(self, **kwargs):
+        self.history_kwargs = kwargs
+
         async def _iter_messages():
-            for message in self.history_messages:
+            messages = list(self.history_messages)
+            if not kwargs.get("oldest_first", False):
+                messages = list(reversed(messages))
+            limit = kwargs.get("limit")
+            if limit is not None:
+                messages = messages[:limit]
+            for message in messages:
                 yield message
 
         return _iter_messages()
@@ -132,6 +140,33 @@ async def test_bugreport_posts_public_report_and_tracking_controls():
     assert "Track the status of your report here:" in ctx.sent[-1]["content"]
     assert f"<#{shared.BUG_REPORT_CHANNEL_ID}>" not in ctx.sent[-1]["content"]
     assert bug_channel.sent[0]["message"].jump_url in ctx.sent[-1]["content"]
+
+
+async def test_bugreport_uses_immediate_five_prior_messages_in_chronological_order():
+    cog, bug_channel, _, _ = _report_cog()
+    source_channel = HistoryChannel(messages=[
+        PriorMessage("Old", "stale 1"),
+        PriorMessage("Old", "stale 2"),
+        PriorMessage("Reporter", "1"),
+        PriorMessage("Reporter", "2"),
+        PriorMessage("Reporter", "3"),
+        PriorMessage("Reporter", "4"),
+        PriorMessage("Reporter", "5"),
+    ])
+    ctx = FakeContext(guild=FakeGuild(), channel=source_channel)
+    ctx.message.id = 333
+    ctx.message.jump_url = "https://discord.com/channels/999/100/333"
+
+    await cog.bugreport.callback(cog, ctx, description="History order check")
+
+    context = _fields(bug_channel.sent[0]["embed"])["Last 5 Messages Before Report"]
+    assert source_channel.history_kwargs == {"limit": 5, "before": ctx.message}
+    assert "stale 1" not in context
+    assert "stale 2" not in context
+    assert context.index("**Reporter:** 1") < context.index("**Reporter:** 2")
+    assert context.index("**Reporter:** 2") < context.index("**Reporter:** 3")
+    assert context.index("**Reporter:** 3") < context.index("**Reporter:** 4")
+    assert context.index("**Reporter:** 4") < context.index("**Reporter:** 5")
 
 
 async def test_featurerequest_posts_without_recent_message_context():
