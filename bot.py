@@ -13,6 +13,7 @@ from shared import (
     ADMIN_ID,
     DAILY_AMOUNT,
     CENTRAL_TZ,
+    STREAK_MILESTONES,
     COLOR_DEFAULT,
     COLOR_SUCCESS,
     COLOR_WARNING,
@@ -25,6 +26,7 @@ from shared import (
     is_command_enabled,
     is_feature_allowed,
     set_kids_mode_guild,
+    update_activity_streak,
 )
 from modules import ai, economy, games, misc
 
@@ -253,12 +255,25 @@ async def auto_daily_award(ctx):
     now = datetime.now(CENTRAL_TZ)
     available, _ = is_daily_available(user_id, now=now)
     if available:
+        prev_row = shared.db.execute("SELECT last_daily FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        prev_daily_iso = prev_row[0] if prev_row else None
         update_balance(user_id, DAILY_AMOUNT)
         shared.db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
         shared.db.commit()
+        streak, is_milestone, bonus = update_activity_streak(user_id, prev_daily_iso)
+        if bonus:
+            update_balance(user_id, bonus)
         bal = get_balance(user_id)
-        await ctx.send(embed=make_embed(
-            "💰 Daily Reward!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
+        if is_milestone:
+            desc = (
+                f"You got **{DAILY_AMOUNT}** coins + **{bonus:,}** streak bonus!\n"
+                f"🔥 **{streak}-day streak!** Balance: **{bal:,}**"
+            )
+        elif streak > 1:
+            desc = f"You got **{DAILY_AMOUNT}** coins!\n🔥 {streak}-day streak | Balance: **{bal:,}**"
+        else:
+            desc = f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal:,}**"
+        await ctx.send(embed=make_embed("💰 Daily Reward!", desc, COLOR_SUCCESS))
 
 
 @bot.check

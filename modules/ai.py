@@ -24,6 +24,7 @@ from shared import (
     UNSOLICITED_SYSTEM_PROMPT,
     SILAS_BANTER_PROMPT,
     SILAS_REACTIONS,
+    ADMIN_ID,
     make_embed,
     is_kids_mode_guild,
     is_feature_allowed,
@@ -32,6 +33,10 @@ from shared import (
     clean_reasoning,
     load_gary_gamble_state,
     save_gary_gamble_state,
+    log_gary_session_start,
+    update_gary_session_peak,
+    log_gary_session_end,
+    get_gary_gamble_stats,
 )
 
 logger = logging.getLogger("garybot")
@@ -83,6 +88,7 @@ class AICog(commands.Cog):
             "last_known_balance": loaded.get("last_known_balance"),
             "session_anchor_balance": loaded.get("session_anchor_balance"),
             "morning_hangman_done": loaded.get("morning_hangman_done", False),
+            "session_id": loaded.get("session_id"),
         }
         self._last_gamble_report_at = None
         self._last_gamble_result = self.gamble_state.get("last_report_key")
@@ -105,6 +111,7 @@ class AICog(commands.Cog):
                 "last_known_balance": self.gamble_state.get("last_known_balance"),
                 "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
                 "morning_hangman_done": self.gamble_state.get("morning_hangman_done", False),
+                "session_id": self.gamble_state.get("session_id"),
             }
         )
 
@@ -385,6 +392,9 @@ class AICog(commands.Cog):
         bal = self._extract_balance_from_text(silas_text)
         if bal is not None:
             self.gamble_state["last_known_balance"] = bal
+            session_id = self.gamble_state.get("session_id")
+            if session_id is not None:
+                update_gary_session_peak(session_id, bal)
             self._persist_gamble_state()
 
         # Mark hand resolved for result-style blackjack messages.
@@ -526,6 +536,7 @@ class AICog(commands.Cog):
         if anchor is None:
             self.gamble_state["session_anchor_balance"] = balance
             anchor = balance
+            self.gamble_state["session_id"] = log_gary_session_start(balance)
             self._persist_gamble_state()
 
         if not self.gamble_state.get("morning_hangman_done"):
@@ -549,13 +560,19 @@ class AICog(commands.Cog):
         stop_loss_hit = balance <= stop_loss_limit
         take_profit_hit = balance >= take_profit_limit
         if stop_loss_hit:
+            sid = self.gamble_state.get("session_id")
+            if sid is not None:
+                log_gary_session_end(sid, balance, "stop_loss")
+                self.gamble_state["session_id"] = None
             if self.gamble_state.get("hangman_active"):
+                self._persist_gamble_state()
                 return f"BJ stop-loss at {balance}; hangman in progress."
             # Respect Silas's 6-hour hangman cooldown
             hm_ended = self.gamble_state.get("hangman_ended_at")
             if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
                 remaining = self.HM_COOLDOWN - (now - hm_ended)
                 h, m = divmod(int(remaining.total_seconds()) // 60, 60)
+                self._persist_gamble_state()
                 return f"BJ stop-loss at {balance}; hangman on cooldown ({h}h {m}m left)."
             await channel.send("!hm")
             self.gamble_state["hangman_active"] = True
@@ -565,8 +582,12 @@ class AICog(commands.Cog):
 
         if take_profit_hit:
             await channel.send(f"Take-profit hit at **{balance}**! Resetting anchor and riding again.")
+            sid = self.gamble_state.get("session_id")
+            if sid is not None:
+                log_gary_session_end(sid, balance, "take_profit")
             self.gamble_state["session_anchor_balance"] = balance
             anchor = balance
+            self.gamble_state["session_id"] = log_gary_session_start(balance)
             self._persist_gamble_state()
 
         # Play hangman opportunistically whenever the cooldown resets, between BJ hands.
@@ -601,6 +622,60 @@ class AICog(commands.Cog):
             return "Stale BJ game detected; sent stand to resolve."
 
         return "Blackjack hand already active; waiting to play hit/stand."
+
+    @commands.command()
+    async def garystats(self, ctx):
+        """Show Gary's autonomous gambling session history (admin only)."""
+        if ctx.author.id != ADMIN_ID:
+            return
+
+        stats = get_gary_gamble_stats()
+        balance = self.gamble_state.get("last_known_balance")
+        anchor = self.gamble_state.get("session_anchor_balance")
+        session_id = self.gamble_state.get("session_id")
+
+        if balance is not None and anchor is not None:
+            delta = balance - anchor
+            pct = (delta / anchor * 100) if anchor else 0
+            sign = "+" if delta >= 0 else ""
+            session_line = f"Balance: **{balance:,}** | Anchor: **{anchor:,}** | {sign}{delta:,} ({sign}{pct:.1f}%)"
+        else:
+            session_line = "No active session data."
+
+        bj_active = self.gamble_state.get("blackjack_active", False)
+        hm_active = self.gamble_state.get("hangman_active", False)
+        state_line = f"BJ: {'active' if bj_active else 'idle'} | HM: {'active' if hm_active else 'idle'} | Session ID: {session_id}"
+
+        embed = discord.Embed(title="🎰 Gary Gamble Stats", color=shared.COLOR_DEFAULT)
+        embed.add_field(name="Current Session", value=f"{session_line}\n{state_line}", inline=False)
+
+        total = stats["total_sessions"]
+        if total:
+            net = stats["net"]
+            sign = "+" if net >= 0 else ""
+            win_rate = f"{stats['wins']}/{total}"
+            embed.add_field(
+                name=f"Lifetime ({total} sessions)",
+                value=(
+                    f"Net: **{sign}{net:,}**\n"
+                    f"Best session: **+{stats['best']:,}**\n"
+                    f"Worst session: **{stats['worst']:,}**\n"
+                    f"Profitable: **{win_rate}**"
+                ),
+                inline=False,
+            )
+            if stats["recent"]:
+                icons = {"stop_loss": "🔴", "take_profit": "✅", "ongoing": "⏳"}
+                lines = []
+                for s in stats["recent"]:
+                    icon = icons.get(s["outcome"], "❓")
+                    sign = "+" if s["delta"] >= 0 else ""
+                    lines.append(f"{icon} {sign}{s['delta']:,} ({s['outcome']})")
+                embed.add_field(name="Recent Sessions", value="\n".join(lines), inline=False)
+        else:
+            embed.add_field(name="Lifetime", value="No completed sessions yet.", inline=False)
+
+        await ctx.send(embed=embed)
 
     @commands.Cog.listener("on_ready")
     async def _start_ai_tasks(self):

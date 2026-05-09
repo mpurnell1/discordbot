@@ -106,6 +106,8 @@ def init_db():
         "active_puzzle_answer TEXT DEFAULT ''",
         "active_puzzle_display TEXT DEFAULT ''",
         "active_puzzle_guesses TEXT DEFAULT '[]'",
+        "activity_streak INTEGER DEFAULT 0",
+        "activity_streak_max INTEGER DEFAULT 0",
     ]:
         try:
             db.execute(f"ALTER TABLE users ADD COLUMN {col}")
@@ -188,6 +190,17 @@ def init_db():
             wager INTEGER NOT NULL,
             delta INTEGER NOT NULL,
             timestamp TEXT NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS gary_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            start_balance INTEGER NOT NULL,
+            end_balance INTEGER,
+            peak_balance INTEGER NOT NULL,
+            outcome TEXT
         )
     """)
     db.commit()
@@ -417,6 +430,99 @@ def get_gambling_stats(user_id: int) -> dict:
             stats[game_type]["wagered"] += wager
             stats[game_type]["hands"] += 1
     return stats
+
+
+STREAK_MILESTONES = {7: 100, 30: 500, 100: 2000}
+
+
+def update_activity_streak(user_id: int, prev_daily_iso: str | None) -> tuple[int, bool, int]:
+    """Update daily activity streak. Returns (new_streak, is_milestone, bonus_coins)."""
+    row = db.execute(
+        "SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    current_streak = row[0] if row else 0
+    max_streak = row[1] if row else 0
+
+    today = datetime.now(CENTRAL_TZ).date()
+    new_streak = 1
+    if prev_daily_iso:
+        try:
+            prev = datetime.fromisoformat(prev_daily_iso)
+            if prev.tzinfo is None:
+                prev = prev.replace(tzinfo=CENTRAL_TZ)
+            if prev.astimezone(CENTRAL_TZ).date() == today - timedelta(days=1):
+                new_streak = current_streak + 1
+        except (ValueError, AttributeError):
+            pass
+
+    new_max = max(max_streak, new_streak)
+    db.execute(
+        "UPDATE users SET activity_streak = ?, activity_streak_max = ? WHERE user_id = ?",
+        (new_streak, new_max, user_id),
+    )
+    db.commit()
+    bonus = STREAK_MILESTONES.get(new_streak, 0)
+    return new_streak, bonus > 0, bonus
+
+
+def get_activity_streak(user_id: int) -> tuple[int, int]:
+    """Return (current_streak, max_streak)."""
+    row = db.execute(
+        "SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return (row[0], row[1]) if row else (0, 0)
+
+
+def log_gary_session_start(start_balance: int) -> int:
+    cur = db.execute(
+        "INSERT INTO gary_sessions (started_at, start_balance, peak_balance, outcome) VALUES (?, ?, ?, 'ongoing')",
+        (datetime.now(timezone.utc).isoformat(), start_balance, start_balance),
+    )
+    db.commit()
+    return cur.lastrowid
+
+
+def update_gary_session_peak(session_id: int, balance: int):
+    db.execute(
+        "UPDATE gary_sessions SET peak_balance = MAX(peak_balance, ?) WHERE id = ?",
+        (balance, session_id),
+    )
+    db.commit()
+
+
+def log_gary_session_end(session_id: int, end_balance: int, outcome: str):
+    db.execute(
+        "UPDATE gary_sessions SET ended_at = ?, end_balance = ?, outcome = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), end_balance, outcome, session_id),
+    )
+    db.commit()
+
+
+def get_gary_gamble_stats() -> dict:
+    rows = db.execute(
+        "SELECT start_balance, end_balance, peak_balance, outcome, started_at "
+        "FROM gary_sessions ORDER BY id DESC"
+    ).fetchall()
+    completed = []
+    for start_bal, end_bal, peak_bal, outcome, started_at in rows:
+        if end_bal is None:
+            continue
+        completed.append({
+            "start": start_bal, "end": end_bal, "peak": peak_bal,
+            "outcome": outcome, "delta": end_bal - start_bal, "started_at": started_at,
+        })
+    net = sum(s["delta"] for s in completed)
+    wins = sum(1 for s in completed if s["delta"] > 0)
+    best = max((s["delta"] for s in completed), default=0)
+    worst = min((s["delta"] for s in completed), default=0)
+    return {
+        "recent": completed[:10],
+        "total_sessions": len(completed),
+        "net": net,
+        "best": best,
+        "worst": worst,
+        "wins": wins,
+    }
 
 
 def get_puzzle_stats(user_id: int) -> dict:
@@ -711,6 +817,12 @@ def load_gary_gamble_state():
             if raw.get("session_anchor_balance") is not None
             else None
         ),
+        "morning_hangman_done": bool(raw.get("morning_hangman_done", False)),
+        "session_id": (
+            int(raw.get("session_id"))
+            if raw.get("session_id") is not None
+            else None
+        ),
     }
 
 
@@ -733,6 +845,12 @@ def save_gary_gamble_state(state: dict):
         "session_anchor_balance": (
             int(state.get("session_anchor_balance"))
             if state.get("session_anchor_balance") is not None
+            else None
+        ),
+        "morning_hangman_done": bool(state.get("morning_hangman_done", False)),
+        "session_id": (
+            int(state.get("session_id"))
+            if state.get("session_id") is not None
             else None
         ),
     }

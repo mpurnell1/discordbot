@@ -1384,7 +1384,8 @@ class MiscCog(commands.Cog):
         user_id = ctx.author.id
         puzzle = shared.get_puzzle_stats(user_id)
         games = shared.get_game_stats(user_id)
-        streak_label = f"**{puzzle['streak']}** day{'s' if puzzle['streak'] != 1 else ''}"
+        act_streak, act_max = shared.get_activity_streak(user_id)
+        puzzle_streak = puzzle['streak']
         ttt = games["ttt"]
         c4 = games["c4"]
 
@@ -1395,12 +1396,22 @@ class MiscCog(commands.Cog):
         embed.add_field(
             name="🧩 Puzzles",
             value=(
-                f"Streak: {streak_label}\n"
+                f"Puzzle streak: **{puzzle_streak}** day{'s' if puzzle_streak != 1 else ''}\n"
                 f"Total solves: **{puzzle['total_solves']}**\n"
                 f"Avg attempts: **{puzzle['avg_attempts']:.1f}**"
             ),
             inline=True,
         )
+        streak_line = f"**{act_streak}** day{'s' if act_streak != 1 else ''}"
+        if act_max > act_streak:
+            streak_line += f" (best: **{act_max}**)"
+        next_milestone = next(
+            (f"+{b:,} at {d}d" for d, b in shared.STREAK_MILESTONES.items() if d > act_streak), None
+        )
+        activity_value = f"Daily streak: {streak_line}"
+        if next_milestone:
+            activity_value += f"\nNext bonus: {next_milestone}"
+        embed.add_field(name="🔥 Activity", value=activity_value, inline=True)
         embed.add_field(
             name="🎮 Games",
             value=(
