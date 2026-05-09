@@ -516,28 +516,6 @@ class MiscCog(commands.Cog):
                 action = args[0] if args else "status"
                 return await self._set_kids_mode(ctx, action)
 
-            if sec in {"dailyreminder", "daily"}:
-                if not args:
-                    enabled = runtime_settings.get("daily_reminder_enabled", True)
-                    state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(f"Daily reminders: **{state_text}**")
-                action = args[0].strip().lower()
-                if action == "on":
-                    runtime_settings["daily_reminder_enabled"] = True
-                    shared._save_json_setting("daily_reminder_enabled", True)
-                    return await ctx.send("Daily reminders are now **ON**.")
-                if action == "off":
-                    runtime_settings["daily_reminder_enabled"] = False
-                    shared._save_json_setting("daily_reminder_enabled", False)
-                    return await ctx.send("Daily reminders are now **OFF**.")
-                if action == "status":
-                    enabled = runtime_settings.get("daily_reminder_enabled", True)
-                    state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(f"Daily reminders: **{state_text}**")
-                return await ctx.send(
-                    f"Usage: `{PREFIX}settings dailyreminder <on|off|status>`"
-                )
-
             if sec == "passive":
                 keys = {
                     "unsolicited": "unsolicited_chance_pct",
@@ -672,7 +650,6 @@ class MiscCog(commands.Cog):
 
         dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
         kids_mode_state = "ON" if ctx.guild and is_kids_mode_guild(ctx.guild.id) else "OFF"
-        daily_reminder_state = "ON" if runtime_settings.get("daily_reminder_enabled", True) else "OFF"
         gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
         bj_ruleset = str(runtime_settings.get("bj_ruleset", "realistic")).upper()
         bj_hint_state = "ON" if runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
@@ -706,7 +683,6 @@ class MiscCog(commands.Cog):
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
         embed.add_field(name="Kids Mode", value=kids_mode_state, inline=True)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
-        embed.add_field(name="Daily Reminder", value=daily_reminder_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
         weather_channel_id = runtime_settings.get("weather_alert_channel_id")
         weather_state = "ON" if weather_channel_id else "OFF"
@@ -891,7 +867,6 @@ class MiscCog(commands.Cog):
         kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
         if not kids_mode:
             embed.add_field(name="Economy", value=(
-                f"`{p}daily` - Claim daily coins\n"
                 f"`{p}guess <1-10>` - Guess for a free coin (3x/day)\n"
                 f"`{p}puzzle` - Daily puzzle for {PUZZLE_REWARD} coins\n"
                 f"`{p}balance` - Check balance\n"
@@ -964,7 +939,6 @@ class MiscCog(commands.Cog):
             f"`{p}settings` - Show runtime settings\n"
             f"`{p}settings kids <on|off|status>` - Server kids mode\n"
             f"`{p}kidsmode <on|off|status>` - Shortcut for kids mode\n"
-            f"`{p}settings dailyreminder <on|off|status>` - Daily reminder toggle\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#channel]>` - Gary autonomous gambling\n"
             f"`{p}settings weather <on [#channel]|off|status|city <name>>` - Daily 8 AM weather alert\n"
             f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI chances\n"

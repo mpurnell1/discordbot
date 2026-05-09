@@ -792,23 +792,6 @@ class EconomyCog(commands.Cog):
         await ctx.send(f"Puzzle reset for {target.display_name}.")
     
 
-    @commands.command()
-    async def daily(self, ctx):
-    
-        """Claim your daily coins."""
-        user_id = ctx.author.id
-        now = datetime.now(CENTRAL_TZ)
-        available, remaining = is_daily_available(user_id, now=now)
-        if not available:
-            h, m = divmod(int(remaining.total_seconds()) // 60, 60)
-            await ctx.send(embed=make_embed("⏰ Already Claimed", f"Come back in **{h}h {m}m**.", COLOR_ERROR))
-            return
-        update_balance(user_id, DAILY_AMOUNT)
-        db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
-        db.commit()
-        bal = get_balance(user_id)
-        await ctx.send(embed=make_embed("💰 Daily Claimed!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
-    
     # ---------------------------------------------------------------------------
     # ECONOMY: BALANCE
     # ---------------------------------------------------------------------------
