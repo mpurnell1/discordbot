@@ -547,7 +547,7 @@ class GamesCog(commands.Cog):
             COLOR_WARNING,
         ))
 
-    @commands.command()
+    @commands.command(aliases=["time"])
     async def timer(self, ctx, seconds: int):
         """Start a simple timer, capped at one hour."""
         if seconds < 1 or seconds > 3600:
