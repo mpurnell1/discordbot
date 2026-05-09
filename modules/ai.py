@@ -9,9 +9,33 @@ import discord
 from discord.ext import commands, tasks
 
 import shared
+from shared import (
+    PREFIX,
+    CENTRAL_TZ,
+    SILAS_BOT_ID,
+    OLLAMA_REASONING_MODEL,
+    LATE_NIGHT_START,
+    LATE_NIGHT_END,
+    LATE_NIGHT_CHANCE,
+    DEAD_CHAT_THRESHOLDS,
+    DEAD_CHAT_CHANNEL,
+    LATE_NIGHT_RESPONSES,
+    DEAD_CHAT_RESPONSES,
+    ASK_SYSTEM_PROMPT,
+    UNSOLICITED_SYSTEM_PROMPT,
+    SILAS_BANTER_PROMPT,
+    SILAS_REACTIONS,
+    make_embed,
+    is_kids_mode_guild,
+    is_feature_allowed,
+    query_ollama,
+    query_ollama_chat,
+    clean_reasoning,
+    load_gary_gamble_state,
+    save_gary_gamble_state,
+)
 
 logger = logging.getLogger("garybot")
-from shared import *
 
 
 class AICog(commands.Cog):
@@ -123,7 +147,7 @@ class AICog(commands.Cog):
         return max(self.BJ_BET_PCT_MIN, min(self.BJ_BET_PCT_MAX, round(pct)))
 
     async def _send_gamble_report(self, summary: str, force: bool = False):
-        report_id = runtime_settings.get("gary_gamble_report_channel_id") or self.GAMBLE_REPORT_CHANNEL_ID_FALLBACK
+        report_id = shared.runtime_settings.get("gary_gamble_report_channel_id") or self.GAMBLE_REPORT_CHANNEL_ID_FALLBACK
         channel = self.bot.get_channel(int(report_id))
         if channel is None:
             return
@@ -349,8 +373,8 @@ class AICog(commands.Cog):
         guild_id = message.guild.id if message.guild else None
         if is_kids_mode_guild(guild_id):
             return
-        channel_id = runtime_settings.get("gary_gamble_channel_id")
-        if not runtime_settings.get("gary_gamble_enabled", False):
+        channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
+        if not shared.runtime_settings.get("gary_gamble_enabled", False):
             return
         if not channel_id or message.channel.id != int(channel_id):
             return
@@ -432,10 +456,10 @@ class AICog(commands.Cog):
 
     async def run_gamble_step(self, bypass_cooldown: bool = False) -> str:
         """Run one autonomous gambling decision step."""
-        if not runtime_settings.get("gary_gamble_enabled", False):
+        if not shared.runtime_settings.get("gary_gamble_enabled", False):
             return "Gary autonomous gambling is OFF."
 
-        channel_id = runtime_settings.get("gary_gamble_channel_id")
+        channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
         if not channel_id:
             return "Gamble channel is not set."
 
@@ -586,7 +610,7 @@ class AICog(commands.Cog):
         """Handle Silas editing his hangman message in place."""
         if not self.gamble_state.get("hangman_active"):
             return
-        channel_id = runtime_settings.get("gary_gamble_channel_id")
+        channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
         if not channel_id or payload.channel_id != int(channel_id):
             return
         # Fetch the full message to get author and content
@@ -639,7 +663,7 @@ class AICog(commands.Cog):
                         except discord.HTTPException:
                             pass
                         # Start a roleplay session as Gary
-                        active_silas_rp[channel_id] = {
+                        shared.active_silas_rp[channel_id] = {
                             "character": "Gary",
                             "history": [
                                 {"role": "system", "content": (
@@ -652,14 +676,14 @@ class AICog(commands.Cog):
                         }
                         await asyncio.sleep(random.uniform(1, 3))
                         response = await query_ollama_chat(
-                            active_silas_rp[channel_id]["history"] + [
+                            shared.active_silas_rp[channel_id]["history"] + [
                                 {"role": "user", "content": "The roleplay is starting. Silas just invited you. Say something to kick things off."}
                             ])
                         if response:
                             text = response.strip()
                             if len(text) > 500:
                                 text = text[:500] + "..."
-                            active_silas_rp[channel_id]["history"].append({"role": "assistant", "content": text})
+                            shared.active_silas_rp[channel_id]["history"].append({"role": "assistant", "content": text})
                             await message.channel.send(text)
                         return
     
@@ -678,7 +702,7 @@ class AICog(commands.Cog):
             await self._handle_silas_gambling_message(message, silas_text or "")
     
             # --- Active roleplay with Silas ---
-            rp = active_silas_rp.get(channel_id)
+            rp = shared.active_silas_rp.get(channel_id)
             if rp and silas_text:
                 rp["history"].append({"role": "user", "content": silas_text[:500]})
                 # Keep history manageable
@@ -696,8 +720,8 @@ class AICog(commands.Cog):
                 return
     
             # --- Random banter ---
-            silas_react_chance = runtime_settings.get("silas_react_chance_pct", 0) / 100.0
-            silas_banter_chance = runtime_settings.get("silas_banter_chance_pct", 0) / 100.0
+            silas_react_chance = shared.runtime_settings.get("silas_react_chance_pct", 0) / 100.0
+            silas_banter_chance = shared.runtime_settings.get("silas_banter_chance_pct", 0) / 100.0
             if random.random() < silas_react_chance:
                 try:
                     await message.add_reaction(random.choice(SILAS_REACTIONS))
@@ -725,20 +749,20 @@ class AICog(commands.Cog):
         now_central = now.astimezone(CENTRAL_TZ)
     
         # --- Track message times for dead chat ---
-        if runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id, guild_id):
-            last_message_time[channel_id] = now
-            dead_chat_stage[channel_id] = -1  # reset escalation
+        if shared.runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id, guild_id):
+            shared.last_message_time[channel_id] = now
+            shared.dead_chat_stage[channel_id] = -1  # reset escalation
     
         # --- Track recent messages for Ollama context ---
-        if channel_id not in recent_messages:
-            recent_messages[channel_id] = []
-        recent_messages[channel_id].append({
+        if channel_id not in shared.recent_messages:
+            shared.recent_messages[channel_id] = []
+        shared.recent_messages[channel_id].append({
             "author": message.author.display_name,
             "content": message.content,
             "time": now.isoformat(),
         })
         # Keep only last 15 messages
-        recent_messages[channel_id] = recent_messages[channel_id][-15:]
+        shared.recent_messages[channel_id] = shared.recent_messages[channel_id][-15:]
     
         # --- Respond when tagged ---
         if (
@@ -746,7 +770,7 @@ class AICog(commands.Cog):
             and not message.mention_everyone
             and is_feature_allowed("mention_reply", channel_id, guild_id)
         ):
-            context = recent_messages.get(channel_id, [])
+            context = shared.recent_messages.get(channel_id, [])
             chat_log = "\n".join(f"{m['author']}: {m['content']}" for m in context[-10:])
             prompt = (
                 f"Here's the recent chat:\n\n{chat_log}\n\n"
@@ -771,8 +795,8 @@ class AICog(commands.Cog):
         ):
             today_str = now.strftime("%Y-%m-%d")
             user_key = f"{message.author.id}-{today_str}"
-            if user_key not in last_late_night and random.random() < LATE_NIGHT_CHANCE:
-                last_late_night[user_key] = True
+            if user_key not in shared.last_late_night and random.random() < LATE_NIGHT_CHANCE:
+                shared.last_late_night[user_key] = True
                 # Small delay so it doesn't feel instant
                 await asyncio.sleep(random.uniform(2, 8))
                 response = random.choice(LATE_NIGHT_RESPONSES)
@@ -781,13 +805,13 @@ class AICog(commands.Cog):
                 return
     
         # --- Unsolicited opinions (Ollama) ---
-        unsolicited_chance = runtime_settings.get("unsolicited_chance_pct", 0) / 100.0
+        unsolicited_chance = shared.runtime_settings.get("unsolicited_chance_pct", 0) / 100.0
         if (
             is_feature_allowed("unsolicited_ai", channel_id, guild_id)
             and random.random() < unsolicited_chance
             and len(message.content) > 5
         ):
-            context = recent_messages.get(channel_id, [])
+            context = shared.recent_messages.get(channel_id, [])
             if len(context) >= 2:
                 # Format recent messages for the LLM
                 chat_log = "\n".join(
@@ -816,12 +840,12 @@ class AICog(commands.Cog):
     @tasks.loop(minutes=10)
     async def dead_chat_checker(self):
         """Periodically check all tracked channels for dead chat."""
-        if not runtime_settings.get("dead_chat_enabled", True):
+        if not shared.runtime_settings.get("dead_chat_enabled", True):
             return
         now = datetime.now(timezone.utc)
-        for channel_id, last_time in list(last_message_time.items()):
+        for channel_id, last_time in list(shared.last_message_time.items()):
             minutes_silent = (now - last_time).total_seconds() / 60
-            current_stage = dead_chat_stage.get(channel_id, -1)
+            current_stage = shared.dead_chat_stage.get(channel_id, -1)
     
             # Find the highest threshold we've crossed
             new_stage = -1
@@ -831,7 +855,7 @@ class AICog(commands.Cog):
     
             # Only fire if we've crossed into a NEW stage
             if new_stage > current_stage:
-                dead_chat_stage[channel_id] = new_stage
+                shared.dead_chat_stage[channel_id] = new_stage
                 channel = self.bot.get_channel(channel_id)
                 guild_id = channel.guild.id if channel and getattr(channel, "guild", None) else None
                 if not is_feature_allowed("dead_chat", channel_id, guild_id):
@@ -844,7 +868,7 @@ class AICog(commands.Cog):
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
         # Don't run or report when the feature is off.
-        if not runtime_settings.get("gary_gamble_enabled", False):
+        if not shared.runtime_settings.get("gary_gamble_enabled", False):
             return
         result = await self.run_gamble_step(bypass_cooldown=False)
         IDLE_PREFIXES = (
@@ -908,9 +932,9 @@ class AICog(commands.Cog):
     @commands.command()
     async def rp(self, ctx, *, character: str):
         """Start a roleplay between Gary and Silas."""
-        if ctx.channel.id in active_silas_rp:
+        if ctx.channel.id in shared.active_silas_rp:
             return await ctx.send("There's already a roleplay going in this channel. Use `.stoprp` to end it.")
-        active_silas_rp[ctx.channel.id] = {
+        shared.active_silas_rp[ctx.channel.id] = {
             "character": character,
             "history": [
                 {"role": "system", "content": (
@@ -933,8 +957,8 @@ class AICog(commands.Cog):
     @commands.command()
     async def stoprp(self, ctx):
         """Stop the current roleplay with Silas."""
-        if ctx.channel.id in active_silas_rp:
-            del active_silas_rp[ctx.channel.id]
+        if ctx.channel.id in shared.active_silas_rp:
+            del shared.active_silas_rp[ctx.channel.id]
             # Tell Silas to stop too
             await ctx.send("!stop")
             await ctx.send("Roleplay ended.")

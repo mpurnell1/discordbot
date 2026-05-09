@@ -7,7 +7,26 @@ import discord
 from discord.ext import commands
 
 import shared
-from shared import *
+from shared import (
+    TOKEN,
+    PREFIX,
+    ADMIN_ID,
+    GUILD_JOIN_REPORT_CHANNEL_ID,
+    DAILY_AMOUNT,
+    CENTRAL_TZ,
+    COLOR_DEFAULT,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    make_embed,
+    get_balance,
+    update_balance,
+    is_daily_available,
+    is_kids_mode_guild,
+    is_kids_command_allowed,
+    is_command_enabled,
+    is_feature_allowed,
+    set_kids_mode_guild,
+)
 from modules import ai, economy, games, misc
 
 
@@ -139,7 +158,7 @@ async def on_guild_join(guild):
 
 @bot.event
 async def on_command(ctx):
-    command_usage[ctx.command.name] += 1
+    shared.command_usage[ctx.command.name] += 1
     logger.info(
         "Command invoked: %s | user=%s (%s) | guild=%s | channel=%s",
         ctx.command.name,
@@ -157,8 +176,8 @@ async def auto_daily_award(ctx):
     available, _ = is_daily_available(user_id, now=now)
     if available:
         update_balance(user_id, DAILY_AMOUNT)
-        db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
-        db.commit()
+        shared.db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
+        shared.db.commit()
         bal = get_balance(user_id)
         await ctx.send(embed=make_embed("💰 Daily Reward!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
 
@@ -254,4 +273,5 @@ async def on_command_error(ctx, error):
         await ctx.send("That command failed unexpectedly. Check logs and try again.")
 
 
-bot.run(TOKEN)
+if __name__ == "__main__":
+    bot.run(TOKEN)

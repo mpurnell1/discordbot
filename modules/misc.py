@@ -9,7 +9,33 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import shared
-from shared import *
+from shared import (
+    PREFIX,
+    CENTRAL_TZ,
+    ADMIN_ID,
+    OPENWEATHER_API_KEY,
+    OLLAMA_URL,
+    OLLAMA_MODEL,
+    OLLAMA_REASONING_MODEL,
+    NICKNAME_COST,
+    NICKNAME_DURATION_HOURS,
+    PUZZLE_REWARD,
+    COLOR_DEFAULT,
+    COLOR_SUCCESS,
+    COLOR_ERROR,
+    COLOR_WARNING,
+    COLOR_PINK,
+    COLOR_ORANGE,
+    COLOR_GOLD,
+    KIDS_MODE_SUMMARY,
+    PROTECTED_ADMIN_COMMANDS,
+    make_embed,
+    get_balance,
+    update_balance,
+    is_kids_mode_guild,
+    set_kids_mode_guild,
+    normalize_feature_name,
+)
 
 LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
 
@@ -183,24 +209,24 @@ class MiscCog(commands.Cog):
     @tasks.loop(minutes=5)
     async def weather_alert_check(self):
         """Send daily 8 AM Central weather alert to the configured channel."""
-        channel_id = runtime_settings.get("weather_alert_channel_id")
+        channel_id = shared.runtime_settings.get("weather_alert_channel_id")
         if not channel_id:
             return
         now_central = datetime.now(CENTRAL_TZ)
         if now_central.hour != 8:
             return
         today_key = now_central.strftime("%Y-%m-%d")
-        if runtime_settings.get("weather_alert_last_date") == today_key:
+        if shared.runtime_settings.get("weather_alert_last_date") == today_key:
             return
         channel = self.bot.get_channel(int(channel_id))
         if channel is None:
             return
-        city = runtime_settings.get("weather_alert_city", "Champaign")
+        city = shared.runtime_settings.get("weather_alert_city", "Champaign")
         embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —", include_forecast=True)
         if embed is None:
             return
         await channel.send(embed=embed)
-        runtime_settings["weather_alert_last_date"] = today_key
+        shared.runtime_settings["weather_alert_last_date"] = today_key
         shared._save_json_setting("weather_alert_last_date", today_key)
     
     # ---------------------------------------------------------------------------
@@ -307,7 +333,7 @@ class MiscCog(commands.Cog):
         # If this user is already under an active changenick, preserve the
         # truly-original nick from the existing row instead of capturing the
         # current (already-overridden) display name.
-        existing = db.execute(
+        existing = shared.db.execute(
             "SELECT original_nick FROM nick_changes WHERE guild_id = ? AND target_id = ? "
             "ORDER BY id ASC LIMIT 1",
             (ctx.guild.id, member.id),
@@ -324,15 +350,15 @@ class MiscCog(commands.Cog):
 
         # Replace any prior pending row(s) for this target so the restore task
         # only fires once and uses the preserved original nick above.
-        db.execute(
+        shared.db.execute(
             "DELETE FROM nick_changes WHERE guild_id = ? AND target_id = ?",
             (ctx.guild.id, member.id),
         )
-        db.execute(
+        shared.db.execute(
             "INSERT INTO nick_changes (guild_id, target_id, original_nick, expires_at) VALUES (?, ?, ?, ?)",
             (ctx.guild.id, member.id, original_nick, expires.isoformat())
         )
-        db.commit()
+        shared.db.commit()
     
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed("✏️ Nickname Changed!",
@@ -347,7 +373,7 @@ class MiscCog(commands.Cog):
     async def restore_nicknames(self):
         """Check for expired nickname changes and restore them."""
         now = datetime.now(timezone.utc)
-        rows = db.execute("SELECT id, guild_id, target_id, original_nick, expires_at FROM nick_changes").fetchall()
+        rows = shared.db.execute("SELECT id, guild_id, target_id, original_nick, expires_at FROM nick_changes").fetchall()
         for row_id, guild_id, target_id, original_nick, expires_at in rows:
             expires = datetime.fromisoformat(expires_at)
             if now >= expires:
@@ -359,8 +385,8 @@ class MiscCog(commands.Cog):
                             await member.edit(nick=original_nick)
                         except discord.Forbidden:
                             pass
-                db.execute("DELETE FROM nick_changes WHERE id = ?", (row_id,))
-        db.commit()
+                shared.db.execute("DELETE FROM nick_changes WHERE id = ?", (row_id,))
+        shared.db.commit()
     
     # ---------------------------------------------------------------------------
     # QUOTES
@@ -379,11 +405,11 @@ class MiscCog(commands.Cog):
         if not msg.content:
             return await ctx.send("That message has no text content.")
         now = datetime.now(CENTRAL_TZ).strftime("%Y-%m-%d")
-        db.execute(
+        shared.db.execute(
             "INSERT INTO quotes (guild_id, quoted_user_id, quoted_user_name, content, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)",
             (ctx.guild.id, msg.author.id, msg.author.display_name, msg.content, ctx.author.id, now)
         )
-        db.commit()
+        shared.db.commit()
         await ctx.send(format_quote(msg.content, msg.author.mention, now))
     
 
@@ -392,7 +418,7 @@ class MiscCog(commands.Cog):
     async def quotes(self, ctx, flag: str = ""):
         """Show recent quotes. Admin can use .quotes ids to show IDs."""
         show_ids = flag.lower() == "ids" and ctx.author.id == ADMIN_ID
-        rows = db.execute(
+        rows = shared.db.execute(
             "SELECT id, quoted_user_name, content, saved_at FROM quotes WHERE guild_id = ? ORDER BY id DESC LIMIT 10",
             (ctx.guild.id,)
         ).fetchall()
@@ -409,11 +435,11 @@ class MiscCog(commands.Cog):
         """Delete a quote by ID (admin only)."""
         if ctx.author.id != ADMIN_ID:
             return
-        row = db.execute("SELECT id FROM quotes WHERE id = ? AND guild_id = ?", (quote_id, ctx.guild.id)).fetchone()
+        row = shared.db.execute("SELECT id FROM quotes WHERE id = ? AND guild_id = ?", (quote_id, ctx.guild.id)).fetchone()
         if not row:
             return await ctx.send(f"Quote #{quote_id} not found.")
-        db.execute("DELETE FROM quotes WHERE id = ?", (quote_id,))
-        db.commit()
+        shared.db.execute("DELETE FROM quotes WHERE id = ?", (quote_id,))
+        shared.db.commit()
         await ctx.send(f"Quote #{quote_id} deleted.")
     
     # ---------------------------------------------------------------------------
@@ -467,9 +493,9 @@ class MiscCog(commands.Cog):
         value = state.strip().lower()
         if value not in {"on", "off"}:
             return await ctx.send(f"Usage: `{PREFIX}setcommand <command> <on|off>`")
-        toggles = runtime_settings.get("command_toggles", {})
+        toggles = shared.runtime_settings.get("command_toggles", {})
         toggles[canonical_name] = (value == "on")
-        runtime_settings["command_toggles"] = toggles
+        shared.runtime_settings["command_toggles"] = toggles
         shared._save_json_setting("command_toggles", toggles)
         await ctx.send(f"`{PREFIX}{canonical_name}` is now **{value.upper()}**.")
     
@@ -484,11 +510,11 @@ class MiscCog(commands.Cog):
         if value not in {"on", "off"}:
             return await ctx.send(f"Usage: `{PREFIX}setdeadchat <on|off>`")
         enabled = value == "on"
-        runtime_settings["dead_chat_enabled"] = enabled
+        shared.runtime_settings["dead_chat_enabled"] = enabled
         shared._save_json_setting("dead_chat_enabled", enabled)
         # Clear tracking so toggling on doesn't instantly fire stale escalation.
-        last_message_time.clear()
-        dead_chat_stage.clear()
+        shared.last_message_time.clear()
+        shared.dead_chat_stage.clear()
         await ctx.send(f"Dead chat is now **{value.upper()}**.")
     
     
@@ -504,12 +530,12 @@ class MiscCog(commands.Cog):
             return await ctx.send(
                 f"Usage: `{PREFIX}setfeaturemode <feature> <all|off|whitelist|blacklist>`"
             )
-        rules = runtime_settings.get("feature_channel_rules", {})
+        rules = shared.runtime_settings.get("feature_channel_rules", {})
         existing = rules.get(normalized_feature, {"channels": []})
         existing["mode"] = normalized_mode
         existing["channels"] = [int(c) for c in existing.get("channels", [])]
         rules[normalized_feature] = existing
-        runtime_settings["feature_channel_rules"] = rules
+        shared.runtime_settings["feature_channel_rules"] = rules
         shared._save_json_setting("feature_channel_rules", rules)
         await ctx.send(f"Feature `{normalized_feature}` mode is now **{normalized_mode}**.")
     
@@ -526,7 +552,7 @@ class MiscCog(commands.Cog):
             return await ctx.send(
                 f"Usage: `{PREFIX}setfeaturechannels <feature> <add|remove|clear> [#channel ...]`"
             )
-        rules = runtime_settings.get("feature_channel_rules", {})
+        rules = shared.runtime_settings.get("feature_channel_rules", {})
         rule = rules.get(normalized_feature, {"mode": "all", "channels": []})
         channels = {int(c) for c in rule.get("channels", [])}
     
@@ -546,7 +572,7 @@ class MiscCog(commands.Cog):
     
         rule["channels"] = sorted(channels)
         rules[normalized_feature] = rule
-        runtime_settings["feature_channel_rules"] = rules
+        shared.runtime_settings["feature_channel_rules"] = rules
         shared._save_json_setting("feature_channel_rules", rules)
         pretty_channels = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
         await ctx.send(f"Feature `{normalized_feature}` channels: {pretty_channels}")
@@ -573,9 +599,9 @@ class MiscCog(commands.Cog):
                 }
                 if not args:
                     lines = [
-                        f"Unsolicited AI: **{runtime_settings.get('unsolicited_chance_pct', 0)}%**",
-                        f"Silas banter: **{runtime_settings.get('silas_banter_chance_pct', 0)}%**",
-                        f"Silas react: **{runtime_settings.get('silas_react_chance_pct', 0)}%**",
+                        f"Unsolicited AI: **{shared.runtime_settings.get('unsolicited_chance_pct', 0)}%**",
+                        f"Silas banter: **{shared.runtime_settings.get('silas_banter_chance_pct', 0)}%**",
+                        f"Silas react: **{shared.runtime_settings.get('silas_react_chance_pct', 0)}%**",
                     ]
                     return await ctx.send("\n".join(lines))
                 target = args[0].strip().lower()
@@ -584,22 +610,22 @@ class MiscCog(commands.Cog):
                         f"Usage: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact> <0-100>`"
                     )
                 if len(args) < 2:
-                    current = runtime_settings.get(keys[target], 0)
+                    current = shared.runtime_settings.get(keys[target], 0)
                     return await ctx.send(f"`{target}` is **{current}%**")
                 try:
                     value = int(args[1])
                 except ValueError:
                     return await ctx.send("Value must be an integer percent (0-100).")
                 value = max(0, min(100, value))
-                runtime_settings[keys[target]] = value
+                shared.runtime_settings[keys[target]] = value
                 shared._save_json_setting(keys[target], value)
                 return await ctx.send(f"`{target}` is now **{value}%**.")
 
             if sec == "gamble":
                 if not args:
-                    enabled = runtime_settings.get("gary_gamble_enabled", False)
-                    channel_id = runtime_settings.get("gary_gamble_channel_id")
-                    report_id = runtime_settings.get("gary_gamble_report_channel_id")
+                    enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
+                    channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
+                    report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                     report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
@@ -611,21 +637,21 @@ class MiscCog(commands.Cog):
                 if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
                     return await ctx.send("Gary autonomous gambling cannot be configured from a kids-mode server.")
                 if action == "on":
-                    runtime_settings["gary_gamble_enabled"] = True
-                    runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
+                    shared.runtime_settings["gary_gamble_enabled"] = True
+                    shared.runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
                     shared._save_json_setting("gary_gamble_enabled", True)
                     shared._save_json_setting("gary_gamble_channel_id", ctx.channel.id)
                     return await ctx.send(
                         f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}."
                     )
                 if action == "off":
-                    runtime_settings["gary_gamble_enabled"] = False
+                    shared.runtime_settings["gary_gamble_enabled"] = False
                     shared._save_json_setting("gary_gamble_enabled", False)
                     return await ctx.send("Gary autonomous gambling is now **OFF**.")
                 if action == "status":
-                    enabled = runtime_settings.get("gary_gamble_enabled", False)
-                    channel_id = runtime_settings.get("gary_gamble_channel_id")
-                    report_id = runtime_settings.get("gary_gamble_report_channel_id")
+                    enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
+                    channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
+                    report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                     report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
@@ -636,7 +662,7 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    runtime_settings["gary_gamble_channel_id"] = target.id
+                    shared.runtime_settings["gary_gamble_channel_id"] = target.id
                     shared._save_json_setting("gary_gamble_channel_id", target.id)
                     return await ctx.send(f"Gary gambling channel set to {target.mention}.")
                 if action == "now":
@@ -649,7 +675,7 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    runtime_settings["gary_gamble_report_channel_id"] = target.id
+                    shared.runtime_settings["gary_gamble_report_channel_id"] = target.id
                     shared._save_json_setting("gary_gamble_report_channel_id", target.id)
                     return await ctx.send(f"Gamble report channel set to {target.mention}.")
                 return await ctx.send(
@@ -657,8 +683,8 @@ class MiscCog(commands.Cog):
                 )
 
             if sec == "weather":
-                channel_id = runtime_settings.get("weather_alert_channel_id")
-                city = runtime_settings.get("weather_alert_city", "Champaign")
+                channel_id = shared.runtime_settings.get("weather_alert_channel_id")
+                city = shared.runtime_settings.get("weather_alert_city", "Champaign")
                 channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                 if not args:
                     state = "ON" if channel_id else "OFF"
@@ -670,13 +696,13 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    runtime_settings["weather_alert_channel_id"] = target.id
+                    shared.runtime_settings["weather_alert_channel_id"] = target.id
                     shared._save_json_setting("weather_alert_channel_id", target.id)
                     return await ctx.send(
                         f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central."
                     )
                 if action == "off":
-                    runtime_settings["weather_alert_channel_id"] = None
+                    shared.runtime_settings["weather_alert_channel_id"] = None
                     shared._save_json_setting("weather_alert_channel_id", None)
                     return await ctx.send("Daily weather alert is now **OFF**.")
                 if action == "status":
@@ -688,7 +714,7 @@ class MiscCog(commands.Cog):
                     if len(args) < 2:
                         return await ctx.send(f"Usage: `{PREFIX}settings weather city <city name>`")
                     new_city = " ".join(args[1:]).strip()
-                    runtime_settings["weather_alert_city"] = new_city
+                    shared.runtime_settings["weather_alert_city"] = new_city
                     shared._save_json_setting("weather_alert_city", new_city)
                     return await ctx.send(f"Weather alert city set to **{new_city}**.")
                 return await ctx.send(
@@ -697,20 +723,20 @@ class MiscCog(commands.Cog):
 
             return await ctx.send(f"Unknown settings section: `{sec}`")
 
-        dead_chat_state = "ON" if runtime_settings.get("dead_chat_enabled", True) else "OFF"
+        dead_chat_state = "ON" if shared.runtime_settings.get("dead_chat_enabled", True) else "OFF"
         kids_mode_state = "ON" if ctx.guild and is_kids_mode_guild(ctx.guild.id) else "OFF"
-        gary_gamble_state = "ON" if runtime_settings.get("gary_gamble_enabled", False) else "OFF"
-        bj_ruleset = str(runtime_settings.get("bj_ruleset", "realistic")).upper()
-        bj_hint_state = "ON" if runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
-        gary_gamble_channel = runtime_settings.get("gary_gamble_channel_id")
+        gary_gamble_state = "ON" if shared.runtime_settings.get("gary_gamble_enabled", False) else "OFF"
+        bj_ruleset = str(shared.runtime_settings.get("bj_ruleset", "realistic")).upper()
+        bj_hint_state = "ON" if shared.runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
+        gary_gamble_channel = shared.runtime_settings.get("gary_gamble_channel_id")
         gary_gamble_channel_text = f"<#{int(gary_gamble_channel)}>" if gary_gamble_channel else "(not set)"
         disabled = sorted(
-            name for name, enabled in runtime_settings.get("command_toggles", {}).items() if not enabled
+            name for name, enabled in shared.runtime_settings.get("command_toggles", {}).items() if not enabled
         )
         disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
     
         rule_lines = []
-        for feature, rule in sorted(runtime_settings.get("feature_channel_rules", {}).items()):
+        for feature, rule in sorted(shared.runtime_settings.get("feature_channel_rules", {}).items()):
             mode = rule.get("mode", "all")
             channels = rule.get("channels", [])
             if channels:
@@ -720,9 +746,9 @@ class MiscCog(commands.Cog):
             rule_lines.append(f"`{feature}`: **{mode}** {channel_str}")
         rules_str = "\n".join(rule_lines) if rule_lines else "No feature channel rules set."
     
-        unsolicited_pct = runtime_settings.get("unsolicited_chance_pct", 0)
-        silas_banter_pct = runtime_settings.get("silas_banter_chance_pct", 0)
-        silas_react_pct = runtime_settings.get("silas_react_chance_pct", 0)
+        unsolicited_pct = shared.runtime_settings.get("unsolicited_chance_pct", 0)
+        silas_banter_pct = shared.runtime_settings.get("silas_banter_chance_pct", 0)
+        silas_react_pct = shared.runtime_settings.get("silas_react_chance_pct", 0)
         passive_value = (
             f"Unsolicited: **{unsolicited_pct}%**\n"
             f"Silas banter: **{silas_banter_pct}%**\n"
@@ -733,10 +759,10 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Kids Mode", value=kids_mode_state, inline=True)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
         embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
-        weather_channel_id = runtime_settings.get("weather_alert_channel_id")
+        weather_channel_id = shared.runtime_settings.get("weather_alert_channel_id")
         weather_state = "ON" if weather_channel_id else "OFF"
         weather_text = f"<#{int(weather_channel_id)}>" if weather_channel_id else "(not set)"
-        weather_city = runtime_settings.get("weather_alert_city", "Champaign")
+        weather_city = shared.runtime_settings.get("weather_alert_city", "Champaign")
         embed.add_field(name="Weather Alert", value=f"{weather_state}\n{weather_text}\n{weather_city}", inline=True)
         embed.add_field(name="BJ Ruleset", value=bj_ruleset, inline=True)
         embed.add_field(name="BJ Hint", value=bj_hint_state, inline=True)
@@ -758,7 +784,7 @@ class MiscCog(commands.Cog):
         if ctx.author.id != ADMIN_ID:
             return
         await ctx.send("Restarting bot process now...")
-        db.commit()
+        shared.db.commit()
         python = sys.executable
         os.execv(python, [python] + sys.argv)
     
@@ -780,7 +806,7 @@ class MiscCog(commands.Cog):
             uptime = "Unknown"
             up_minutes = 1.0
 
-        total_cmds = sum(command_usage.values())
+        total_cmds = sum(shared.command_usage.values())
         messages = shared.messages_seen
         msg_rate = messages / up_minutes
 
@@ -794,7 +820,7 @@ class MiscCog(commands.Cog):
                 elif isinstance(ch, discord.VoiceChannel):
                     voice_channels += 1
 
-        unsolicited_pct = runtime_settings.get("unsolicited_chance_pct", 0)
+        unsolicited_pct = shared.runtime_settings.get("unsolicited_chance_pct", 0)
         passive_enabled = f"{unsolicited_pct}%" if unsolicited_pct > 0 else "Disabled"
         ai_status = "Configured" if OLLAMA_URL else "Unavailable"
 
@@ -886,7 +912,7 @@ class MiscCog(commands.Cog):
     @commands.guild_only()
     async def leaderboard(self, ctx):
         """Show the richest users in the server."""
-        rows = db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC").fetchall()
+        rows = shared.db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC").fetchall()
         lines = []
         medals = ["🥇", "🥈", "🥉"]
         count = 0

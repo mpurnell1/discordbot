@@ -6,7 +6,14 @@ from datetime import datetime, timezone
 
 from discord.ext import commands, tasks
 
-from shared import *
+from shared import (
+    PREFIX,
+    COLOR_DEFAULT,
+    COLOR_SUCCESS,
+    COLOR_ERROR,
+    COLOR_WARNING,
+    make_embed,
+)
 
 active_ttt = {}      # channel_id -> game state
 active_c4 = {}       # channel_id -> game state

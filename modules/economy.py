@@ -6,7 +6,26 @@ from datetime import datetime
 from discord.ext import commands
 
 import shared
-from shared import *
+from shared import (
+    PREFIX,
+    CENTRAL_TZ,
+    ADMIN_ID,
+    COLOR_DEFAULT,
+    COLOR_SUCCESS,
+    COLOR_ERROR,
+    COLOR_WARNING,
+    LUCKY_GUESS_RANGE,
+    LUCKY_GUESS_REWARD,
+    LUCKY_GUESS_MAX_DAILY,
+    PUZZLE_REWARD,
+    PUZZLE_MAX_ATTEMPTS,
+    get_balance,
+    peek_balance,
+    update_balance,
+    check_bet,
+    make_embed,
+    is_kids_mode_guild,
+)
 
 # ECONOMY: LUCKY GUESS
 # ---------------------------------------------------------------------------
@@ -16,7 +35,7 @@ def _puzzle_key(user_id: int, kids_mode: bool):
     return ("kids" if kids_mode else "regular", user_id)
 
 def load_active_puzzle(user_id: int):
-    row = db.execute(
+    row = shared.db.execute(
         "SELECT active_puzzle_type, active_puzzle_answer, active_puzzle_display, active_puzzle_guesses "
         "FROM users WHERE user_id = ?",
         (user_id,),
@@ -44,15 +63,15 @@ def load_active_puzzle(user_id: int):
 def save_active_puzzle(user_id: int, puzzle):
     get_balance(user_id)
     if puzzle is None:
-        db.execute(
+        shared.db.execute(
             "UPDATE users SET active_puzzle_type = '', active_puzzle_answer = '', "
             "active_puzzle_display = '', active_puzzle_guesses = '[]' WHERE user_id = ?",
             (user_id,),
         )
-        db.commit()
+        shared.db.commit()
         return
     guesses = puzzle.get("guesses", []) if puzzle.get("type") == "wordle" else []
-    db.execute(
+    shared.db.execute(
         "UPDATE users SET active_puzzle_type = ?, active_puzzle_answer = ?, active_puzzle_display = ?, "
         "active_puzzle_guesses = ? WHERE user_id = ?",
         (
@@ -63,7 +82,7 @@ def save_active_puzzle(user_id: int, puzzle):
             user_id,
         ),
     )
-    db.commit()
+    shared.db.commit()
 WORDLE_WORDS = [
     "crane", "slate", "audio", "raise", "stare", "glyph", "dwarf", "knobs",
     "plumb", "frost", "shrug", "traps", "blaze", "chunk", "crimp", "dough",
@@ -250,7 +269,7 @@ blackjack_shoe = []
 
 
 def get_blackjack_ruleset_name():
-    raw = runtime_settings.get("bj_ruleset", "realistic")
+    raw = shared.runtime_settings.get("bj_ruleset", "realistic")
     name = str(raw).strip().lower()
     return name if name in BLACKJACK_RULE_PRESETS else "realistic"
 
@@ -507,7 +526,7 @@ class EconomyCog(commands.Cog):
     
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
-        row = db.execute(
+        row = shared.db.execute(
             "SELECT guess_date, guess_count FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         guess_date = row[0] if row else ""
@@ -525,10 +544,10 @@ class EconomyCog(commands.Cog):
             guess_count = 0
     
         guess_count += 1
-        db.execute(
+        shared.db.execute(
             "UPDATE users SET guess_date = ?, guess_count = ? WHERE user_id = ?",
             (today, guess_count, user_id))
-        db.commit()
+        shared.db.commit()
     
         answer = random.randint(1, LUCKY_GUESS_RANGE)
         remaining = LUCKY_GUESS_MAX_DAILY - guess_count
@@ -580,7 +599,7 @@ class EconomyCog(commands.Cog):
     
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
-        row = db.execute(
+        row = shared.db.execute(
             "SELECT puzzle_date, puzzle_solved, puzzle_attempts FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         puzzle_date = row[0] if row else ""
@@ -600,8 +619,8 @@ class EconomyCog(commands.Cog):
             puzzle_attempts = 0
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            db.execute("UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id))
-            db.commit()
+            shared.db.execute("UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id))
+            shared.db.commit()
     
         if key not in active_puzzles:
             loaded = load_active_puzzle(user_id)
@@ -695,7 +714,7 @@ class EconomyCog(commands.Cog):
     
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
-        row = db.execute(
+        row = shared.db.execute(
             "SELECT puzzle_date, puzzle_solved, puzzle_attempts FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         puzzle_date = row[0] if row else ""
@@ -721,8 +740,8 @@ class EconomyCog(commands.Cog):
             if guess == p["answer"]:
                 active_puzzles.pop(key, None)
                 save_active_puzzle(user_id, None)
-                db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
-                db.commit()
+                shared.db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
+                shared.db.commit()
                 reward_text = "Solved. No coin reward in kids mode."
                 if not kids_mode:
                     update_balance(user_id, PUZZLE_REWARD)
@@ -744,14 +763,14 @@ class EconomyCog(commands.Cog):
                 f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
     
         puzzle_attempts += 1
-        db.execute("UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?", (today, puzzle_attempts, user_id))
-        db.commit()
+        shared.db.execute("UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?", (today, puzzle_attempts, user_id))
+        shared.db.commit()
     
         if guess == p["answer"]:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
-            db.commit()
+            shared.db.execute("UPDATE users SET puzzle_solved = 1 WHERE user_id = ?", (user_id,))
+            shared.db.commit()
             reward_text = "Solved. No coin reward in kids mode."
             if not kids_mode:
                 update_balance(user_id, PUZZLE_REWARD)
@@ -787,8 +806,8 @@ class EconomyCog(commands.Cog):
         active_puzzles.pop(_puzzle_key(target.id, False), None)
         active_puzzles.pop(_puzzle_key(target.id, True), None)
         save_active_puzzle(target.id, None)
-        db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
-        db.commit()
+        shared.db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
+        shared.db.commit()
         await ctx.send(f"Puzzle reset for {target.display_name}.")
     
 
@@ -910,7 +929,7 @@ class EconomyCog(commands.Cog):
                 dealer_up = game["dealer"][0]
                 actions = ", ".join(f"`{PREFIX}{a}`" for a in available_actions(game, current))
                 lines.extend(["", f"Actions: {actions}"])
-                if runtime_settings.get("bj_basic_hint_enabled", True):
+                if shared.runtime_settings.get("bj_basic_hint_enabled", True):
                     rec_action, rec_reason = best_legal_blackjack_recommendation(game, current, dealer_up)
                     lines.append(f"Basic strategy: **{rec_action}** ({rec_reason})")
 
@@ -1014,14 +1033,14 @@ class EconomyCog(commands.Cog):
 
         action = mode.strip().lower()
         if action == "status":
-            enabled = runtime_settings.get("bj_basic_hint_enabled", True)
+            enabled = shared.runtime_settings.get("bj_basic_hint_enabled", True)
             return await ctx.send(f"Blackjack strategy hints are **{'ON' if enabled else 'OFF'}**.")
 
         if action not in {"on", "off"}:
             return await ctx.send(f"Usage: `{PREFIX}bjhint <on|off|status>`")
 
         enabled = action == "on"
-        runtime_settings["bj_basic_hint_enabled"] = enabled
+        shared.runtime_settings["bj_basic_hint_enabled"] = enabled
         shared._save_json_setting("bj_basic_hint_enabled", enabled)
         await ctx.send(f"Blackjack strategy hints are now **{'ON' if enabled else 'OFF'}**.")
 
@@ -1042,7 +1061,7 @@ class EconomyCog(commands.Cog):
             return await ctx.send("Cannot switch blackjack rules while a hand is active. Finish current hands first.")
 
         selected = apply_blackjack_ruleset(action)
-        runtime_settings["bj_ruleset"] = selected
+        shared.runtime_settings["bj_ruleset"] = selected
         shared._save_json_setting("bj_ruleset", selected)
         blackjack_shoe.clear()
         await ctx.send(f"Blackjack ruleset set to **{selected}**.")
