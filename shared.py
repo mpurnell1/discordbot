@@ -237,9 +237,7 @@ KIDS_MODE_BLOCKED_COMMANDS = {
     "quote",
     "quotes",
     "unquote",
-    # External uncurated content is not exposed in kids mode.
-    "cat",
-    "dog",
+    # External uncurated text content is not exposed in kids mode.
     "onthisday",
 }
 
@@ -260,8 +258,6 @@ KIDS_MODE_BLOCKED_FEATURES = {
     "cmd:quote",
     "cmd:quotes",
     "cmd:unquote",
-    "cmd:cat",
-    "cmd:dog",
     "cmd:onthisday",
     "cmd:guess",
     "cmd:repuzzle",

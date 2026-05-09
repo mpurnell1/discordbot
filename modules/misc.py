@@ -1276,8 +1276,7 @@ class MiscCog(commands.Cog):
             f"`{p}forfeit` - Quit current game"
         ), inline=False)
         embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)\n`{p}weather [city] forecast` - Current weather + daily forecast", inline=False)
-        if not kids_mode:
-            embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
+        embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
         fun_lines = [
             f"`{p}wyr` - Would You Rather",
             f"`{p}joke` - Clean joke",
