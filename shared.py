@@ -77,7 +77,9 @@ PUZZLE_MAX_ATTEMPTS = 3      # Max wrong answers before lockout
 # DATABASE SETUP
 # ---------------------------------------------------------------------------
 def init_db():
-    db_path = Path(__file__).resolve().parent / "bot.db"
+    db_path = os.getenv("DISCORDBOT_DB_PATH") or str(
+        Path(__file__).resolve().parent / "bot.db"
+    )
     db = sqlite3.connect(db_path)
     db.execute("""
         CREATE TABLE IF NOT EXISTS users (
