@@ -239,6 +239,9 @@ async def log_kids_interactions(message):
 
 @bot.before_invoke
 async def auto_daily_award(ctx):
+    guild_id = ctx.guild.id if ctx.guild else None
+    if is_kids_mode_guild(guild_id):
+        return
     user_id = ctx.author.id
     now = datetime.now(CENTRAL_TZ)
     available, _ = is_daily_available(user_id, now=now)
