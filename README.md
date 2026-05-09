@@ -95,7 +95,8 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.ask <question>` | | Ask AI (Ollama required) |
 | `.rp <character>` / `.stoprp` | | Silas roleplay controls |
 | `.quote` / `.quotes` / `.unquote <id>` | | Quote system (unquote is admin only) |
-| `.stats` | | Bot statistics |
+| `.stats [@user]` | `.stat` | Your puzzle/game/economy/gambling stats; tag someone for head-to-head game record |
+| `.botstat` | `.botstats` | Runtime bot stats — uptime, commands used, messages seen (admin only) |
 | `.invite [kids]` | | Bot invite link |
 | `.help` | | Command list |
 | `.adminhelp` | | Admin command list (admin only) |
