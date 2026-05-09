@@ -177,7 +177,7 @@ class ReportStatusButton(discord.ui.Button):
 
     def _get_public_report_ids(self, embed: discord.Embed):
         for field in embed.fields:
-            if field.name != "Public Report":
+            if field.name != "Public Report Tracking Card":
                 continue
             channel_match = re.search(r"Channel ID: `(\d+)`", field.value)
             message_match = re.search(r"Message ID: `(\d+)`", field.value)
@@ -461,10 +461,10 @@ class MiscCog(commands.Cog):
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Status", value=f"{status_emoji} **{status_label}**", inline=True)
-        embed.add_field(name="Reported By", value=_format_user(ctx.author), inline=True)
+        embed.add_field(name="Reported By", value=ctx.author.mention, inline=True)
         embed.add_field(
             name="Location",
-            value=f"**Server:** {ctx.guild.name} (`{ctx.guild.id}`)\n**Channel:** {ctx.channel.mention} (`{ctx.channel.id}`)",
+            value=f"**Server:** {ctx.guild.name}\n**Channel:** {ctx.channel.mention}",
             inline=False,
         )
         embed.add_field(name="Message", value=_truncate_text(description, 1024), inline=False)
@@ -482,7 +482,7 @@ class MiscCog(commands.Cog):
         tracking_embed = public_embed.copy()
         tracking_embed.title = f"{public_embed.title} Tracking"
         tracking_embed.add_field(
-            name="Public Report",
+            name="Public Report Tracking Card",
             value=(
                 f"[Jump to report]({report_message.jump_url})\n"
                 f"Channel ID: `{report_message.channel.id}`\n"
