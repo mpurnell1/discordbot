@@ -17,7 +17,7 @@ Discord bot ("Gary") built with discord.py. Four cog modules:
 - **Runtime settings are cached in memory** at startup from SQLite. Editing the DB directly won't affect the running bot — use the admin commands or restart.
 - Daily resets use **5am Central time**, not midnight UTC. The `_scratch_reset_key()` logic subtracts a day if hour < 5.
 - **Ollama is optional** — if it's down, `query_ollama` returns `None` and AI features silently degrade.
-- **No test suite** — testing is manual against the live Discord server.
+- **Tests are expected for code changes**: add focused tests for new features, add regression tests when fixing bugs, and update existing tests when behavior intentionally changes. If a change truly cannot be tested automatically, document the manual verification performed and why automated coverage was not practical.
 
 ## Deployment
 
