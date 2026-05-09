@@ -175,7 +175,6 @@ command_usage = Counter() # command name -> count (resets on restart)
 messages_seen = 0         # non-self messages observed (resets on restart)
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
-    "daily_reminder_enabled": True,
     "command_toggles": {},
     "feature_channel_rules": {},
     "gary_gamble_enabled": False,
@@ -206,7 +205,6 @@ PROTECTED_ADMIN_COMMANDS = {
 
 KIDS_MODE_BLOCKED_COMMANDS = {
     # Economy is intentionally excluded from kids mode.
-    "daily",
     "guess",
     "repuzzle",
     "balance",
@@ -259,7 +257,6 @@ KIDS_MODE_BLOCKED_FEATURES = {
     "cmd:cat",
     "cmd:dog",
     "cmd:onthisday",
-    "cmd:daily",
     "cmd:guess",
     "cmd:repuzzle",
     "cmd:balance",
@@ -268,7 +265,6 @@ KIDS_MODE_BLOCKED_FEATURES = {
     "cmd:invite",
     "cmd:stats",
     "dead_chat",
-    "daily_reminder",
     "late_night",
     "mention_reply",
     "silas",
@@ -334,30 +330,6 @@ def is_daily_available(user_id: int, now=None):
     if now - last >= timedelta(hours=24):
         return True, timedelta(0)
     return False, timedelta(hours=24) - (now - last)
-
-
-def get_last_daily_reminder_time(user_id: int):
-    get_balance(user_id)
-    row = db.execute(
-        "SELECT last_daily_reminder FROM users WHERE user_id = ?",
-        (user_id,),
-    ).fetchone()
-    if not row or not row[0]:
-        return None
-    last = datetime.fromisoformat(row[0])
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
-    return last
-
-
-def set_last_daily_reminder_time(user_id: int, when=None):
-    get_balance(user_id)
-    when = when or datetime.now(timezone.utc)
-    db.execute(
-        "UPDATE users SET last_daily_reminder = ? WHERE user_id = ?",
-        (when.isoformat(), user_id),
-    )
-    db.commit()
 
 
 def _load_json_setting(key: str, default):
@@ -435,9 +407,6 @@ def is_kids_command_allowed(command_name: str) -> bool:
 def load_runtime_settings():
     runtime_settings["dead_chat_enabled"] = bool(
         _load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"])
-    )
-    runtime_settings["daily_reminder_enabled"] = bool(
-        _load_json_setting("daily_reminder_enabled", SETTINGS_DEFAULTS["daily_reminder_enabled"])
     )
     runtime_settings["command_toggles"] = _load_json_setting(
         "command_toggles", SETTINGS_DEFAULTS["command_toggles"]

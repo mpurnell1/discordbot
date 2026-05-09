@@ -150,6 +150,19 @@ async def on_command(ctx):
     )
 
 
+@bot.before_invoke
+async def auto_daily_award(ctx):
+    user_id = ctx.author.id
+    now = datetime.now(CENTRAL_TZ)
+    available, _ = is_daily_available(user_id, now=now)
+    if available:
+        update_balance(user_id, DAILY_AMOUNT)
+        db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
+        db.commit()
+        bal = get_balance(user_id)
+        await ctx.send(embed=make_embed("💰 Daily Reward!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
+
+
 @bot.check
 async def command_gatekeeper(ctx):
     command_name = ctx.command.name.lower()
@@ -203,7 +216,7 @@ COMMAND_USAGE = {
     "say": "<text>",
     "kidsmode": "<on|off|status>",
     "invite": "[kids]",
-    "settings": "[kids <on|off|status> | dailyreminder <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
+    "settings": "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
 }
 
 

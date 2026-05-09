@@ -518,25 +518,26 @@ class AICog(commands.Cog):
                 self._persist_gamble_state()
                 return "Morning hangman started."
 
-        bj_stopped = (
-            balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT))
-            or balance >= int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT))
-        )
+        stop_loss_limit = int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT))
+        take_profit_limit = int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT))
+        stop_loss_hit = balance <= stop_loss_limit
+        take_profit_hit = balance >= take_profit_limit
+        bj_stopped = stop_loss_hit or take_profit_hit
         if bj_stopped:
+            reason = "stop-loss" if stop_loss_hit else "take-profit"
             if self.gamble_state.get("hangman_active"):
-                return "Hangman in progress; waiting for Silas."
+                return f"BJ {reason} at {balance}; hangman in progress."
             # Respect Silas's 6-hour hangman cooldown
             hm_ended = self.gamble_state.get("hangman_ended_at")
             logger.info("Hangman cooldown check: hm_ended=%s type=%s now=%s", hm_ended, type(hm_ended).__name__, now)
             if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
                 remaining = self.HM_COOLDOWN - (now - hm_ended)
                 h, m = divmod(int(remaining.total_seconds()) // 60, 60)
-                return f"BJ stopped, hangman on cooldown ({h}h {m}m left)."
+                return f"BJ {reason} at {balance}; hangman on cooldown ({h}h {m}m left)."
             await channel.send("!hm")
             self.gamble_state["hangman_active"] = True
             self.gamble_state["hangman_started_at"] = now
             self._persist_gamble_state()
-            reason = "stop-loss" if balance <= int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT)) else "take-profit"
             return f"BJ {reason} at {balance}; started hangman."
 
         # Play hangman opportunistically whenever the cooldown resets, between BJ hands.
@@ -738,29 +739,6 @@ class AICog(commands.Cog):
         })
         # Keep only last 15 messages
         recent_messages[channel_id] = recent_messages[channel_id][-15:]
-    
-        # --- Daily reminder (DB-backed throttle; never on command messages) ---
-        content = message.content.strip()
-        if (
-            runtime_settings.get("daily_reminder_enabled", True)
-            and is_feature_allowed("daily_reminder", channel_id, guild_id)
-            and content
-            and not content.startswith(PREFIX)
-        ):
-            user_id = message.author.id
-            last_reminder = get_last_daily_reminder_time(user_id)
-            reminder_ok = (
-                last_reminder is None
-                or (now - last_reminder) >= timedelta(hours=24)
-            )
-            if reminder_ok:
-                available, _ = is_daily_available(user_id, now=now_central)
-                if available:
-                    set_last_daily_reminder_time(user_id, when=now)
-                    await message.reply(
-                        f"Your daily is ready. Use `{PREFIX}daily`.",
-                        mention_author=False
-                    )
     
         # --- Respond when tagged ---
         if (
