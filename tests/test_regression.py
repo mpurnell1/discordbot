@@ -128,3 +128,49 @@ async def test_second_command_within_24h_does_not_re_award():
 
     assert shared.get_balance(user_id) == bal_before
     assert ctx.send.await_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Bug: auto_daily_award had no kids mode guard — kids servers received daily
+# Commit: fix "auto_daily_award skips kids mode guilds"
+# ---------------------------------------------------------------------------
+async def test_auto_daily_not_awarded_in_kids_guild():
+    """auto_daily_award must not award coins in a kids mode guild."""
+    user_id = 5557
+    kids_guild_id = 888_001
+    shared.set_kids_mode_guild(kids_guild_id, True)
+    shared.get_balance(user_id)
+    # Daily is available (never claimed).
+    bal_before = shared.get_balance(user_id)
+
+    ctx = MagicMock()
+    ctx.author.id = user_id
+    ctx.guild.id = kids_guild_id
+    ctx.send = AsyncMock()
+
+    await bot_module.auto_daily_award(ctx)
+
+    assert shared.get_balance(user_id) == bal_before, (
+        "No coins should be awarded in a kids mode guild"
+    )
+    assert ctx.send.await_count == 0
+
+
+async def test_auto_daily_still_awarded_in_normal_guild():
+    """auto_daily_award must still award coins in a non-kids guild."""
+    user_id = 5558
+    normal_guild_id = 888_002
+    # Ensure kids mode is off for this guild (default).
+    shared.set_kids_mode_guild(normal_guild_id, False)
+    shared.get_balance(user_id)
+    bal_before = shared.get_balance(user_id)
+
+    ctx = MagicMock()
+    ctx.author.id = user_id
+    ctx.guild.id = normal_guild_id
+    ctx.send = AsyncMock()
+
+    await bot_module.auto_daily_award(ctx)
+
+    assert shared.get_balance(user_id) == bal_before + shared.DAILY_AMOUNT
+    assert ctx.send.await_count == 1
