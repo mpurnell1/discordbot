@@ -564,7 +564,7 @@ class MiscCog(commands.Cog):
         """Report a bug with server, channel, reporter, and recent context."""
         await self._submit_report(ctx, kind="bug", description=description)
 
-    @commands.command(aliases=["feature", "request", "fr"])
+    @commands.command(aliases=["feature", "request", "fr", "feat"])
     async def featurerequest(self, ctx, *, description: str = ""):
         """Request a feature with status tracking."""
         await self._submit_report(ctx, kind="feature", description=description)

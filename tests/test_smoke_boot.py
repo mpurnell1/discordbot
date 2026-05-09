@@ -69,7 +69,7 @@ async def test_alias_command_lists_public_command_aliases(loaded_bot):
     assert "`.weather` - `.w`" in fields["Weather"]
     assert "`.stats` - `.stat`" in fields["Info"]
     assert "`.bugreport` - `.bug`, `.issue`, `.report`" in fields["Info"]
-    assert "`.featurerequest` - `.feature`, `.request`, `.fr`" in fields["Info"]
+    assert "`.featurerequest` - `.feature`, `.request`, `.fr`, `.feat`" in fields["Info"]
     assert "`.alias` - `.aliases`" in fields["Info"]
     assert "Animals" not in fields
     assert "Fun" not in fields
@@ -106,6 +106,7 @@ async def test_requested_aliases_resolve_to_commands(loaded_bot):
         "feature": "featurerequest",
         "request": "featurerequest",
         "fr": "featurerequest",
+        "feat": "featurerequest",
     }
     for alias, command_name in expected.items():
         assert loaded_bot.get_command(alias).name == command_name
