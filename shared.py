@@ -57,12 +57,6 @@ DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 UNSOLICITED_CHANCE = 0 # 0.12  # ~12% of messages get evaluated
 
 ADMIN_ID = 393568333644955648
-GUILD_JOIN_REPORT_CHANNEL_ID = 1499629710739771503
-KIDS_INTERACTION_LOG_CHANNEL_ID = 1502510080371982443
-BUG_REPORT_CHANNEL_ID = 1502525057262686208
-FEATURE_REQUEST_CHANNEL_ID = 1502526720513806436
-REQUEST_TRACKING_CHANNEL_ID = 1502527349126598706
-SILAS_BOT_ID = 1489403251303518322
 
 # --- Silas interaction config ---
 SILAS_BANTER_CHANCE = 0 # 0.15   # 15% chance to comment on Silas's messages
@@ -195,18 +189,20 @@ SETTINGS_DEFAULTS = {
     "unsolicited_chance_pct": 0,
     "silas_banter_chance_pct": 0,
     "silas_react_chance_pct": 0,
+    "guild_join_report_channel_id": None,
+    "kids_interaction_log_channel_id": None,
+    "bug_report_channel_id": None,
+    "feature_request_channel_id": None,
+    "request_tracking_channel_id": None,
+    "silas_bot_id": None,
 }
 PROTECTED_ADMIN_COMMANDS = {
     "adminhelp",
-    "kidsmode",
-    "setcommand",
-    "setdeadchat",
-    "setfeaturemode",
-    "setfeaturechannels",
-    "bjruleset",
-    "bjhint",
     "settings",
     "restart",
+    "say",
+    "give",
+    "clear",
 }
 
 KIDS_MODE_BLOCKED_COMMANDS = {
@@ -453,6 +449,17 @@ def load_runtime_settings():
         except (TypeError, ValueError):
             value = SETTINGS_DEFAULTS[key]
         runtime_settings[key] = max(0, min(100, value))
+    for key in (
+        "guild_join_report_channel_id",
+        "kids_interaction_log_channel_id",
+        "bug_report_channel_id",
+        "feature_request_channel_id",
+        "request_tracking_channel_id",
+    ):
+        raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
+        runtime_settings[key] = int(raw) if raw else None
+    silas_raw = _load_json_setting("silas_bot_id", SETTINGS_DEFAULTS["silas_bot_id"])
+    runtime_settings["silas_bot_id"] = int(silas_raw) if silas_raw else None
 
 
 def normalize_feature_name(feature: str) -> str:

@@ -92,10 +92,18 @@ def _fields(embed):
     return {field.name: field.value for field in embed.fields}
 
 
+_BUG_REPORT_CHANNEL_ID = 1502525057262686208
+_FEATURE_REQUEST_CHANNEL_ID = 1502526720513806436
+_REQUEST_TRACKING_CHANNEL_ID = 1502527349126598706
+
+
 def _report_cog():
-    bug_channel = FakeReportChannel(shared.BUG_REPORT_CHANNEL_ID)
-    feature_channel = FakeReportChannel(shared.FEATURE_REQUEST_CHANNEL_ID)
-    tracking_channel = FakeReportChannel(shared.REQUEST_TRACKING_CHANNEL_ID)
+    shared.runtime_settings["bug_report_channel_id"] = _BUG_REPORT_CHANNEL_ID
+    shared.runtime_settings["feature_request_channel_id"] = _FEATURE_REQUEST_CHANNEL_ID
+    shared.runtime_settings["request_tracking_channel_id"] = _REQUEST_TRACKING_CHANNEL_ID
+    bug_channel = FakeReportChannel(_BUG_REPORT_CHANNEL_ID)
+    feature_channel = FakeReportChannel(_FEATURE_REQUEST_CHANNEL_ID)
+    tracking_channel = FakeReportChannel(_REQUEST_TRACKING_CHANNEL_ID)
     bot = FakeBot({
         bug_channel.id: bug_channel,
         feature_channel.id: feature_channel,
@@ -192,7 +200,7 @@ async def test_featurerequest_posts_without_recent_message_context():
 async def test_status_button_updates_tracking_and_public_report():
     from modules.misc import ReportStatusButton, ReportStatusView
 
-    public_channel = FakeReportChannel(shared.BUG_REPORT_CHANNEL_ID)
+    public_channel = FakeReportChannel(_BUG_REPORT_CHANNEL_ID)
     public_embed = discord.Embed(title="Bug Report")
     public_embed.add_field(name="Status", value="🆕 **New**", inline=True)
     public_message = FakeReportMessage(public_channel, 7001, public_embed)
@@ -209,7 +217,7 @@ async def test_status_button_updates_tracking_and_public_report():
         ),
         inline=False,
     )
-    tracking_message = FakeReportMessage(FakeReportChannel(shared.REQUEST_TRACKING_CHANNEL_ID), 8001, tracking_embed)
+    tracking_message = FakeReportMessage(FakeReportChannel(_REQUEST_TRACKING_CHANNEL_ID), 8001, tracking_embed)
 
     bot = FakeBot({public_channel.id: public_channel})
     interaction = AsyncMock()

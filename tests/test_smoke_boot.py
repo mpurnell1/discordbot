@@ -40,7 +40,7 @@ async def test_critical_commands_exist(loaded_bot):
     """Spot-check the handful of commands that absolutely must exist."""
     expected = {
         "balance", "blackjack", "coinflip", "slots", "puzzle", "solve",
-        "ttt", "c4", "hangman", "weather", "ask", "kidsmode", "settings",
+        "ttt", "c4", "hangman", "weather", "ask", "settings",
         "help", "adminhelp", "leaderboard", "alias", "bugreport", "featurerequest",
     }
     registered = {c.name for c in loaded_bot.commands}

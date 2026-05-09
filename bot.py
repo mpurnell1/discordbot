@@ -11,8 +11,6 @@ from shared import (
     TOKEN,
     PREFIX,
     ADMIN_ID,
-    GUILD_JOIN_REPORT_CHANNEL_ID,
-    KIDS_INTERACTION_LOG_CHANNEL_ID,
     DAILY_AMOUNT,
     CENTRAL_TZ,
     COLOR_DEFAULT,
@@ -117,9 +115,12 @@ async def notify_admin_guild_join(guild):
         f"```sql\n{unforce_sql}\n```"
     )
     try:
-        report_channel = bot.get_channel(GUILD_JOIN_REPORT_CHANNEL_ID)
+        guild_join_channel_id = shared.runtime_settings.get("guild_join_report_channel_id")
+        if not guild_join_channel_id:
+            return
+        report_channel = bot.get_channel(guild_join_channel_id)
         if report_channel is None:
-            report_channel = await bot.fetch_channel(GUILD_JOIN_REPORT_CHANNEL_ID)
+            report_channel = await bot.fetch_channel(guild_join_channel_id)
         await report_channel.send(embed=make_embed("Gary Joined New Server", description, COLOR_WARNING))
     except discord.HTTPException:
         logger.warning("Could not post guild join report for guild %s", guild.id)
@@ -161,9 +162,12 @@ async def post_kids_log(content: str):
     if not content:
         return
     try:
-        channel = bot.get_channel(KIDS_INTERACTION_LOG_CHANNEL_ID)
+        kids_log_id = shared.runtime_settings.get("kids_interaction_log_channel_id")
+        if not kids_log_id:
+            return
+        channel = bot.get_channel(kids_log_id)
         if channel is None:
-            channel = await bot.fetch_channel(KIDS_INTERACTION_LOG_CHANNEL_ID)
+            channel = await bot.fetch_channel(kids_log_id)
         await channel.send(content[:1900])
     except discord.HTTPException:
         logger.warning("Could not post to kids interaction log channel")
@@ -202,7 +206,7 @@ async def on_command(ctx):
 async def log_kids_interactions(message):
     if message.guild is None:
         return
-    if message.channel.id == KIDS_INTERACTION_LOG_CHANNEL_ID:
+    if message.channel.id == shared.runtime_settings.get("kids_interaction_log_channel_id"):
         return
     if not is_kids_mode_guild(message.guild.id):
         return
@@ -281,14 +285,7 @@ COMMAND_USAGE = {
     "rp": "<character>",
     "unquote": "<id>",
     "give": "@user <amount>",
-    "setcommand": "<command> <on|off>",
-    "setdeadchat": "<on|off>",
-    "setfeaturemode": "<feature> <all|off|whitelist|blacklist>",
-    "setfeaturechannels": "<feature> <add|remove|clear> [#channel ...]",
-    "bjruleset": "<realistic|arcade|status>",
-    "bjhint": "<on|off|status>",
     "say": "<text>",
-    "kidsmode": "<on|off|status>",
     "invite": "[kids]",
     "alias": "",
     "settings": "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
