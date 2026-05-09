@@ -1081,6 +1081,58 @@ class MiscCog(commands.Cog):
     
     
 
+    @commands.command()
+    async def clear(self, ctx, count: str = ""):
+        """Admin only: delete the last <n> messages from Gary."""
+        try:
+            if ctx.author.id != ADMIN_ID:
+                return
+            
+            if not count.strip():
+                await ctx.send(f"Usage: `{PREFIX}clear <n>` (deletes the last n messages from Gary)")
+                return
+            
+            try:
+                n = int(count)
+            except ValueError:
+                await ctx.send(f"'{count}' is not a valid number.")
+                return
+            
+            if n <= 0:
+                await ctx.send("Number must be greater than 0.")
+                return
+            
+            if n > 100:
+                await ctx.send("Cannot delete more than 100 messages at once (safety limit).")
+                return
+            
+            deleted_count = 0
+            try:
+                async for message in ctx.channel.history(limit=500):
+                    if deleted_count >= n:
+                        break
+                    if message.author.id == self.bot.user.id:
+                        try:
+                            await message.delete()
+                            deleted_count += 1
+                        except discord.Forbidden:
+                            await ctx.send(f"❌ Permission denied deleting a message (deleted {deleted_count} before error).")
+                            return
+                        except discord.HTTPException:
+                            await ctx.send(f"❌ Error deleting a message (deleted {deleted_count} before error).")
+                            return
+            except discord.Forbidden:
+                await ctx.send("❌ I don't have permission to read message history in this channel.")
+                return
+        finally:
+            # Always try to delete the command message itself
+            try:
+                await ctx.message.delete()
+            except (discord.HTTPException, discord.Forbidden):
+                pass
+    
+    
+
     @commands.command(aliases=["stat"])
     async def stats(self, ctx):
         """Show runtime bot stats in a compact operational view."""
@@ -1346,7 +1398,7 @@ class MiscCog(commands.Cog):
             self._add_alias_field(embed, "Admin", [
                 "adminhelp", "settings", "kidsmode", "setcommand", "setdeadchat",
                 "setfeaturemode", "setfeaturechannels", "bjruleset", "bjhint",
-                "say", "give", "restart"
+                "say", "give", "clear", "restart"
             ])
         await ctx.send(embed=embed)
 
@@ -1376,6 +1428,7 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Admin Utils", value=(
             f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
             f"`{p}give @user <amount>` - Add/remove coins\n"
+            f"`{p}clear <n>` - Delete last n messages from Gary\n"
             f"`{p}restart` - Restart process"
         ), inline=False)
         await ctx.send(embed=embed)
