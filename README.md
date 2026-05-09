@@ -57,9 +57,10 @@ Rotation policy:
 
 ## Commands
 
+Daily coins are awarded automatically the first time a user runs any command after their daily resets (5 AM Central) — there is no `.daily` command.
+
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `.daily` | | Claim daily coins |
 | `.guess <1-10>` | | Guess a number for a free coin when broke (3x/day) |
 | `.puzzle` / `.solve <answer>` | | Daily puzzle flow |
 | `.balance [@user]` | `.bal` | Check balance |
@@ -80,7 +81,7 @@ Rotation policy:
 | `.scramble` / `.unscramble <word>` | | Kid-safe word scramble |
 | `.timer <seconds>` | | Simple timer, capped at one hour |
 | `.forfeit` | | Quit current game |
-| `.weather [city]` | | Current weather (defaults to Champaign) |
+| `.weather [city] [forecast]` | | Current weather (defaults to Champaign); append `forecast` for a 4-day outlook |
 | `.cat` / `.dog` | | Random animal pics |
 | `.wyr` | | Would You Rather |
 | `.onthisday` | | Historical event today |
@@ -110,10 +111,10 @@ Kids mode is server-specific and persisted in SQLite. It is intended for servers
 
 Kids mode disables:
 
-- Economy commands: `.daily`, `.guess`, `.balance`, `.leaderboard`, `.give`, `.repuzzle`
+- Economy commands: `.guess`, `.balance`, `.leaderboard`, `.give`, `.repuzzle` (and the auto-daily-award)
 - Gambling commands: `.coinflip`, `.slots`, `.blackjack`, blackjack actions, and `.bjrules`
 - All AI: `.ask`, `.rp`, `.stoprp`, mention replies, unsolicited AI, Silas roleplay/banter/reacts, and autonomous gambling in that server
-- All passive behavior: daily reminders, dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions
+- All passive behavior: dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions
 - Social/moderation-risk commands: `.changenick`, `.quote`, `.quotes`, `.unquote`
 - Uncurated external/info commands: `.cat`, `.dog`, `.onthisday`, `.stats`, `.invite`
 
@@ -125,12 +126,6 @@ Kids mode keeps:
 
 Gary infers a kids invite from the low-permission shape: no Manage Messages and no Manage Nicknames. If that shape is detected on join, Gary writes `kids_mode=true` for the server immediately and posts a join report with un-force SQL.
 
-### Daily reminder
-
-- `.settings dailyreminder on` -> enable
-- `.settings dailyreminder off` -> disable
-- `.settings dailyreminder status` -> show state
-
 ### Gary autonomous gambling
 
 - `.settings gamble on` -> enable and bind gambling to current channel
@@ -139,6 +134,15 @@ Gary infers a kids invite from the low-permission shape: no Manage Messages and 
 - `.settings gamble now` -> force one immediate gambling step
 - `.settings gamble channel [#channel]` -> set channel (current if omitted)
 - `.settings gamble report [#channel]` -> set telemetry report channel (current if omitted)
+
+### Daily 8 AM weather alert
+
+Posts current weather plus a 4-day forecast at 8 AM Central in the configured channel.
+
+- `.settings weather on [#channel]` -> enable in current channel (or specified channel)
+- `.settings weather off` -> disable
+- `.settings weather status` -> show state, channel, and city
+- `.settings weather city <name>` -> set the city used for alerts (defaults to Champaign)
 
 ### Passive AI features
 
