@@ -1,5 +1,8 @@
 # Discord Bot
 
+[![CI](https://github.com/mpurnell1/discordbot/actions/workflows/ci.yml/badge.svg)](https://github.com/mpurnell1/discordbot/actions/workflows/ci.yml)
+[![Security](https://github.com/mpurnell1/discordbot/actions/workflows/security.yml/badge.svg)](https://github.com/mpurnell1/discordbot/actions/workflows/security.yml)
+
 A modular friend-group Discord bot with economy, games, AI features, and admin runtime controls.
 
 ## Prerequisites
