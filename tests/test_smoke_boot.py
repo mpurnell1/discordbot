@@ -41,7 +41,7 @@ async def test_critical_commands_exist(loaded_bot):
     expected = {
         "balance", "blackjack", "coinflip", "slots", "puzzle", "solve",
         "ttt", "c4", "hangman", "weather", "ask", "kidsmode", "settings",
-        "help", "adminhelp", "leaderboard", "alias",
+        "help", "adminhelp", "leaderboard", "alias", "bugreport", "featurerequest",
     }
     registered = {c.name for c in loaded_bot.commands}
     missing = expected - registered
@@ -64,20 +64,28 @@ async def test_alias_command_lists_public_command_aliases(loaded_bot):
     assert "`.slots` - `.slot`" in fields["Gambling"]
     assert "`.blackjack` - `.bj`, `.21`" in fields["Gambling"]
     assert "`.hangman` - `.hang`, `.hm`" in fields["Games"]
+    assert "`.timer` - `.time`" in fields["Games"]
     assert "`.forfeit` - `.ff`, `.quit`, `.stop`" in fields["Games"]
     assert "`.weather` - `.w`" in fields["Weather"]
+    assert "`.stats` - `.stat`" in fields["Info"]
+    assert "`.bugreport` - `.bug`, `.issue`, `.report`" in fields["Info"]
+    assert "`.featurerequest` - `.feature`, `.request`, `.fr`" in fields["Info"]
     assert "`.alias` - `.aliases`" in fields["Info"]
+    assert "Animals" not in fields
+    assert "Fun" not in fields
+    assert "AI" not in fields
+    assert "Quotes" not in fields
+    assert "`none`" not in "\n".join(fields.values())
 
 
-async def test_alias_command_lists_admin_aliases_for_admin(loaded_bot):
+async def test_alias_command_omits_empty_admin_alias_section(loaded_bot):
     cog = loaded_bot.get_cog("MiscCog")
     ctx = FakeContext(author=FakeAuthor(user_id=bot_module.ADMIN_ID))
 
     await cog.alias.callback(cog, ctx)
 
     fields = {field.name: field.value for field in ctx.sent[0]["embed"].fields}
-    assert "Admin" in fields
-    assert "`.kidsmode` - `none`" in fields["Admin"]
+    assert "Admin" not in fields
 
 
 async def test_requested_aliases_resolve_to_commands(loaded_bot):
@@ -87,9 +95,17 @@ async def test_requested_aliases_resolve_to_commands(loaded_bot):
         "bj": "blackjack",
         "21": "blackjack",
         "slot": "slots",
+        "time": "timer",
         "ff": "forfeit",
         "quit": "forfeit",
         "stop": "forfeit",
+        "stat": "stats",
+        "bug": "bugreport",
+        "issue": "bugreport",
+        "report": "bugreport",
+        "feature": "featurerequest",
+        "request": "featurerequest",
+        "fr": "featurerequest",
     }
     for alias, command_name in expected.items():
         assert loaded_bot.get_command(alias).name == command_name
