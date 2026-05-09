@@ -36,7 +36,7 @@ COLOR_ORANGE  = 0xE67E22
 COLOR_GOLD    = 0xF1C40F
 
 # --- Passive feature config ---
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://REDACTED_IP:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_REASONING_MODEL", "deepseek-r1:8b")
 
@@ -49,7 +49,7 @@ LATE_NIGHT_CHANCE = 0.4  # 40% chance to call someone out
 DEAD_CHAT_THRESHOLDS = [60, 180, 360, 720]  # 1hr, 3hr, 6hr, 12hr
 DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 
-ADMIN_ID = REDACTED_ADMIN_ID
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 # --- Lucky guess config ---
 LUCKY_GUESS_RANGE = 10       # Guess 1-N

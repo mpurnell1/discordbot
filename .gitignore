@@ -11,6 +11,7 @@ __pycache__/
 
 # Agents / local tooling
 .claude/settings.local.json
+AGENTS.md
 
 # Production runtime artifacts (RPi)
 .deploy-restart

@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/mpurnell1/discordbot/actions/workflows/ci.yml/badge.svg)](https://github.com/mpurnell1/discordbot/actions/workflows/ci.yml)
 [![Security](https://github.com/mpurnell1/discordbot/actions/workflows/security.yml/badge.svg)](https://github.com/mpurnell1/discordbot/actions/workflows/security.yml)
+![Python](https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 A modular friend-group Discord bot with economy, games, AI features, and admin runtime controls.
 
@@ -27,7 +29,8 @@ Create a `.env` file in the project root:
 ```env
 DISCORD_TOKEN=your-discord-token
 OPENWEATHER_API_KEY=your-openweather-key
-OLLAMA_URL=http://192.168.1.XXX:11434
+ADMIN_ID=your-discord-user-id
+OLLAMA_URL=http://your-ollama-host:11434
 OLLAMA_MODEL=llama3
 OLLAMA_REASONING_MODEL=deepseek-r1:8b
 ```

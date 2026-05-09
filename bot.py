@@ -383,4 +383,8 @@ async def on_resumed():
 
 
 if __name__ == "__main__":
+    if not ADMIN_ID:
+        raise SystemExit("ADMIN_ID is not set in .env — cannot start bot.")
+    if not shared.OLLAMA_URL:
+        logger.warning("OLLAMA_URL is not set — AI features will not work.")
     bot.run(TOKEN)
