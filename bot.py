@@ -257,7 +257,8 @@ async def auto_daily_award(ctx):
         shared.db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now.isoformat(), user_id))
         shared.db.commit()
         bal = get_balance(user_id)
-        await ctx.send(embed=make_embed("💰 Daily Reward!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
+        await ctx.send(embed=make_embed(
+            "💰 Daily Reward!", f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal}**", COLOR_SUCCESS))
 
 
 @bot.check
@@ -309,7 +310,10 @@ COMMAND_USAGE = {
     "say": "<text>",
     "invite": "[kids]",
     "alias": "",
-    "settings": "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
+    "settings": (
+        "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]>"
+        " | passive <unsolicited|silasbanter|silasreact> <0-100>]"
+    ),
 }
 
 

@@ -2,7 +2,6 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from freezegun import freeze_time
 
 import shared
 from shared import is_daily_available, CENTRAL_TZ

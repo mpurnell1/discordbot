@@ -254,7 +254,7 @@ class MiscCog(commands.Cog):
             self.restore_nicknames.start()
         if not self.weather_alert_check.is_running():
             self.weather_alert_check.start()
-    
+
     # ---------------------------------------------------------------------------
     # WEATHER
     # ---------------------------------------------------------------------------
@@ -375,7 +375,7 @@ class MiscCog(commands.Cog):
         await channel.send(embed=embed)
         shared.runtime_settings["weather_alert_last_date"] = today_key
         shared._save_json_setting("weather_alert_last_date", today_key)
-    
+
     # ---------------------------------------------------------------------------
     # ANIMALS
     # ---------------------------------------------------------------------------
@@ -393,7 +393,7 @@ class MiscCog(commands.Cog):
                     await ctx.send(embed=embed)
         except (aiohttp.ClientError, asyncio.TimeoutError, IndexError, KeyError, TypeError):
             await ctx.send("Couldn't fetch a cat right now. Try again in a bit.")
-    
+
 
     @commands.command()
     async def dog(self, ctx):
@@ -408,11 +408,11 @@ class MiscCog(commands.Cog):
                     await ctx.send(embed=embed)
         except (aiohttp.ClientError, asyncio.TimeoutError, IndexError, KeyError, TypeError):
             await ctx.send("Couldn't fetch a dog right now. Try again in a bit.")
-    
+
     # ---------------------------------------------------------------------------
     # WOULD YOU RATHER
     # ---------------------------------------------------------------------------
-    
+
 
     @commands.command()
     async def wyr(self, ctx):
@@ -523,7 +523,11 @@ class MiscCog(commands.Cog):
             command = "bugreport" if kind == "bug" else "featurerequest"
             return await ctx.send(f"Usage: `{PREFIX}{command} <description>`")
 
-        channel_id = shared.runtime_settings.get("bug_report_channel_id") if kind == "bug" else shared.runtime_settings.get("feature_request_channel_id")
+        channel_id = (
+            shared.runtime_settings.get("bug_report_channel_id")
+            if kind == "bug"
+            else shared.runtime_settings.get("feature_request_channel_id")
+        )
         tracking_channel_id = shared.runtime_settings.get("request_tracking_channel_id")
         if not channel_id or not tracking_channel_id:
             return await ctx.send("Report channels aren't configured yet.")
@@ -574,7 +578,7 @@ class MiscCog(commands.Cog):
     async def featurerequest(self, ctx, *, description: str = ""):
         """Request a feature with status tracking."""
         await self._submit_report(ctx, kind="feature", description=description)
-    
+
     # ---------------------------------------------------------------------------
     # ON THIS DAY
     # ---------------------------------------------------------------------------
@@ -596,16 +600,16 @@ class MiscCog(commands.Cog):
         events = data.get("events", [])
         if not events:
             return await ctx.send("No events found for today!")
-    
+
         event = random.choice(events)
         year = event.get("year", "???")
         desc = event.get("description", "No description available.")
-    
+
         embed = make_embed(
             f"📜 On This Day — {today.strftime('%B %d')}",
             f"**{year}**: {desc}", COLOR_ORANGE)
         await ctx.send(embed=embed)
-    
+
     # ---------------------------------------------------------------------------
     # NICKNAME CHANGE
     # ---------------------------------------------------------------------------
@@ -618,12 +622,12 @@ class MiscCog(commands.Cog):
             return await ctx.send("You can't change your own nickname with this!")
         if member.bot:
             return await ctx.send("You can't rename bots!")
-    
+
         bal = get_balance(ctx.author.id)
         if bal < NICKNAME_COST:
             return await ctx.send(embed=make_embed("❌ Not Enough Coins",
                 f"Changing a nickname costs **{NICKNAME_COST}** coins.\nYou have **{bal}**.", COLOR_ERROR))
-    
+
         # If this user is already under an active changenick, preserve the
         # truly-original nick from the existing row instead of capturing the
         # current (already-overridden) display name.
@@ -653,12 +657,12 @@ class MiscCog(commands.Cog):
             (ctx.guild.id, member.id, original_nick, expires.isoformat())
         )
         shared.db.commit()
-    
+
         new_bal = get_balance(ctx.author.id)
         await ctx.send(embed=make_embed("✏️ Nickname Changed!",
             f"**{original_nick}** is now **{new_nick}** for {NICKNAME_DURATION_HOURS} hours.\n"
             f"Cost: **{NICKNAME_COST}** coins | Balance: **{new_bal}**", COLOR_SUCCESS))
-    
+
     # ---------------------------------------------------------------------------
     # NICKNAME RESTORE TASK
     # ---------------------------------------------------------------------------
@@ -681,7 +685,7 @@ class MiscCog(commands.Cog):
                             pass
                 shared.db.execute("DELETE FROM nick_changes WHERE id = ?", (row_id,))
         shared.db.commit()
-    
+
     # ---------------------------------------------------------------------------
     # QUOTES
     # ---------------------------------------------------------------------------
@@ -700,12 +704,13 @@ class MiscCog(commands.Cog):
             return await ctx.send("That message has no text content.")
         now = datetime.now(CENTRAL_TZ).strftime("%Y-%m-%d")
         shared.db.execute(
-            "INSERT INTO quotes (guild_id, quoted_user_id, quoted_user_name, content, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO quotes (guild_id, quoted_user_id, quoted_user_name, content, saved_by, saved_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (ctx.guild.id, msg.author.id, msg.author.display_name, msg.content, ctx.author.id, now)
         )
         shared.db.commit()
         await ctx.send(format_quote(msg.content, msg.author.mention, now))
-    
+
 
     @commands.command()
     @commands.guild_only()
@@ -718,10 +723,11 @@ class MiscCog(commands.Cog):
         ).fetchall()
         if not rows:
             return await ctx.send("No quotes saved yet.")
-        prefix_fn = lambda qid: f"**#{qid}** " if show_ids else ""
+        def prefix_fn(qid):
+            return f"**#{qid}** " if show_ids else ""
         lines = [format_quote(content, name, date, prefix_fn(qid)) for qid, name, content, date in rows]
         await ctx.send("\n".join(lines))
-    
+
 
     @commands.command()
     @commands.guild_only()
@@ -735,7 +741,7 @@ class MiscCog(commands.Cog):
         shared.db.execute("DELETE FROM quotes WHERE id = ?", (quote_id,))
         shared.db.commit()
         await ctx.send(f"Quote #{quote_id} deleted.")
-    
+
     # ---------------------------------------------------------------------------
     # ADMIN
     # ---------------------------------------------------------------------------
@@ -767,17 +773,17 @@ class MiscCog(commands.Cog):
             COLOR_SUCCESS if enabled else COLOR_WARNING,
         ))
 
-    
-    
 
-    
-    
 
-    
-    
 
-    
-    
+
+
+
+
+
+
+
+
 
     @commands.command()
     async def settings(self, ctx, section: str = "", *args):
@@ -1118,7 +1124,7 @@ class MiscCog(commands.Cog):
             name for name, enabled in shared.runtime_settings.get("command_toggles", {}).items() if not enabled
         )
         disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
-    
+
         rule_lines = []
         for feature, rule in sorted(shared.runtime_settings.get("feature_channel_rules", {}).items()):
             mode = rule.get("mode", "all")
@@ -1129,7 +1135,7 @@ class MiscCog(commands.Cog):
                 channel_str = "(none)"
             rule_lines.append(f"`{feature}`: **{mode}** {channel_str}")
         rules_str = "\n".join(rule_lines) if rule_lines else "No feature channel rules set."
-    
+
         unsolicited_pct = shared.runtime_settings.get("unsolicited_chance_pct", 0)
         silas_banter_pct = shared.runtime_settings.get("silas_banter_chance_pct", 0)
         silas_react_pct = shared.runtime_settings.get("silas_react_chance_pct", 0)
@@ -1167,8 +1173,8 @@ class MiscCog(commands.Cog):
         )
         embed.set_footer(text="Command features use cmd:<command> (example: cmd:ask)")
         await ctx.send(embed=embed)
-    
-    
+
+
 
     @commands.command()
     async def restart(self, ctx):
@@ -1179,8 +1185,8 @@ class MiscCog(commands.Cog):
         shared.db.commit()
         python = sys.executable
         os.execv(python, [python] + sys.argv)
-    
-    
+
+
 
     @commands.command()
     async def clear(self, ctx, count: str = ""):
@@ -1188,25 +1194,25 @@ class MiscCog(commands.Cog):
         try:
             if ctx.author.id != ADMIN_ID:
                 return
-            
+
             if not count.strip():
                 await ctx.send(f"Usage: `{PREFIX}clear <n>` (deletes the last n messages from Gary)")
                 return
-            
+
             try:
                 n = int(count)
             except ValueError:
                 await ctx.send(f"'{count}' is not a valid number.")
                 return
-            
+
             if n <= 0:
                 await ctx.send("Number must be greater than 0.")
                 return
-            
+
             if n > 100:
                 await ctx.send("Cannot delete more than 100 messages at once (safety limit).")
                 return
-            
+
             deleted_count = 0
             try:
                 async for message in ctx.channel.history(limit=500):
@@ -1231,8 +1237,8 @@ class MiscCog(commands.Cog):
                 await ctx.message.delete()
             except (discord.HTTPException, discord.Forbidden):
                 pass
-    
-    
+
+
 
     @commands.command(aliases=["botstats"])
     async def botstat(self, ctx):
@@ -1299,7 +1305,7 @@ class MiscCog(commands.Cog):
         )
         embed.set_footer(text=f"Latency: {self.bot.latency * 1000:.0f}ms")
         await ctx.send(embed=embed)
-    
+
 
     @commands.command()
     async def invite(self, ctx, mode: str = ""):
@@ -1324,7 +1330,7 @@ class MiscCog(commands.Cog):
             )
             return await ctx.send(embed=make_embed("Kids Mode Invite", description, COLOR_SUCCESS))
         await ctx.send(embed=make_embed("🔗 Invite Link", f"[Click here to invite me!]({link})"))
-    
+
 
     @commands.command()
     async def give(self, ctx, member: discord.Member, amount: int):
@@ -1349,7 +1355,7 @@ class MiscCog(commands.Cog):
         await ctx.send(text)
         if not deleted:
             await ctx.send("I couldn't delete your `.say` command message (missing permissions).")
-    
+
     # ---------------------------------------------------------------------------
     # STATS
     # ---------------------------------------------------------------------------
@@ -1454,11 +1460,11 @@ class MiscCog(commands.Cog):
             count += 1
             if count >= 10:
                 break
-    
+
         if not lines:
             return await ctx.send("No one has any coins yet!")
         await ctx.send(embed=make_embed("🏆 Leaderboard", "\n".join(lines), COLOR_GOLD))
-    
+
     # ---------------------------------------------------------------------------
     # HELP OVERRIDE
     # ---------------------------------------------------------------------------
@@ -1519,7 +1525,13 @@ class MiscCog(commands.Cog):
             f"`{p}timer <seconds>` - Start a timer\n"
             f"`{p}forfeit` - Quit current game"
         ), inline=False)
-        embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)\n`{p}weather [city] forecast` - Current weather + daily forecast", inline=False)
+        embed.add_field(
+            name="Weather",
+            value=(
+                f"`{p}weather [city]` - Current weather (defaults to Champaign)\n"
+                f"`{p}weather [city] forecast` - Current weather + daily forecast"
+            ),
+            inline=False)
         embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
         fun_lines = [
             f"`{p}wyr` - Would You Rather",

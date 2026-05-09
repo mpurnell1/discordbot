@@ -188,7 +188,6 @@ async def test_featurerequest_posts_without_recent_message_context():
     await cog.featurerequest.callback(cog, ctx, description="Add weekly leaderboards")
 
     public_fields = _fields(feature_channel.sent[0]["embed"])
-    tracking_fields = _fields(tracking_channel.sent[0]["embed"])
 
     assert "Last 5 Messages Before Report" not in public_fields
     assert "Add weekly leaderboards" in public_fields["Message"]

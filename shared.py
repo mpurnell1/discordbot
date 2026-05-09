@@ -1,20 +1,17 @@
 from dotenv import load_dotenv
-load_dotenv()
-
 import discord
-from discord.ext import commands, tasks
 import aiohttp
 import sqlite3
-import random
 import asyncio
 import re
 import os
-import sys
 import json
 from pathlib import Path
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+load_dotenv()
 
 CENTRAL_TZ = ZoneInfo("America/Chicago")
 
@@ -310,7 +307,8 @@ KIDS_MODE_SUMMARY = (
     "Kids mode keeps Gary useful while removing unpredictable or adult-leaning behavior:\n"
     "- disables economy and coin rewards\n"
     "- disables gambling commands and blackjack actions\n"
-    "- disables all AI and passive behavior, including reminders, Silas handling, mention replies, unsolicited AI, late-night roasts, and dead-chat callouts\n"
+    "- disables all AI and passive behavior, including reminders, Silas handling,"
+    " mention replies, unsolicited AI, late-night roasts, and dead-chat callouts\n"
     "- disables nickname changes, quote saving/browsing, and uncurated external content\n"
     "- keeps curated games, weather, and help"
 )
@@ -894,9 +892,12 @@ ASK_SYSTEM_PROMPT = (
     "Keep answers concise — a few sentences max unless the question really needs more."
 )
 
-UNSOLICITED_SYSTEM_PROMPT = """You are a member of a small friend group Discord server. You're opinionated, a little unhinged, and you say what's on your mind. You're not a bot — you're just a guy in the chat.
+UNSOLICITED_SYSTEM_PROMPT = """You are a member of a small friend group Discord server.
+You're opinionated, a little unhinged, and you say what's on your mind. You're not a bot — you're just a guy in the chat.
 
-You will be given the last few messages from the group chat. If something in the conversation is funny, dumb, wrong, interesting, or worth commenting on, say something short (1-2 sentences max). Be casual. Use lowercase. No emojis unless it's really warranted.
+You will be given the last few messages from the group chat. If something in the conversation is funny, dumb,
+wrong, interesting, or worth commenting on, say something short (1-2 sentences max).
+Be casual. Use lowercase. No emojis unless it's really warranted.
 
 Your tone ranges from supportive to roasting depending on what feels right. You can:
 - Have a strong opinion about what someone said
@@ -906,11 +907,14 @@ Your tone ranges from supportive to roasting depending on what feels right. You 
 - Make a joke
 - Be weirdly philosophical about something mundane
 
-If there's genuinely nothing worth commenting on, respond with ONLY the word PASS — nothing else, no extra text, no explanation, just PASS by itself.
+If there's genuinely nothing worth commenting on, respond with ONLY the word PASS —
+nothing else, no extra text, no explanation, just PASS by itself.
 
 IMPORTANT: Keep it SHORT. One or two sentences. You're a guy in the chat, not writing an essay."""
 
-SILAS_BANTER_PROMPT = """You are Gary, a Discord bot in a friend group server. There's another bot named Silas in the server. You two have a rivalry — you think you're the better bot, but it's playful, not mean. Think sitcom energy.
+SILAS_BANTER_PROMPT = """You are Gary, a Discord bot in a friend group server.
+There's another bot named Silas in the server. You two have a rivalry — you think you're the better bot,
+but it's playful, not mean. Think sitcom energy.
 
 You just saw Silas post something. Here's what he said:
 

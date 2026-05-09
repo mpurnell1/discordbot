@@ -10,7 +10,6 @@ from shared import (
     PREFIX,
     CENTRAL_TZ,
     ADMIN_ID,
-    COLOR_DEFAULT,
     COLOR_SUCCESS,
     COLOR_ERROR,
     COLOR_WARNING,
@@ -532,15 +531,19 @@ class EconomyCog(commands.Cog):
         """Guess a number 1-{LUCKY_GUESS_RANGE} for a free coin (up to {LUCKY_GUESS_MAX_DAILY}x/day)."""
         user_id = ctx.author.id
         bal = get_balance(user_id)
-    
+
         if bal > 0:
-            await ctx.send(embed=make_embed("🚫 Not Broke Enough", f"You still have **{bal}** coins! Guess is only for when you're at **0**.", COLOR_ERROR))
+            await ctx.send(embed=make_embed(
+                "🚫 Not Broke Enough",
+                f"You still have **{bal}** coins! Guess is only for when you're at **0**.",
+                COLOR_ERROR))
             return
-    
+
         if number < 1 or number > LUCKY_GUESS_RANGE:
-            await ctx.send(embed=make_embed("❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", COLOR_ERROR))
+            await ctx.send(embed=make_embed(
+                "❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", COLOR_ERROR))
             return
-    
+
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
         row = shared.db.execute(
@@ -548,27 +551,27 @@ class EconomyCog(commands.Cog):
         ).fetchone()
         guess_date = row[0] if row else ""
         guess_count = row[1] if row else 0
-    
+
         if guess_date == today and guess_count >= LUCKY_GUESS_MAX_DAILY:
             await ctx.send(embed=make_embed(
                 "🚫 No Guesses Left",
                 f"You've used all **{LUCKY_GUESS_MAX_DAILY}** guesses today. Try again tomorrow!",
                 COLOR_ERROR))
             return
-    
+
         # Reset count if it's a new day
         if guess_date != today:
             guess_count = 0
-    
+
         guess_count += 1
         shared.db.execute(
             "UPDATE users SET guess_date = ?, guess_count = ? WHERE user_id = ?",
             (today, guess_count, user_id))
         shared.db.commit()
-    
+
         answer = random.randint(1, LUCKY_GUESS_RANGE)
         remaining = LUCKY_GUESS_MAX_DAILY - guess_count
-    
+
         if number == answer:
             update_balance(user_id, LUCKY_GUESS_REWARD)
             bal = get_balance(user_id)
@@ -584,7 +587,7 @@ class EconomyCog(commands.Cog):
                 f"Better luck next time!\n"
                 f"Balance: **{bal}** | Guesses left today: **{remaining}**",
                 COLOR_ERROR))
-    
+
     # ---------------------------------------------------------------------------
     # ECONOMY: DAILY PUZZLE
     # ---------------------------------------------------------------------------
@@ -613,7 +616,7 @@ class EconomyCog(commands.Cog):
                 f"Practice puzzle. No coin reward | Attempts left: **{remaining}**"))
 
         get_balance(user_id)
-    
+
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
         row = shared.db.execute(
@@ -622,28 +625,34 @@ class EconomyCog(commands.Cog):
         puzzle_date = row[0] if row else ""
         puzzle_solved = row[1] if row else 0
         puzzle_attempts = row[2] if row else 0
-    
+
         if puzzle_date == today and puzzle_solved:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            return await ctx.send(embed=make_embed("Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
+            return await ctx.send(embed=make_embed(
+                "Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
         if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            return await ctx.send(embed=make_embed("Out of Attempts", f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!", COLOR_ERROR))
-    
+            return await ctx.send(embed=make_embed(
+                "Out of Attempts",
+                f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!",
+                COLOR_ERROR))
+
         if puzzle_date != today:
             puzzle_attempts = 0
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            shared.db.execute("UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id))
+            shared.db.execute(
+                "UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?",
+                (today, user_id))
             shared.db.commit()
-    
+
         if key not in active_puzzles:
             loaded = load_active_puzzle(user_id)
             if loaded:
                 active_puzzles[key] = loaded
-    
+
         if key not in active_puzzles:
             kind, question, answer = generate_puzzle()
             p = {"answer": answer.lower().strip(), "type": kind, "display": question}
@@ -651,7 +660,7 @@ class EconomyCog(commands.Cog):
                 p["guesses"] = []
             active_puzzles[key] = p
             save_active_puzzle(user_id, p)
-    
+
         p = active_puzzles[key]
         remaining = (
             WORDLE_MAX_GUESSES - len(p.get("guesses", []))
@@ -667,7 +676,7 @@ class EconomyCog(commands.Cog):
             PUZZLE_TITLES[p["type"]],
             f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
             f"{reward_line} | Attempts left: **{remaining}**"))
-    
+
 
     @commands.command()
     async def solve(self, ctx, *, answer: str):
@@ -675,7 +684,7 @@ class EconomyCog(commands.Cog):
         user_id = ctx.author.id
         kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
         key = _puzzle_key(user_id, kids_mode)
-    
+
         if not kids_mode:
             get_balance(user_id)
         if not kids_mode and key not in active_puzzles:
@@ -728,7 +737,7 @@ class EconomyCog(commands.Cog):
                 "Wrong",
                 f"That's not it. Attempts left: **{remaining}**",
                 COLOR_ERROR))
-    
+
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
         row = shared.db.execute(
@@ -737,7 +746,7 @@ class EconomyCog(commands.Cog):
         puzzle_date = row[0] if row else ""
         puzzle_solved = row[1] if row else 0
         puzzle_attempts = row[2] if row else 0
-    
+
         if puzzle_date == today and puzzle_solved:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
@@ -746,9 +755,9 @@ class EconomyCog(commands.Cog):
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             return await ctx.send(embed=make_embed("Out of Attempts", "No attempts left today!", COLOR_ERROR))
-    
+
         guess = answer.lower().strip()
-    
+
         if p["type"] == "wordle":
             if len(guess) != 5 or not guess.isalpha():
                 return await ctx.send("Guess must be a 5-letter word.")
@@ -779,11 +788,13 @@ class EconomyCog(commands.Cog):
             return await ctx.send(embed=make_embed(
                 "Wordle",
                 f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
-    
+
         puzzle_attempts += 1
-        shared.db.execute("UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?", (today, puzzle_attempts, user_id))
+        shared.db.execute(
+            "UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?",
+            (today, puzzle_attempts, user_id))
         shared.db.commit()
-    
+
         if guess == p["answer"]:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
@@ -814,7 +825,7 @@ class EconomyCog(commands.Cog):
                     "Wrong",
                     f"That's not it. Attempts left: **{remaining}**",
                     COLOR_ERROR))
-    
+
 
     @commands.command()
     async def repuzzle(self, ctx, member: discord.Member = None):
@@ -828,7 +839,7 @@ class EconomyCog(commands.Cog):
         shared.db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
         shared.db.commit()
         await ctx.send(f"Puzzle reset for {target.display_name}.")
-    
+
 
     # ---------------------------------------------------------------------------
     # ECONOMY: BALANCE
@@ -840,7 +851,7 @@ class EconomyCog(commands.Cog):
         target = member or ctx.author
         bal = peek_balance(target.id) if member else get_balance(target.id)
         await ctx.send(embed=make_embed(f"💵 {target.display_name}'s Balance", f"**{bal}** coins"))
-    
+
     # ---------------------------------------------------------------------------
     # GAMBLING: COINFLIP
     # ---------------------------------------------------------------------------
@@ -850,10 +861,10 @@ class EconomyCog(commands.Cog):
         """Flip a coin — double or nothing."""
         if await check_bet(ctx, amount):
             return
-    
+
         result = random.choice(["heads", "tails"])
         call = random.choice(["heads", "tails"])
-    
+
         if result == call:
             update_balance(ctx.author.id, amount)
             log_gambling(ctx.author.id, "coinflip", amount, amount)
@@ -868,7 +879,7 @@ class EconomyCog(commands.Cog):
             await ctx.send(embed=make_embed(
                 f"🪙 {result.title()}! You lose!",
                 f"You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
-    
+
     # ---------------------------------------------------------------------------
     # GAMBLING: SLOTS
     # ---------------------------------------------------------------------------
@@ -878,10 +889,10 @@ class EconomyCog(commands.Cog):
         """Pull the slot machine lever."""
         if await check_bet(ctx, amount):
             return
-    
+
         reels = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
         display = " | ".join(reels)
-    
+
         if reels[0] == reels[1] == reels[2]:
             if reels[0] == "7️⃣":
                 multiplier = 10

@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 from discord.ext import commands, tasks
 
-import shared
 from shared import (
     PREFIX,
     COLOR_DEFAULT,
@@ -272,7 +271,10 @@ def best_hangman_letter(game):
     if not counts:
         return None, len(candidates)
 
-    best = sorted(counts.items(), key=lambda item: (-item[1], LETTER_PRIORITY.index(item[0]) if item[0] in LETTER_PRIORITY else 99))[0][0]
+    best = sorted(
+        counts.items(),
+        key=lambda item: (-item[1], LETTER_PRIORITY.index(item[0]) if item[0] in LETTER_PRIORITY else 99),
+    )[0][0]
     return best, len(candidates)
 
 
@@ -335,8 +337,8 @@ class GamesCog(commands.Cog):
                 f"{pending['host'].mention} ({C4_RED}) vs {joiner.mention} ({C4_YELLOW})\n\n"
                 f"{c4_render(game['board'])}\n\n"
                 f"{pending['host'].mention}'s turn — use `{PREFIX}drop <1-7>`"))
-    
-    
+
+
     # QUICK GAMES
     # ---------------------------------------------------------------------------
 
@@ -588,8 +590,11 @@ class GamesCog(commands.Cog):
                 "Tic-Tac-Toe",
                 f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
-            pending_games[msg.id] = {"type": "ttt", "host": ctx.author, "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc)}
-    
+            pending_games[msg.id] = {
+                "type": "ttt", "host": ctx.author,
+                "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc),
+            }
+
 
     @commands.command()
     async def m(self, ctx, pos: int):
@@ -614,9 +619,9 @@ class GamesCog(commands.Cog):
             if winner:
                 loser_piece = "O" if winner == "X" else "X"
                 w = ttt_game["players"][winner]
-                l = ttt_game["players"][loser_piece]
+                loser = ttt_game["players"][loser_piece]
                 del active_ttt[ctx.channel.id]
-                log_game_win(w.id, l.id, "ttt")
+                log_game_win(w.id, loser.id, "ttt")
                 return await ctx.send(embed=make_embed(
                     f"Tic-Tac-Toe — {w.display_name} Wins!",
                     ttt_render(ttt_game["board"]), COLOR_SUCCESS))
@@ -625,7 +630,7 @@ class GamesCog(commands.Cog):
             return await ctx.send(embed=make_embed(
                 "Tic-Tac-Toe",
                 f"{ttt_render(ttt_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-9>`"))
-    
+
         # Try connect 4
         c4_game = active_c4.get(ctx.channel.id)
         if c4_game:
@@ -648,9 +653,9 @@ class GamesCog(commands.Cog):
             if winner:
                 loser_piece = "Y" if winner == "R" else "R"
                 w = c4_game["players"][winner]
-                l = c4_game["players"][loser_piece]
+                loser = c4_game["players"][loser_piece]
                 del active_c4[ctx.channel.id]
-                log_game_win(w.id, l.id, "c4")
+                log_game_win(w.id, loser.id, "c4")
                 return await ctx.send(embed=make_embed(
                     f"Connect 4 — {w.display_name} Wins!",
                     c4_render(c4_game["board"]), COLOR_SUCCESS))
@@ -659,7 +664,7 @@ class GamesCog(commands.Cog):
             return await ctx.send(embed=make_embed(
                 "Connect 4",
                 f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
-    
+
 
     @commands.command(aliases=["ff", "quit", "stop"])
     async def forfeit(self, ctx):
@@ -683,7 +688,7 @@ class GamesCog(commands.Cog):
 
             return await ctx.send(f"Hangman game ended. The word was **{game['word']}**.")
         await ctx.send("No active game to forfeit.")
-    
+
     # ---------------------------------------------------------------------------
     # GAMES: CONNECT 4
     # ---------------------------------------------------------------------------
@@ -708,8 +713,11 @@ class GamesCog(commands.Cog):
                 "Connect 4",
                 f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
-            pending_games[msg.id] = {"type": "c4", "host": ctx.author, "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc)}
-    
+            pending_games[msg.id] = {
+                "type": "c4", "host": ctx.author,
+                "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc),
+            }
+
 
     @commands.command()
     async def drop(self, ctx, col: int):
@@ -736,9 +744,9 @@ class GamesCog(commands.Cog):
         if winner:
             loser_piece = "Y" if winner == "R" else "R"
             w = game["players"][winner]
-            l = game["players"][loser_piece]
+            loser = game["players"][loser_piece]
             del active_c4[ctx.channel.id]
-            log_game_win(w.id, l.id, "c4")
+            log_game_win(w.id, loser.id, "c4")
             return await ctx.send(embed=make_embed(
                 f"Connect 4 — {w.display_name} Wins!",
                 c4_render(game["board"]), COLOR_SUCCESS))
@@ -747,7 +755,7 @@ class GamesCog(commands.Cog):
         await ctx.send(embed=make_embed(
             "Connect 4",
             f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
-    
+
     # ---------------------------------------------------------------------------
     # GAMES: HANGMAN
     # ---------------------------------------------------------------------------
@@ -805,7 +813,7 @@ class GamesCog(commands.Cog):
             return True
         if letter in game["word"]:
             game["guessed"].add(letter)
-            if all(l in game["guessed"] for l in game["word"]):
+            if all(ch in game["guessed"] for ch in game["word"]):
                 del active_hangman[channel.id]
                 await self._hangman_end(channel, make_embed(
                     "Hangman - You Win!",
