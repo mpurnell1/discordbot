@@ -13,6 +13,9 @@ from shared import (
     PREFIX,
     CENTRAL_TZ,
     ADMIN_ID,
+    BUG_REPORT_CHANNEL_ID,
+    FEATURE_REQUEST_CHANNEL_ID,
+    REQUEST_TRACKING_CHANNEL_ID,
     OPENWEATHER_API_KEY,
     OLLAMA_URL,
     OLLAMA_MODEL,
@@ -90,6 +93,150 @@ CLEAN_JOKES = [
     ("What kind of tree fits in your hand?", "A palm tree."),
 ]
 
+BUG_REPORT_STATUSES = [
+    ("new", "New", "🆕", discord.ButtonStyle.secondary),
+    ("identified", "Identified", "🔎", discord.ButtonStyle.primary),
+    ("fixing", "Fixing", "🛠️", discord.ButtonStyle.primary),
+    ("testing", "Testing", "🧪", discord.ButtonStyle.primary),
+    ("patched", "Patched", "✅", discord.ButtonStyle.success),
+    ("need_info", "Need Info", "❓", discord.ButtonStyle.secondary),
+    ("closed", "Closed", "📦", discord.ButtonStyle.secondary),
+]
+
+FEATURE_REQUEST_STATUSES = [
+    ("new", "New", "🆕", discord.ButtonStyle.secondary),
+    ("reviewing", "Reviewing", "🔎", discord.ButtonStyle.primary),
+    ("planned", "Planned", "🗓️", discord.ButtonStyle.primary),
+    ("building", "Building", "🛠️", discord.ButtonStyle.primary),
+    ("shipped", "Shipped", "✅", discord.ButtonStyle.success),
+    ("wontfix", "Won't Fix", "🚫", discord.ButtonStyle.danger),
+    ("closed", "Closed", "📦", discord.ButtonStyle.secondary),
+]
+
+
+def _status_map(kind: str):
+    statuses = BUG_REPORT_STATUSES if kind == "bug" else FEATURE_REQUEST_STATUSES
+    return {key: (label, emoji, style) for key, label, emoji, style in statuses}
+
+
+def _truncate_text(text: str, limit: int = 1000) -> str:
+    cleaned = (text or "").strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3].rstrip() + "..."
+
+
+def _format_user(user) -> str:
+    return f"{user.mention} (`{user.id}`)"
+
+
+class ReportStatusButton(discord.ui.Button):
+    def __init__(self, kind: str, status_key: str, label: str, emoji: str, style: discord.ButtonStyle):
+        super().__init__(
+            label=label,
+            emoji=emoji,
+            style=style,
+            custom_id=f"gary:{kind}:status:{status_key}",
+            row=0 if status_key in {"new", "identified", "reviewing", "planned", "fixing", "building"} else 1,
+        )
+        self.kind = kind
+        self.status_key = status_key
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != ADMIN_ID:
+            return await interaction.response.send_message(
+                "Only Matt can update report statuses.",
+                ephemeral=True,
+            )
+        status_data = _status_map(self.kind).get(self.status_key)
+        if status_data is None:
+            return await interaction.response.send_message("Unknown status.", ephemeral=True)
+
+        label, emoji, _ = status_data
+        message = interaction.message
+        embed = message.embeds[0] if message and message.embeds else discord.Embed()
+        report_channel_id, report_message_id = self._get_public_report_ids(embed)
+        embed.color = COLOR_SUCCESS if self.status_key in {"patched", "shipped"} else COLOR_DEFAULT
+        if embed.fields:
+            embed.set_field_at(0, name="Status", value=f"{emoji} **{label}**", inline=True)
+        else:
+            embed.add_field(name="Status", value=f"{emoji} **{label}**", inline=True)
+        embed.set_footer(text=f"Status updated by {interaction.user} at {datetime.now(CENTRAL_TZ):%Y-%m-%d %I:%M %p %Z}")
+
+        await interaction.response.edit_message(embed=embed, view=self.view)
+        await self._sync_status_reaction(message, emoji, interaction.client.user)
+        if report_channel_id and report_message_id:
+            await self._update_public_report(
+                interaction.client,
+                report_channel_id,
+                report_message_id,
+                emoji,
+                label,
+                interaction.user,
+            )
+
+    def _get_public_report_ids(self, embed: discord.Embed):
+        for field in embed.fields:
+            if field.name != "Public Report":
+                continue
+            channel_match = re.search(r"Channel ID: `(\d+)`", field.value)
+            message_match = re.search(r"Message ID: `(\d+)`", field.value)
+            if channel_match and message_match:
+                return int(channel_match.group(1)), int(message_match.group(1))
+        return None, None
+
+    async def _update_public_report(
+        self,
+        client: discord.Client,
+        channel_id: int,
+        message_id: int,
+        emoji: str,
+        label: str,
+        admin_user,
+    ):
+        try:
+            channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
+            report_message = await channel.fetch_message(message_id)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+            return
+        if report_message.embeds:
+            report_embed = report_message.embeds[0]
+            report_embed.color = COLOR_SUCCESS if self.status_key in {"patched", "shipped"} else COLOR_DEFAULT
+            if report_embed.fields:
+                report_embed.set_field_at(0, name="Status", value=f"{emoji} **{label}**", inline=True)
+            else:
+                report_embed.add_field(name="Status", value=f"{emoji} **{label}**", inline=True)
+            report_embed.set_footer(text=f"Status updated by {admin_user} at {datetime.now(CENTRAL_TZ):%Y-%m-%d %I:%M %p %Z}")
+            try:
+                await report_message.edit(embed=report_embed)
+            except discord.HTTPException:
+                pass
+        await self._sync_status_reaction(report_message, emoji, client.user)
+
+    async def _sync_status_reaction(self, message: discord.Message, active_emoji: str, bot_user: discord.ClientUser):
+        if message is None:
+            return
+        for _, emoji, _ in _status_map(self.kind).values():
+            if emoji == active_emoji:
+                continue
+            try:
+                await message.remove_reaction(emoji, bot_user)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        try:
+            await message.add_reaction(active_emoji)
+        except discord.HTTPException:
+            pass
+
+
+class ReportStatusView(discord.ui.View):
+    def __init__(self, kind: str):
+        super().__init__(timeout=None)
+        statuses = BUG_REPORT_STATUSES if kind == "bug" else FEATURE_REQUEST_STATUSES
+        for status_key, label, emoji, style in statuses:
+            self.add_item(ReportStatusButton(kind, status_key, label, emoji, style))
+
+
 def format_quote(content, name, date, prefix=""):
     year = date[2:4] if date else "??"
     short = content[:80] + "..." if len(content) > 80 else content
@@ -100,6 +247,9 @@ def format_quote(content, name, date, prefix=""):
 class MiscCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        if self.bot is not None:
+            self.bot.add_view(ReportStatusView("bug"))
+            self.bot.add_view(ReportStatusView("feature"))
 
     @commands.Cog.listener("on_ready")
     async def _start_misc_tasks(self):
@@ -283,6 +433,141 @@ class MiscCog(commands.Cog):
         """Tell a clean curated joke."""
         setup, punchline = random.choice(CLEAN_JOKES)
         await ctx.send(embed=make_embed("Joke", f"{setup}\n\n||{punchline}||", COLOR_WARNING))
+
+    # ---------------------------------------------------------------------------
+    # REPORTS
+    # ---------------------------------------------------------------------------
+
+    async def _get_report_channel(self, channel_id: int):
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            channel = await self.bot.fetch_channel(channel_id)
+        return channel
+
+    def _build_report_embed(
+        self,
+        *,
+        kind: str,
+        ctx,
+        description: str,
+        recent_messages: str | None = None,
+    ):
+        is_bug = kind == "bug"
+        title = "Bug Report" if is_bug else "Feature Request"
+        status_label, status_emoji, _ = _status_map(kind)["new"]
+        embed = discord.Embed(
+            title=title,
+            color=COLOR_WARNING if is_bug else COLOR_DEFAULT,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Status", value=f"{status_emoji} **{status_label}**", inline=True)
+        embed.add_field(name="Reported By", value=_format_user(ctx.author), inline=True)
+        embed.add_field(
+            name="Location",
+            value=f"**Server:** {ctx.guild.name} (`{ctx.guild.id}`)\n**Channel:** {ctx.channel.mention} (`{ctx.channel.id}`)",
+            inline=False,
+        )
+        embed.add_field(name="Message", value=_truncate_text(description, 1024), inline=False)
+        if is_bug:
+            embed.add_field(
+                name="Last 5 Messages Before Report",
+                value=recent_messages or "(No recent messages available.)",
+                inline=False,
+            )
+        embed.add_field(name="Report Command", value=f"[Jump to command]({ctx.message.jump_url})", inline=False)
+        embed.set_footer(text=f"Report ID source message: {ctx.message.id}")
+        return embed
+
+    def _build_tracking_embed(self, public_embed: discord.Embed, report_message: discord.Message):
+        tracking_embed = public_embed.copy()
+        tracking_embed.title = f"{public_embed.title} Tracking"
+        tracking_embed.add_field(
+            name="Public Report",
+            value=(
+                f"[Jump to report]({report_message.jump_url})\n"
+                f"Channel ID: `{report_message.channel.id}`\n"
+                f"Message ID: `{report_message.id}`"
+            ),
+            inline=False,
+        )
+        return tracking_embed
+
+    async def _format_recent_messages(self, ctx):
+        try:
+            messages = [
+                message
+                async for message in ctx.channel.history(
+                    limit=5,
+                    before=ctx.message,
+                    oldest_first=True,
+                )
+            ]
+        except (discord.Forbidden, discord.HTTPException):
+            return "(I could not read message history in that channel.)"
+        if not messages:
+            return "(No prior messages in this channel.)"
+
+        lines = []
+        for message in messages:
+            author = getattr(message.author, "display_name", str(message.author))
+            content = message.clean_content or ""
+            if message.attachments:
+                content = f"{content} [{len(message.attachments)} attachment(s)]".strip()
+            if message.embeds:
+                content = f"{content} [{len(message.embeds)} embed(s)]".strip()
+            content = content or "(no text content)"
+            lines.append(f"**{author}:** {_truncate_text(content, 160)}")
+        return _truncate_text("\n".join(lines), 1024)
+
+    async def _submit_report(self, ctx, *, kind: str, description: str):
+        if ctx.guild is None:
+            return await ctx.send("Reports need server/channel context, so run this in the server where it happened.")
+        if not description.strip():
+            command = "bugreport" if kind == "bug" else "featurerequest"
+            return await ctx.send(f"Usage: `{PREFIX}{command} <description>`")
+
+        channel_id = BUG_REPORT_CHANNEL_ID if kind == "bug" else FEATURE_REQUEST_CHANNEL_ID
+        try:
+            report_channel = await self._get_report_channel(channel_id)
+            tracking_channel = await self._get_report_channel(REQUEST_TRACKING_CHANNEL_ID)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+            return await ctx.send("I couldn't reach the report channel. Matt may need to check my channel access.")
+
+        recent_messages = await self._format_recent_messages(ctx) if kind == "bug" else None
+        embed = self._build_report_embed(
+            kind=kind,
+            ctx=ctx,
+            description=description,
+            recent_messages=recent_messages,
+        )
+        try:
+            report_message = await report_channel.send(
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            await report_message.add_reaction(_status_map(kind)["new"][1])
+            tracking_embed = self._build_tracking_embed(embed, report_message)
+            tracking_message = await tracking_channel.send(
+                embed=tracking_embed,
+                view=ReportStatusView(kind),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            await tracking_message.add_reaction(_status_map(kind)["new"][1])
+        except discord.HTTPException:
+            return await ctx.send("I couldn't post that report. Matt may need to check my report-channel permissions.")
+
+        label = "bug report" if kind == "bug" else "feature request"
+        await ctx.send(f"Thanks, I sent your {label} to <#{channel_id}>: {report_message.jump_url}")
+
+    @commands.command(aliases=["bug", "issue", "report"])
+    async def bugreport(self, ctx, *, description: str = ""):
+        """Report a bug with server, channel, reporter, and recent context."""
+        await self._submit_report(ctx, kind="bug", description=description)
+
+    @commands.command(aliases=["feature", "request", "fr"])
+    async def featurerequest(self, ctx, *, description: str = ""):
+        """Request a feature with status tracking."""
+        await self._submit_report(ctx, kind="feature", description=description)
     
     # ---------------------------------------------------------------------------
     # ON THIS DAY
@@ -790,7 +1075,7 @@ class MiscCog(commands.Cog):
     
     
 
-    @commands.command()
+    @commands.command(aliases=["stat"])
     async def stats(self, ctx):
         """Show runtime bot stats in a compact operational view."""
         now = datetime.now(timezone.utc)
@@ -936,14 +1221,19 @@ class MiscCog(commands.Cog):
 
     def _alias_line(self, command_name: str) -> str | None:
         command = self.bot.get_command(command_name) if self.bot else None
-        if command is None:
+        if command is None or not command.aliases:
             return None
-        aliases = ", ".join(f"`{PREFIX}{alias}`" for alias in command.aliases) or "`none`"
+        aliases = ", ".join(f"`{PREFIX}{alias}`" for alias in command.aliases)
         return f"`{PREFIX}{command.name}` - {aliases}"
 
     def _alias_lines(self, command_names: list[str]) -> str:
         lines = [line for name in command_names if (line := self._alias_line(name))]
-        return "\n".join(lines) if lines else "`none`"
+        return "\n".join(lines)
+
+    def _add_alias_field(self, embed, name: str, command_names: list[str]) -> None:
+        value = self._alias_lines(command_names)
+        if value:
+            embed.add_field(name=name, value=value, inline=False)
 
     @commands.command()
     async def help(self, ctx):
@@ -1005,7 +1295,9 @@ class MiscCog(commands.Cog):
         if not kids_mode:
             embed.add_field(name="Info", value=(
                 f"`{p}stats` - Bot stats and usage\n"
-                f"`{p}invite` / `{p}invite kids` - Get invite link"
+                f"`{p}invite` / `{p}invite kids` - Get invite link\n"
+                f"`{p}bugreport <description>` - Report a bug\n"
+                f"`{p}featurerequest <description>` - Request a feature"
             ), inline=False)
         if not kids_mode:
             embed.add_field(name="Quotes", value=(
@@ -1020,35 +1312,37 @@ class MiscCog(commands.Cog):
         embed = discord.Embed(title="Bot Aliases", color=COLOR_DEFAULT)
         kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
         if not kids_mode:
-            embed.add_field(name="Economy", value=self._alias_lines([
+            self._add_alias_field(embed, "Economy", [
                 "guess", "puzzle", "balance", "leaderboard"
-            ]), inline=False)
-            embed.add_field(name="Gambling", value=self._alias_lines([
+            ])
+            self._add_alias_field(embed, "Gambling", [
                 "coinflip", "slots", "blackjack", "hit", "stand", "double",
                 "split", "surrender", "bjrules"
-            ]), inline=False)
-        embed.add_field(name="Games", value=self._alias_lines([
+            ])
+        self._add_alias_field(embed, "Games", [
             "ttt", "c4", "hangman", "g", "rps", "roll", "mathgame",
             "mathanswer", "memory", "memoryanswer", "trivia", "triviaanswer",
             "scramble", "unscramble", "solve", "timer", "forfeit"
-        ]), inline=False)
-        embed.add_field(name="Weather", value=self._alias_lines(["weather"]), inline=False)
+        ])
+        self._add_alias_field(embed, "Weather", ["weather"])
         if not kids_mode:
-            embed.add_field(name="Animals", value=self._alias_lines(["cat", "dog"]), inline=False)
+            self._add_alias_field(embed, "Animals", ["cat", "dog"])
         fun_commands = ["wyr", "joke"]
         if not kids_mode:
             fun_commands.extend(["onthisday", "changenick"])
-        embed.add_field(name="Fun", value=self._alias_lines(fun_commands), inline=False)
+        self._add_alias_field(embed, "Fun", fun_commands)
         if not kids_mode:
-            embed.add_field(name="AI", value=self._alias_lines(["ask", "rp", "stoprp"]), inline=False)
-            embed.add_field(name="Info", value=self._alias_lines(["stats", "invite", "alias"]), inline=False)
-            embed.add_field(name="Quotes", value=self._alias_lines(["quote", "quotes", "unquote"]), inline=False)
+            self._add_alias_field(embed, "AI", ["ask", "rp", "stoprp"])
+            self._add_alias_field(embed, "Info", [
+                "stats", "invite", "bugreport", "featurerequest", "alias"
+            ])
+            self._add_alias_field(embed, "Quotes", ["quote", "quotes", "unquote"])
         if ctx.author.id == ADMIN_ID:
-            embed.add_field(name="Admin", value=self._alias_lines([
+            self._add_alias_field(embed, "Admin", [
                 "adminhelp", "settings", "kidsmode", "setcommand", "setdeadchat",
                 "setfeaturemode", "setfeaturechannels", "bjruleset", "bjhint",
                 "say", "give", "restart"
-            ]), inline=False)
+            ])
         await ctx.send(embed=embed)
 
     @commands.command()

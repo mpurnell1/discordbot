@@ -274,6 +274,8 @@ COMMAND_USAGE = {
     "blackjack": "<amount>",
     "bjrules": "",
     "weather": "<city>",
+    "bugreport": "<description>",
+    "featurerequest": "<description>",
     "changenick": "@user <nickname>",
     "ask": "<question>",
     "rp": "<character>",
