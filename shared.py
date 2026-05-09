@@ -39,7 +39,6 @@ COLOR_ORANGE  = 0xE67E22
 COLOR_GOLD    = 0xF1C40F
 
 # --- Passive feature config ---
-# Your desktop's local IP running Ollama (find it with ipconfig on Windows)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://REDACTED_IP:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_REASONING_MODEL", "deepseek-r1:8b")
@@ -53,14 +52,7 @@ LATE_NIGHT_CHANCE = 0.4  # 40% chance to call someone out
 DEAD_CHAT_THRESHOLDS = [60, 180, 360, 720]  # 1hr, 3hr, 6hr, 12hr
 DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 
-# Unsolicited opinions: chance the bot sends a message to Ollama for commentary
-UNSOLICITED_CHANCE = 0 # 0.12  # ~12% of messages get evaluated
-
 ADMIN_ID = REDACTED_ADMIN_ID
-
-# --- Silas interaction config ---
-SILAS_BANTER_CHANCE = 0 # 0.15   # 15% chance to comment on Silas's messages
-SILAS_REACT_CHANCE = 0 # 0.25    # 25% chance to react to Silas's messages
 
 # --- Lucky guess config ---
 LUCKY_GUESS_RANGE = 10       # Guess 1-N

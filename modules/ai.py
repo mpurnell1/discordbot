@@ -272,7 +272,7 @@ class AICog(commands.Cog):
         """Parse Silas's hangman message. Returns dict or None."""
         lower = text.lower()
         # Detect game end
-        if "game over" in lower or "the word was" in lower and "lives left: 0" in lower:
+        if "game over" in lower or ("the word was" in lower and "lives left: 0" in lower):
             return {"status": "lost"}
         if "you got it" in lower or ("the word was" in lower and "word complete" in lower):
             return {"status": "won"}
@@ -553,7 +553,6 @@ class AICog(commands.Cog):
                 return f"BJ {reason} at {balance}; hangman in progress."
             # Respect Silas's 6-hour hangman cooldown
             hm_ended = self.gamble_state.get("hangman_ended_at")
-            logger.info("Hangman cooldown check: hm_ended=%s type=%s now=%s", hm_ended, type(hm_ended).__name__, now)
             if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
                 remaining = self.HM_COOLDOWN - (now - hm_ended)
                 h, m = divmod(int(remaining.total_seconds()) // 60, 60)
