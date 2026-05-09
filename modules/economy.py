@@ -27,8 +27,6 @@ from shared import (
     is_kids_mode_guild,
 )
 
-# ECONOMY: LUCKY GUESS
-# ---------------------------------------------------------------------------
 active_puzzles = {}  # (scope, user_id) -> {"answer": str, "type": str, "display": str}
 
 def _puzzle_key(user_id: int, kids_mode: bool):
