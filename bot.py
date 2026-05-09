@@ -12,6 +12,7 @@ from shared import (
     PREFIX,
     ADMIN_ID,
     GUILD_JOIN_REPORT_CHANNEL_ID,
+    KIDS_INTERACTION_LOG_CHANNEL_ID,
     DAILY_AMOUNT,
     CENTRAL_TZ,
     COLOR_DEFAULT,
@@ -156,6 +157,34 @@ async def on_guild_join(guild):
         logger.warning("Could not send guild join setup message in guild %s", guild.id)
 
 
+async def post_kids_log(content: str):
+    if not content:
+        return
+    try:
+        channel = bot.get_channel(KIDS_INTERACTION_LOG_CHANNEL_ID)
+        if channel is None:
+            channel = await bot.fetch_channel(KIDS_INTERACTION_LOG_CHANNEL_ID)
+        await channel.send(content[:1900])
+    except discord.HTTPException:
+        logger.warning("Could not post to kids interaction log channel")
+
+
+def summarize_bot_message(message: discord.Message) -> str:
+    parts = []
+    if message.content:
+        parts.append(message.content)
+    for embed in message.embeds:
+        if embed.title:
+            parts.append(f"**{embed.title}**")
+        if embed.description:
+            parts.append(embed.description)
+        for field in embed.fields:
+            parts.append(f"*{field.name}*: {field.value}")
+    if message.attachments:
+        parts.append(f"[{len(message.attachments)} attachment(s)]")
+    return "\n".join(p for p in parts if p) or "(no content)"
+
+
 @bot.event
 async def on_command(ctx):
     shared.command_usage[ctx.command.name] += 1
@@ -166,6 +195,30 @@ async def on_command(ctx):
         ctx.author.id,
         getattr(ctx.guild, "id", "DM"),
         ctx.channel.id,
+    )
+
+
+@bot.listen("on_message")
+async def log_kids_interactions(message):
+    if message.guild is None:
+        return
+    if message.channel.id == KIDS_INTERACTION_LOG_CHANNEL_ID:
+        return
+    if not is_kids_mode_guild(message.guild.id):
+        return
+    if message.author.id == bot.user.id:
+        await post_kids_log(
+            f"📤 **{message.guild.name}** `#{message.channel}` — Gary\n"
+            f"{summarize_bot_message(message)}"
+        )
+        return
+    if message.author.bot:
+        return
+    if not message.content.startswith(PREFIX):
+        return
+    await post_kids_log(
+        f"📥 **{message.guild.name}** `#{message.channel}` — {message.author} (`{message.author.id}`)\n"
+        f"> {message.content}"
     )
 
 
