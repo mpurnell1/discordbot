@@ -191,7 +191,7 @@ class MiscCog(commands.Cog):
                 days[label]["descs"].append(desc)
         return days or None
 
-    @commands.command()
+    @commands.command(aliases=["w"])
     async def weather(self, ctx, *, city: str = "Champaign"):
         """Get the weather for a city. Append 'forecast' for a daily forecast."""
         include_forecast = False
@@ -934,6 +934,17 @@ class MiscCog(commands.Cog):
     # HELP OVERRIDE
     # ---------------------------------------------------------------------------
 
+    def _alias_line(self, command_name: str) -> str | None:
+        command = self.bot.get_command(command_name) if self.bot else None
+        if command is None:
+            return None
+        aliases = ", ".join(f"`{PREFIX}{alias}`" for alias in command.aliases) or "`none`"
+        return f"`{PREFIX}{command.name}` - {aliases}"
+
+    def _alias_lines(self, command_names: list[str]) -> str:
+        lines = [line for name in command_names if (line := self._alias_line(name))]
+        return "\n".join(lines) if lines else "`none`"
+
     @commands.command()
     async def help(self, ctx):
         """Show all commands."""
@@ -1001,6 +1012,43 @@ class MiscCog(commands.Cog):
                 f"`{p}quote` - Reply to a message to save it\n"
                 f"`{p}quotes` - Show recent quotes"
             ), inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command(aliases=["aliases"])
+    async def alias(self, ctx):
+        """Show command aliases."""
+        embed = discord.Embed(title="Bot Aliases", color=COLOR_DEFAULT)
+        kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
+        if not kids_mode:
+            embed.add_field(name="Economy", value=self._alias_lines([
+                "guess", "puzzle", "balance", "leaderboard"
+            ]), inline=False)
+            embed.add_field(name="Gambling", value=self._alias_lines([
+                "coinflip", "slots", "blackjack", "hit", "stand", "double",
+                "split", "surrender", "bjrules"
+            ]), inline=False)
+        embed.add_field(name="Games", value=self._alias_lines([
+            "ttt", "c4", "hangman", "g", "rps", "roll", "mathgame",
+            "mathanswer", "memory", "memoryanswer", "trivia", "triviaanswer",
+            "scramble", "unscramble", "solve", "timer", "forfeit"
+        ]), inline=False)
+        embed.add_field(name="Weather", value=self._alias_lines(["weather"]), inline=False)
+        if not kids_mode:
+            embed.add_field(name="Animals", value=self._alias_lines(["cat", "dog"]), inline=False)
+        fun_commands = ["wyr", "joke"]
+        if not kids_mode:
+            fun_commands.extend(["onthisday", "changenick"])
+        embed.add_field(name="Fun", value=self._alias_lines(fun_commands), inline=False)
+        if not kids_mode:
+            embed.add_field(name="AI", value=self._alias_lines(["ask", "rp", "stoprp"]), inline=False)
+            embed.add_field(name="Info", value=self._alias_lines(["stats", "invite", "alias"]), inline=False)
+            embed.add_field(name="Quotes", value=self._alias_lines(["quote", "quotes", "unquote"]), inline=False)
+        if ctx.author.id == ADMIN_ID:
+            embed.add_field(name="Admin", value=self._alias_lines([
+                "adminhelp", "settings", "kidsmode", "setcommand", "setdeadchat",
+                "setfeaturemode", "setfeaturechannels", "bjruleset", "bjhint",
+                "say", "give", "restart"
+            ]), inline=False)
         await ctx.send(embed=embed)
 
     @commands.command()

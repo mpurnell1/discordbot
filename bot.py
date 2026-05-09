@@ -288,6 +288,7 @@ COMMAND_USAGE = {
     "say": "<text>",
     "kidsmode": "<on|off|status>",
     "invite": "[kids]",
+    "alias": "",
     "settings": "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]> | passive <unsolicited|silasbanter|silasreact> <0-100>]",
 }
 

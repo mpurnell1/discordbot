@@ -648,7 +648,7 @@ class GamesCog(commands.Cog):
                 f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
     
 
-    @commands.command()
+    @commands.command(aliases=["ff", "quit", "stop"])
     async def forfeit(self, ctx):
         """Forfeit the current tic-tac-toe or connect 4 game."""
         game = active_ttt.get(ctx.channel.id)

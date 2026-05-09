@@ -852,7 +852,7 @@ class EconomyCog(commands.Cog):
     # GAMBLING: SLOTS
     # ---------------------------------------------------------------------------
 
-    @commands.command()
+    @commands.command(aliases=["slot"])
     async def slots(self, ctx, amount: int):
         """Pull the slot machine lever."""
         if await check_bet(ctx, amount):
@@ -1066,7 +1066,7 @@ class EconomyCog(commands.Cog):
         blackjack_shoe.clear()
         await ctx.send(f"Blackjack ruleset set to **{selected}**.")
 
-    @commands.command(aliases=["bj"])
+    @commands.command(aliases=["bj", "21"])
     async def blackjack(self, ctx, amount: int):
         """Play a rules-based blackjack hand with split/double/surrender."""
         if ctx.author.id in active_blackjack:
