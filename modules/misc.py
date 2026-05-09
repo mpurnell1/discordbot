@@ -1234,9 +1234,11 @@ class MiscCog(commands.Cog):
     
     
 
-    @commands.command(aliases=["stat"])
-    async def stats(self, ctx):
-        """Show runtime bot stats in a compact operational view."""
+    @commands.command(aliases=["botstats"])
+    async def botstat(self, ctx):
+        """Admin only: show runtime bot stats."""
+        if ctx.author.id != ADMIN_ID:
+            return
         now = datetime.now(timezone.utc)
         if shared.bot_start_time:
             delta = now - shared.bot_start_time
@@ -1348,6 +1350,89 @@ class MiscCog(commands.Cog):
         if not deleted:
             await ctx.send("I couldn't delete your `.say` command message (missing permissions).")
     
+    # ---------------------------------------------------------------------------
+    # STATS
+    # ---------------------------------------------------------------------------
+
+    @commands.command(aliases=["stat"])
+    async def stats(self, ctx, member: discord.Member = None):
+        """View your personal stats, or head-to-head game record vs someone."""
+        kids = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
+
+        if member:
+            game_stats = shared.get_game_stats(ctx.author.id, member.id)
+            ttt = game_stats["ttt"]
+            c4 = game_stats["c4"]
+            total = sum(ttt.values()) + sum(c4.values())
+            if total == 0:
+                return await ctx.send(embed=make_embed(
+                    f"vs {member.display_name}",
+                    "No games played against this person yet.",
+                ))
+            return await ctx.send(embed=make_embed(
+                f"Head-to-Head vs {member.display_name}",
+                f"**Tic-Tac-Toe**: {ttt['win']}W / {ttt['loss']}L / {ttt['draw']}D\n"
+                f"**Connect 4**: {c4['win']}W / {c4['loss']}L / {c4['draw']}D",
+            ))
+
+        user_id = ctx.author.id
+        puzzle = shared.get_puzzle_stats(user_id)
+        games = shared.get_game_stats(user_id)
+        streak_label = f"**{puzzle['streak']}** day{'s' if puzzle['streak'] != 1 else ''}"
+        ttt = games["ttt"]
+        c4 = games["c4"]
+
+        embed = discord.Embed(
+            title=f"📊 {ctx.author.display_name}'s Stats",
+            color=shared.COLOR_DEFAULT,
+        )
+        embed.add_field(
+            name="🧩 Puzzles",
+            value=(
+                f"Streak: {streak_label}\n"
+                f"Total solves: **{puzzle['total_solves']}**\n"
+                f"Avg attempts: **{puzzle['avg_attempts']:.1f}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="🎮 Games",
+            value=(
+                f"TTT: {ttt['win']}W / {ttt['loss']}L / {ttt['draw']}D\n"
+                f"C4:  {c4['win']}W / {c4['loss']}L / {c4['draw']}D"
+            ),
+            inline=True,
+        )
+        if not kids:
+            econ = shared.get_economy_stats(user_id)
+            worst = econ["worst_day_loss"]
+            embed.add_field(
+                name="💰 Economy",
+                value=(
+                    f"Peak balance: **{econ['peak_balance']:,}**\n"
+                    f"Best day: **+{econ['best_day_gain']:,}**\n"
+                    f"Worst day: **{worst:,}**"
+                ),
+                inline=True,
+            )
+            gamble = shared.get_gambling_stats(user_id)
+            cf, sl, bj = gamble["coinflip"], gamble["slots"], gamble["blackjack"]
+
+            def _fmt_gambling(g: dict) -> str:
+                sign = "+" if g["net"] >= 0 else ""
+                return f"{g['hands']} hands, **{sign}{g['net']:,}**"
+
+            embed.add_field(
+                name="🎲 Gambling",
+                value=(
+                    f"Coinflip: {_fmt_gambling(cf)}\n"
+                    f"Slots: {_fmt_gambling(sl)}\n"
+                    f"Blackjack: {_fmt_gambling(bj)}"
+                ),
+                inline=True,
+            )
+        await ctx.send(embed=embed)
+
     # ---------------------------------------------------------------------------
     # LEADERBOARD
     # ---------------------------------------------------------------------------

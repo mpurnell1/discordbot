@@ -238,6 +238,13 @@ async def log_kids_interactions(message):
 
 
 @bot.before_invoke
+async def log_command_use(ctx):
+    guild_id = ctx.guild.id if ctx.guild else None
+    shared.log_command(ctx.author.id, ctx.command.name, guild_id)
+    shared.command_usage[ctx.command.name] += 1
+
+
+@bot.before_invoke
 async def auto_daily_award(ctx):
     guild_id = ctx.guild.id if ctx.guild else None
     if is_kids_mode_guild(guild_id):

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from discord.ext import commands, tasks
 
+import shared
 from shared import (
     PREFIX,
     COLOR_DEFAULT,
@@ -13,6 +14,8 @@ from shared import (
     COLOR_ERROR,
     COLOR_WARNING,
     make_embed,
+    log_game_win,
+    log_game_draw,
 )
 
 active_ttt = {}      # channel_id -> game state
@@ -602,13 +605,18 @@ class GamesCog(commands.Cog):
             ttt_game["board"][pos - 1] = ttt_game["turn"]
             winner = ttt_check_winner(ttt_game["board"])
             if winner == "draw":
+                x, o = ttt_game["players"]["X"], ttt_game["players"]["O"]
                 del active_ttt[ctx.channel.id]
+                log_game_draw(x.id, o.id, "ttt")
                 return await ctx.send(embed=make_embed(
                     "Tic-Tac-Toe — Draw!",
                     ttt_render(ttt_game["board"]), COLOR_WARNING))
             if winner:
-                del active_ttt[ctx.channel.id]
+                loser_piece = "O" if winner == "X" else "X"
                 w = ttt_game["players"][winner]
+                l = ttt_game["players"][loser_piece]
+                del active_ttt[ctx.channel.id]
+                log_game_win(w.id, l.id, "ttt")
                 return await ctx.send(embed=make_embed(
                     f"Tic-Tac-Toe — {w.display_name} Wins!",
                     ttt_render(ttt_game["board"]), COLOR_SUCCESS))
@@ -631,13 +639,18 @@ class GamesCog(commands.Cog):
                 return await ctx.send("That column is full.")
             winner = c4_check_winner(c4_game["board"])
             if winner == "draw":
+                r_p, y_p = c4_game["players"]["R"], c4_game["players"]["Y"]
                 del active_c4[ctx.channel.id]
+                log_game_draw(r_p.id, y_p.id, "c4")
                 return await ctx.send(embed=make_embed(
                     "Connect 4 — Draw!",
                     c4_render(c4_game["board"]), COLOR_WARNING))
             if winner:
-                del active_c4[ctx.channel.id]
+                loser_piece = "Y" if winner == "R" else "R"
                 w = c4_game["players"][winner]
+                l = c4_game["players"][loser_piece]
+                del active_c4[ctx.channel.id]
+                log_game_win(w.id, l.id, "c4")
                 return await ctx.send(embed=make_embed(
                     f"Connect 4 — {w.display_name} Wins!",
                     c4_render(c4_game["board"]), COLOR_SUCCESS))
@@ -653,11 +666,15 @@ class GamesCog(commands.Cog):
         """Forfeit the current tic-tac-toe or connect 4 game."""
         game = active_ttt.get(ctx.channel.id)
         if game and ctx.author in game["players"].values():
+            opponent = next(p for p in game["players"].values() if p != ctx.author)
             del active_ttt[ctx.channel.id]
+            log_game_win(opponent.id, ctx.author.id, "ttt")
             return await ctx.send(f"{ctx.author.display_name} forfeited the tic-tac-toe game.")
         game = active_c4.get(ctx.channel.id)
         if game and ctx.author in game["players"].values():
+            opponent = next(p for p in game["players"].values() if p != ctx.author)
             del active_c4[ctx.channel.id]
+            log_game_win(opponent.id, ctx.author.id, "c4")
             return await ctx.send(f"{ctx.author.display_name} forfeited the connect 4 game.")
         game = active_hangman.get(ctx.channel.id)
         if game:
@@ -710,13 +727,18 @@ class GamesCog(commands.Cog):
             return await ctx.send("That column is full.")
         winner = c4_check_winner(game["board"])
         if winner == "draw":
+            r_p, y_p = game["players"]["R"], game["players"]["Y"]
             del active_c4[ctx.channel.id]
+            log_game_draw(r_p.id, y_p.id, "c4")
             return await ctx.send(embed=make_embed(
                 "Connect 4 — Draw!",
                 c4_render(game["board"]), COLOR_WARNING))
         if winner:
-            del active_c4[ctx.channel.id]
+            loser_piece = "Y" if winner == "R" else "R"
             w = game["players"][winner]
+            l = game["players"][loser_piece]
+            del active_c4[ctx.channel.id]
+            log_game_win(w.id, l.id, "c4")
             return await ctx.send(embed=make_embed(
                 f"Connect 4 — {w.display_name} Wins!",
                 c4_render(game["board"]), COLOR_SUCCESS))
