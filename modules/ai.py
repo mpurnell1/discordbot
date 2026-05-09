@@ -602,7 +602,7 @@ class AICog(commands.Cog):
             self.dead_chat_checker.start()
         if not self.silas_gambler.is_running():
             self.silas_gambler.start()
-    
+
 
     @commands.Cog.listener("on_raw_message_edit")
     async def on_raw_message_edit(self, payload):
@@ -646,14 +646,14 @@ class AICog(commands.Cog):
         guild_id = message.guild.id if message.guild else None
         if is_kids_mode_guild(guild_id):
             return
-    
+
         # --- Silas interaction ---
         silas_id = shared.runtime_settings.get("silas_bot_id")
         if silas_id and message.author.id == silas_id:
             channel_id = message.channel.id
             if not is_feature_allowed("silas", channel_id, guild_id):
                 return
-    
+
             # Auto-accept roleplay invites from Silas
             if message.embeds:
                 for e in message.embeds:
@@ -670,7 +670,8 @@ class AICog(commands.Cog):
                                 {"role": "system", "content": (
                                     "You are Gary, a Discord bot with attitude. You're in a roleplay with another bot named Silas. "
                                     "You're snarky, competitive, and think you're the better bot. "
-                                    "Stay in character as yourself — a witty, slightly unhinged bot who doesn't take anything too seriously. "
+                                    "Stay in character as yourself — a witty, slightly unhinged bot"
+                                    " who doesn't take anything too seriously. "
                                     "Keep responses short (2-4 sentences). Use lowercase."
                                 )},
                             ],
@@ -678,7 +679,10 @@ class AICog(commands.Cog):
                         await asyncio.sleep(random.uniform(1, 3))
                         response = await query_ollama_chat(
                             shared.active_silas_rp[channel_id]["history"] + [
-                                {"role": "user", "content": "The roleplay is starting. Silas just invited you. Say something to kick things off."}
+                                {"role": "user", "content": (
+                                    "The roleplay is starting. Silas just invited you."
+                                    " Say something to kick things off."
+                                )}
                             ])
                         if response:
                             text = response.strip()
@@ -687,7 +691,7 @@ class AICog(commands.Cog):
                             shared.active_silas_rp[channel_id]["history"].append({"role": "assistant", "content": text})
                             await message.channel.send(text)
                         return
-    
+
             # Extract Silas's text from message or embeds
             parts = []
             if message.content:
@@ -701,7 +705,7 @@ class AICog(commands.Cog):
             silas_text = "\n".join(parts)
 
             await self._handle_silas_gambling_message(message, silas_text or "")
-    
+
             # --- Active roleplay with Silas ---
             rp = shared.active_silas_rp.get(channel_id)
             if rp and silas_text:
@@ -719,7 +723,7 @@ class AICog(commands.Cog):
                     await asyncio.sleep(random.uniform(1, 3))
                     await message.reply(text, mention_author=False)
                 return
-    
+
             # --- Random banter ---
             silas_react_chance = shared.runtime_settings.get("silas_react_chance_pct", 0) / 100.0
             silas_banter_chance = shared.runtime_settings.get("silas_banter_chance_pct", 0) / 100.0
@@ -740,20 +744,19 @@ class AICog(commands.Cog):
                             text = text[:500] + "..."
                         await message.reply(text, mention_author=False)
             return
-    
+
         # Ignore other bots
         if message.author.bot:
             return
-    
+
         channel_id = message.channel.id
         now = datetime.now(timezone.utc)
-        now_central = now.astimezone(CENTRAL_TZ)
-    
+
         # --- Track message times for dead chat ---
         if shared.runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id, guild_id):
             shared.last_message_time[channel_id] = now
             shared.dead_chat_stage[channel_id] = -1  # reset escalation
-    
+
         # --- Track recent messages for Ollama context ---
         if channel_id not in shared.recent_messages:
             shared.recent_messages[channel_id] = []
@@ -764,7 +767,7 @@ class AICog(commands.Cog):
         })
         # Keep only last 15 messages
         shared.recent_messages[channel_id] = shared.recent_messages[channel_id][-15:]
-    
+
         # --- Respond when tagged ---
         if (
             self.bot.user.mentioned_in(message)
@@ -787,7 +790,7 @@ class AICog(commands.Cog):
                         text = text[:500] + "..."
                     await message.reply(text, mention_author=False)
             return
-    
+
         # --- Late night callout ---
         hour_central = now.astimezone(CENTRAL_TZ).hour
         if (
@@ -804,7 +807,7 @@ class AICog(commands.Cog):
                 await message.channel.send(f"{message.author.mention} {response}")
                 # Don't also do unsolicited opinion on the same message
                 return
-    
+
         # --- Unsolicited opinions (Ollama) ---
         unsolicited_chance = shared.runtime_settings.get("unsolicited_chance_pct", 0) / 100.0
         if (
@@ -819,9 +822,9 @@ class AICog(commands.Cog):
                     f"{m['author']}: {m['content']}" for m in context[-10:]
                 )
                 prompt = f"Here are the last few messages in the group chat:\n\n{chat_log}\n\nDo you have anything to say?"
-    
+
                 response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt, model=OLLAMA_REASONING_MODEL)
-    
+
                 if response:
                     text = clean_reasoning(response)
                     if text and "pass" not in text.lower():
@@ -831,10 +834,10 @@ class AICog(commands.Cog):
                         if len(text) > 500:
                             text = text[:500] + "..."
                         await message.channel.send(text)
-    
+
         # Process commands as normal
-    
-    
+
+
     # DEAD CHAT CHECKER — background task
     # ---------------------------------------------------------------------------
 
@@ -847,13 +850,13 @@ class AICog(commands.Cog):
         for channel_id, last_time in list(shared.last_message_time.items()):
             minutes_silent = (now - last_time).total_seconds() / 60
             current_stage = shared.dead_chat_stage.get(channel_id, -1)
-    
+
             # Find the highest threshold we've crossed
             new_stage = -1
             for i, threshold in enumerate(DEAD_CHAT_THRESHOLDS):
                 if minutes_silent >= threshold:
                     new_stage = i
-    
+
             # Only fire if we've crossed into a NEW stage
             if new_stage > current_stage:
                 shared.dead_chat_stage[channel_id] = new_stage
@@ -906,7 +909,7 @@ class AICog(commands.Cog):
         self._persist_gamble_state()
         if result.startswith(REPORTABLE_PREFIXES):
             await self._send_gamble_report(result, force=True)
-    
+
     # ---------------------------------------------------------------------------
     # EXPLICIT COMMANDS: !ask (Ollama)
     # ---------------------------------------------------------------------------
@@ -916,17 +919,17 @@ class AICog(commands.Cog):
         """Ask the AI a question (requires desktop to be on)."""
         async with ctx.typing():
             response = await query_ollama(ASK_SYSTEM_PROMPT, question, model=OLLAMA_REASONING_MODEL)
-    
+
         if response is None:
             await ctx.send("Brain's offline right now — desktop must be asleep. Try again later.")
             return
-    
+
         response = clean_reasoning(response)
         if len(response) > 1900:
             response = response[:1900] + "..."
         await ctx.send(response)
-    
-    
+
+
     # SILAS ROLEPLAY
     # ---------------------------------------------------------------------------
 
@@ -952,8 +955,8 @@ class AICog(commands.Cog):
             "Roleplay Started",
             f"Gary is roleplaying as **{character}** with Silas.\n"
             f"Use `{PREFIX}stoprp` to end the session."))
-    
-    
+
+
 
     @commands.command()
     async def stoprp(self, ctx):
@@ -965,7 +968,7 @@ class AICog(commands.Cog):
             await ctx.send("Roleplay ended.")
         else:
             await ctx.send("No active roleplay in this channel.")
-    
+
 
 async def setup(bot):
     await bot.add_cog(AICog(bot))

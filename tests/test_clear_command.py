@@ -48,7 +48,7 @@ class FakeClearChannel:
 class FakeClearBot:
     def __init__(self):
         self.user = FakeAuthor(user_id=42, name="Gary", is_bot=True)
-    
+
     def add_view(self, view):
         """Mock add_view for ReportStatusView in __init__."""
         pass

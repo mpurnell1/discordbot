@@ -1,5 +1,4 @@
 """Pure unit tests for games logic — no DB, no Discord, no async."""
-import pytest
 
 from modules.games import (
     ttt_check_winner,

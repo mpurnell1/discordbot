@@ -4,7 +4,6 @@ These lock in the user-visible shape of key embeds. If they start failing,
 either fix the code (regression) or update the assertion (intentional change).
 """
 import discord
-import pytest
 
 import shared
 from tests.conftest import FakeContext, FakeAuthor

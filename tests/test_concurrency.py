@@ -9,7 +9,6 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 import shared
 import bot as bot_module

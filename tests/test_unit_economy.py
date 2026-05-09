@@ -1,12 +1,9 @@
 """Pure unit tests for economy / blackjack logic."""
 import pytest
 
-from modules import economy
 from modules.economy import (
     card_points,
     hand_total_and_soft,
-    hand_value,
-    is_soft_hand,
     is_blackjack,
     can_split_cards,
     dealer_should_hit,

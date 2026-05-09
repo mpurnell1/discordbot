@@ -6,7 +6,6 @@ failing, look at the bug it's named after before "fixing" the test.
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 import shared
 import bot as bot_module

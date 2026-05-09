@@ -1,9 +1,6 @@
 """Database persistence tests — round-trip writes/reads, schema migrations."""
-import os
 import sqlite3
-from pathlib import Path
 
-import pytest
 
 import shared
 

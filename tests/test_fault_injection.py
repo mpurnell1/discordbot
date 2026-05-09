@@ -3,11 +3,8 @@
 The bot is supposed to degrade gracefully — no unhandled exceptions, user
 gets a sensible message.
 """
-import asyncio
-import sqlite3
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from aioresponses import aioresponses
 
 import shared
