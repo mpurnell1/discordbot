@@ -61,7 +61,7 @@ class TestIsKidsCommandAllowed:
     def test_blocked_commands_disallowed(self, blocked):
         assert is_kids_command_allowed(blocked) is False
 
-    @pytest.mark.parametrize("allowed", ["help", "ttt", "c4", "rps", "weather", "joke"])
+    @pytest.mark.parametrize("allowed", ["help", "ttt", "c4", "rps", "weather", "joke", "cat", "dog"])
     def test_curated_commands_allowed(self, allowed):
         assert is_kids_command_allowed(allowed) is True
 
