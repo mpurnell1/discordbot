@@ -86,14 +86,17 @@ class MiscCog(commands.Cog):
     # WEATHER
     # ---------------------------------------------------------------------------
 
-    async def _fetch_weather_embed(self, city: str, title_prefix: str = "Weather in"):
-        """Fetch weather and return an embed, or None on failure."""
+    def _clean_city(self, city: str) -> str:
         cleaned = city.strip()
         if cleaned.lower() in LOCAL_CITIES:
-            cleaned = cleaned + ",IL,US"
-        elif re.match(r'^.+,\s*[A-Za-z]{2}$', cleaned):
-            cleaned = cleaned + ",US"
+            return cleaned + ",IL,US"
+        if re.match(r'^.+,\s*[A-Za-z]{2}$', cleaned):
+            return cleaned + ",US"
+        return cleaned
 
+    async def _fetch_weather_embed(self, city: str, title_prefix: str = "Weather in", include_forecast: bool = False):
+        """Fetch current weather (and optionally daily forecast) and return an embed, or None on failure."""
+        cleaned = self._clean_city(city)
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {"q": cleaned, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
         try:
@@ -103,6 +106,9 @@ class MiscCog(commands.Cog):
                     if resp.status != 200:
                         return None
                     data = await resp.json()
+                forecast_days = None
+                if include_forecast:
+                    forecast_days = await self._fetch_forecast_days(session, cleaned)
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return None
 
@@ -117,16 +123,59 @@ class MiscCog(commands.Cog):
         embed = discord.Embed(title=f"{title_prefix} {name}", color=COLOR_DEFAULT)
         embed.set_thumbnail(url=f"https://openweathermap.org/img/wn/{icon}@2x.png")
         embed.add_field(name="Condition", value=desc, inline=True)
-        embed.add_field(name="Temp", value=f"{temp:.0f}F", inline=True)
-        embed.add_field(name="Feels Like", value=f"{feels:.0f}F", inline=True)
+        embed.add_field(name="Temp", value=f"{temp:.0f}°F", inline=True)
+        embed.add_field(name="Feels Like", value=f"{feels:.0f}°F", inline=True)
         embed.add_field(name="Humidity", value=f"{humidity}%", inline=True)
         embed.add_field(name="Wind", value=f"{wind:.0f} mph", inline=True)
+
+        if forecast_days:
+            embed.add_field(name="​", value="**— Daily Forecast —**", inline=False)
+            for label, day in list(forecast_days.items())[:4]:
+                cond = day["descs"][0] if day["descs"] else "—"
+                embed.add_field(
+                    name=label,
+                    value=f"{day['high']:.0f}° / {day['low']:.0f}°F\n{cond}",
+                    inline=True,
+                )
+
         return embed
+
+    async def _fetch_forecast_days(self, session: aiohttp.ClientSession, cleaned_city: str):
+        """Fetch 5-day/3-hour forecast and return an ordered dict of daily summaries."""
+        url = "https://api.openweathermap.org/data/2.5/forecast"
+        params = {"q": cleaned_city, "appid": OPENWEATHER_API_KEY, "units": "imperial", "cnt": 40}
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return None
+
+        days = {}
+        for entry in data.get("list", []):
+            dt_central = datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ)
+            label = dt_central.strftime("%a %b ") + str(dt_central.day)
+            if label not in days:
+                days[label] = {"high": -999.0, "low": 999.0, "descs": []}
+            days[label]["high"] = max(days[label]["high"], entry["main"]["temp_max"])
+            days[label]["low"] = min(days[label]["low"], entry["main"]["temp_min"])
+            desc = entry["weather"][0]["description"].title()
+            if desc not in days[label]["descs"]:
+                days[label]["descs"].append(desc)
+        return days or None
 
     @commands.command()
     async def weather(self, ctx, *, city: str = "Champaign"):
-        """Get the weather for a city."""
-        embed = await self._fetch_weather_embed(city)
+        """Get the weather for a city. Append 'forecast' for a daily forecast."""
+        include_forecast = False
+        if city.lower() == "forecast":
+            city = "Champaign"
+            include_forecast = True
+        elif city.lower().endswith(" forecast"):
+            city = city[:-9].strip()
+            include_forecast = True
+        embed = await self._fetch_weather_embed(city, include_forecast=include_forecast)
         if embed is None:
             return await ctx.send(f"Couldn't find weather for **{city}** (or service unavailable).")
         await ctx.send(embed=embed)
@@ -147,7 +196,7 @@ class MiscCog(commands.Cog):
         if channel is None:
             return
         city = runtime_settings.get("weather_alert_city", "Champaign")
-        embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —")
+        embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —", include_forecast=True)
         if embed is None:
             return
         await channel.send(embed=embed)
@@ -899,7 +948,7 @@ class MiscCog(commands.Cog):
             f"`{p}timer <seconds>` - Start a timer\n"
             f"`{p}forfeit` - Quit current game"
         ), inline=False)
-        embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)", inline=False)
+        embed.add_field(name="Weather", value=f"`{p}weather [city]` - Current weather (defaults to Champaign)\n`{p}weather [city] forecast` - Current weather + daily forecast", inline=False)
         if not kids_mode:
             embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
         fun_lines = [
