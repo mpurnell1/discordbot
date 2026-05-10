@@ -26,7 +26,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
   git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
   git checkout "$DEPLOY_BRANCH"
-  git pull --ff-only "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
+  git reset --hard "$DEPLOY_REMOTE/$DEPLOY_BRANCH"
 
   if [[ -x "$VENV_DIR/bin/pip" ]]; then
     "$VENV_DIR/bin/pip" install -r requirements.txt
