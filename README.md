@@ -41,6 +41,22 @@ Run locally:
 python3 bot.py
 ```
 
+## Development
+
+Install development dependencies and hooks:
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\venv\Scripts\pre-commit.exe install --hook-type pre-commit --hook-type pre-push
+```
+
+Run lint and tests manually:
+
+```powershell
+.\venv\Scripts\python.exe -m ruff check .
+.\venv\Scripts\python.exe -m pytest
+```
+
 ## Logging
 
 The bot writes rotating logs to:
