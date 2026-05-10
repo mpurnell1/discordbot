@@ -78,14 +78,15 @@ async def test_alias_command_lists_public_command_aliases(loaded_bot):
     assert "`none`" not in "\n".join(fields.values())
 
 
-async def test_alias_command_omits_empty_admin_alias_section(loaded_bot):
+async def test_alias_command_lists_admin_aliases_for_admin(loaded_bot):
     cog = loaded_bot.get_cog("MiscCog")
     ctx = FakeContext(author=FakeAuthor(user_id=bot_module.ADMIN_ID))
 
     await cog.alias.callback(cog, ctx)
 
     fields = {field.name: field.value for field in ctx.sent[0]["embed"].fields}
-    assert "Admin" not in fields
+    assert "`.adminhelp` - `.set`, `.ah`" in fields["Admin"]
+    assert "`.botstat` - `.botstats`" in fields["Admin"]
 
 
 async def test_requested_aliases_resolve_to_commands(loaded_bot):
@@ -121,6 +122,18 @@ async def test_help_command_info_field_includes_alias(loaded_bot):
     embed = ctx.sent[0]["embed"]
     fields = {field.name: field.value for field in embed.fields}
     assert "`.alias`" in fields["Info"]
+    assert "`.stats [@user]` - Your stats or head-to-head record" in fields["Info"]
+    assert "Bot stats and usage" not in fields["Info"]
+
+
+async def test_adminhelp_command_lists_botstat_for_runtime_stats(loaded_bot):
+    cog = loaded_bot.get_cog("MiscCog")
+    ctx = FakeContext(author=FakeAuthor(user_id=bot_module.ADMIN_ID))
+
+    await cog.adminhelp.callback(cog, ctx)
+
+    fields = {field.name: field.value for field in ctx.sent[0]["embed"].fields}
+    assert "`.botstat` - Runtime bot stats and usage" in fields["Admin Utils"]
 
 
 async def test_raw_blackjack_action_dispatches_when_hand_is_active():

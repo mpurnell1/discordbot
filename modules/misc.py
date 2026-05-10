@@ -1288,7 +1288,7 @@ class MiscCog(commands.Cog):
 
 
 
-    @commands.command(aliases=["botstats"])
+    @commands.command(aliases=["botstats", "bs", "bot"])
     async def botstat(self, ctx):
         """Admin only: show runtime bot stats."""
         if ctx.author.id != ADMIN_ID:
@@ -1688,7 +1688,7 @@ class MiscCog(commands.Cog):
             ])
         await ctx.send(embed=embed)
 
-    @commands.command()
+    @commands.command(aliases=["set", "ah"])
     async def adminhelp(self, ctx):
         """Show admin-only commands."""
         if ctx.author.id != ADMIN_ID:
