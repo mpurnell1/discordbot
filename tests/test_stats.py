@@ -1,5 +1,5 @@
 """Tests for stats tracking: puzzle history, game results, balance history."""
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -13,8 +13,11 @@ import shared
 class TestGetPuzzleStats:
     USER = 2001
 
+    def _today(self):
+        return datetime.now(shared.CENTRAL_TZ).date()
+
     def _log(self, days_ago: int, attempts: int = 1):
-        d = str(date.today() - timedelta(days=days_ago))
+        d = str(self._today() - timedelta(days=days_ago))
         shared.log_puzzle_solve(self.USER, d, attempts)
 
     def test_no_history_returns_zeros(self):
@@ -49,8 +52,8 @@ class TestGetPuzzleStats:
         assert s["streak"] == 2
 
     def test_avg_attempts(self):
-        shared.log_puzzle_solve(self.USER, str(date.today()), 1)
-        shared.log_puzzle_solve(self.USER, str(date.today() - timedelta(days=1)), 3)
+        shared.log_puzzle_solve(self.USER, str(self._today()), 1)
+        shared.log_puzzle_solve(self.USER, str(self._today() - timedelta(days=1)), 3)
         s = shared.get_puzzle_stats(self.USER)
         assert s["avg_attempts"] == pytest.approx(2.0)
 
