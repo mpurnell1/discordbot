@@ -85,8 +85,9 @@ async def test_alias_command_lists_admin_aliases_for_admin(loaded_bot):
     await cog.alias.callback(cog, ctx)
 
     fields = {field.name: field.value for field in ctx.sent[0]["embed"].fields}
-    assert "`.adminhelp` - `.set`, `.ah`" in fields["Admin"]
-    assert "`.botstat` - `.botstats`" in fields["Admin"]
+    assert "`.adminhelp` - `.ah`" in fields["Admin"]
+    assert "`.settings` - `.set`" in fields["Admin"]
+    assert "`.botstat` - `.botstats`, `.bs`, `.bot`" in fields["Admin"]
 
 
 async def test_requested_aliases_resolve_to_commands(loaded_bot):

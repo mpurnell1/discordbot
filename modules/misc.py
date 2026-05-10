@@ -778,19 +778,7 @@ class MiscCog(commands.Cog):
             COLOR_SUCCESS if enabled else COLOR_WARNING,
         ))
 
-
-
-
-
-
-
-
-
-
-
-
-
-    @commands.command()
+    @commands.command(aliases=["set"])
     async def settings(self, ctx, section: str = "", *args):
         """Show runtime settings or manage sections (example: .settings gamble on)."""
         if ctx.author.id != ADMIN_ID:
@@ -1688,7 +1676,7 @@ class MiscCog(commands.Cog):
             ])
         await ctx.send(embed=embed)
 
-    @commands.command(aliases=["set", "ah"])
+    @commands.command(aliases=["ah"])
     async def adminhelp(self, ctx):
         """Show admin-only commands."""
         if ctx.author.id != ADMIN_ID:
