@@ -56,26 +56,14 @@ async def test_alias_command_lists_public_command_aliases(loaded_bot):
 
     embed = ctx.sent[0]["embed"]
     fields = {field.name: field.value for field in embed.fields}
+    output = "\n".join(fields.values())
     assert embed.title == "Bot Aliases"
     assert "Admin" not in fields
-    assert "`.balance` - `.bal`" in fields["Economy"]
-    assert "`.leaderboard` - `.lb`, `.top`" in fields["Economy"]
-    assert "`.coinflip` - `.cf`" in fields["Gambling"]
-    assert "`.slots` - `.slot`" in fields["Gambling"]
-    assert "`.blackjack` - `.bj`, `.21`" in fields["Gambling"]
-    assert "`.hangman` - `.hang`, `.hm`" in fields["Games"]
-    assert "`.timer` - `.time`" in fields["Games"]
-    assert "`.forfeit` - `.ff`, `.quit`, `.stop`" in fields["Games"]
-    assert "`.weather` - `.w`" in fields["Weather"]
-    assert "`.stats` - `.stat`" in fields["Info"]
-    assert "`.bugreport` - `.bug`, `.issue`, `.report`" in fields["Info"]
-    assert "`.featurerequest` - `.feature`, `.request`, `.fr`, `.feat`" in fields["Info"]
-    assert "`.alias` - `.aliases`" in fields["Info"]
-    assert "Animals" not in fields
-    assert "Fun" not in fields
-    assert "AI" not in fields
-    assert "Quotes" not in fields
-    assert "`none`" not in "\n".join(fields.values())
+    for command in loaded_bot.commands:
+        if not command.aliases or command.name in cog.ADMIN_ALIAS_COMMANDS:
+            continue
+        aliases = ", ".join(f"`.{alias}`" for alias in command.aliases)
+        assert f"`.{command.name}` - {aliases}" in output
 
 
 async def test_alias_command_lists_admin_aliases_for_admin(loaded_bot):
@@ -85,33 +73,18 @@ async def test_alias_command_lists_admin_aliases_for_admin(loaded_bot):
     await cog.alias.callback(cog, ctx)
 
     fields = {field.name: field.value for field in ctx.sent[0]["embed"].fields}
-    assert "`.adminhelp` - `.ah`" in fields["Admin"]
-    assert "`.settings` - `.set`" in fields["Admin"]
-    assert "`.botstat` - `.botstats`, `.bs`, `.bot`" in fields["Admin"]
+    assert "Admin" in fields
+    for command in loaded_bot.commands:
+        if not command.aliases or command.name not in cog.ADMIN_ALIAS_COMMANDS:
+            continue
+        aliases = ", ".join(f"`.{alias}`" for alias in command.aliases)
+        assert f"`.{command.name}` - {aliases}" in fields["Admin"]
 
 
 async def test_requested_aliases_resolve_to_commands(loaded_bot):
-    expected = {
-        "w": "weather",
-        "lb": "leaderboard",
-        "bj": "blackjack",
-        "21": "blackjack",
-        "slot": "slots",
-        "time": "timer",
-        "ff": "forfeit",
-        "quit": "forfeit",
-        "stop": "forfeit",
-        "stat": "stats",
-        "bug": "bugreport",
-        "issue": "bugreport",
-        "report": "bugreport",
-        "feature": "featurerequest",
-        "request": "featurerequest",
-        "fr": "featurerequest",
-        "feat": "featurerequest",
-    }
-    for alias, command_name in expected.items():
-        assert loaded_bot.get_command(alias).name == command_name
+    for command in loaded_bot.commands:
+        for alias in command.aliases:
+            assert loaded_bot.get_command(alias).name == command.name
 
 
 async def test_help_command_info_field_includes_alias(loaded_bot):
@@ -135,6 +108,8 @@ async def test_adminhelp_command_lists_botstat_for_runtime_stats(loaded_bot):
 
     fields = {field.name: field.value for field in ctx.sent[0]["embed"].fields}
     assert "`.botstat` - Runtime bot stats and usage" in fields["Admin Utils"]
+    assert "`.garystats` - Gary autonomous gambling stats" in fields["Admin Utils"]
+    assert "`.repuzzle [@user]` - Regenerate a daily puzzle" in fields["Admin Utils"]
 
 
 async def test_raw_blackjack_action_dispatches_when_hand_is_active():

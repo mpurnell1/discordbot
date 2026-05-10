@@ -389,7 +389,7 @@ class MiscCog(commands.Cog):
 
     @commands.command(aliases=["w"])
     async def weather(self, ctx, *, city: str = "Champaign"):
-        """Get the weather for a city. Append 'forecast' for a daily forecast."""
+        """Get the weather for a city. Append 'forecast' for a multi-day forecast."""
         forecast_mode = None
         if city.lower() == "forecast":
             city = "Champaign"
@@ -1579,21 +1579,56 @@ class MiscCog(commands.Cog):
     # HELP OVERRIDE
     # ---------------------------------------------------------------------------
 
-    def _alias_line(self, command_name: str) -> str | None:
-        command = self.bot.get_command(command_name) if self.bot else None
+    ADMIN_ALIAS_COMMANDS = PROTECTED_ADMIN_COMMANDS | {
+        "botstat",
+        "garystats",
+        "repuzzle",
+        "unquote",
+    }
+    ALIAS_CATEGORY_ORDER = (
+        "Economy & Gambling",
+        "Games",
+        "Stocks",
+        "Misc",
+        "AI",
+        "Admin",
+    )
+    ALIAS_COG_CATEGORIES = {
+        "EconomyCog": "Economy & Gambling",
+        "GamesCog": "Games",
+        "StocksCog": "Stocks",
+        "MiscCog": "Misc",
+        "AICog": "AI",
+    }
+
+    def _alias_line(self, command) -> str | None:
         if command is None or not command.aliases:
             return None
         aliases = ", ".join(f"`{PREFIX}{alias}`" for alias in command.aliases)
         return f"`{PREFIX}{command.name}` - {aliases}"
 
-    def _alias_lines(self, command_names: list[str]) -> str:
-        lines = [line for name in command_names if (line := self._alias_line(name))]
-        return "\n".join(lines)
+    def _alias_category(self, command) -> str:
+        if command.name in self.ADMIN_ALIAS_COMMANDS:
+            return "Admin"
+        return self.ALIAS_COG_CATEGORIES.get(command.cog_name, command.cog_name or "Other")
 
-    def _add_alias_field(self, embed, name: str, command_names: list[str]) -> None:
-        value = self._alias_lines(command_names)
-        if value:
-            embed.add_field(name=name, value=value, inline=False)
+    def _alias_sections(self, *, show_admin: bool, kids_mode: bool) -> dict[str, list[str]]:
+        sections: dict[str, list[str]] = {}
+        if self.bot is None:
+            return sections
+
+        for command in sorted(self.bot.commands, key=lambda cmd: cmd.name):
+            if not command.aliases:
+                continue
+            category = self._alias_category(command)
+            if category == "Admin" and not show_admin:
+                continue
+            if category != "Admin" and kids_mode and not shared.is_kids_command_allowed(command.name):
+                continue
+            line = self._alias_line(command)
+            if line:
+                sections.setdefault(category, []).append(line)
+        return sections
 
     @commands.command()
     async def help(self, ctx):
@@ -1647,7 +1682,7 @@ class MiscCog(commands.Cog):
             name="Weather",
             value=(
                 f"`{p}weather [city]` - Current weather (defaults to Champaign)\n"
-                f"`{p}weather [city] forecast` - Current weather + daily forecast"
+                f"`{p}weather [city] forecast` - Current weather + multi-day forecast"
             ),
             inline=False)
         embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
@@ -1685,39 +1720,11 @@ class MiscCog(commands.Cog):
         """Show command aliases."""
         embed = discord.Embed(title="Bot Aliases", color=COLOR_DEFAULT)
         kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
-        if not kids_mode:
-            self._add_alias_field(embed, "Economy", [
-                "guess", "puzzle", "balance", "leaderboard"
-            ])
-            self._add_alias_field(embed, "Gambling", [
-                "coinflip", "slots", "blackjack", "hit", "stand", "double",
-                "split", "surrender", "bjrules"
-            ])
-            self._add_alias_field(embed, "Stocks", [
-                "stocks", "buy", "sell", "portfolio"
-            ])
-        self._add_alias_field(embed, "Games", [
-            "ttt", "c4", "hangman", "g", "rps", "roll", "mathgame",
-            "mathanswer", "memory", "memoryanswer", "trivia", "triviaanswer",
-            "scramble", "unscramble", "solve", "timer", "forfeit"
-        ])
-        self._add_alias_field(embed, "Weather", ["weather"])
-        if not kids_mode:
-            self._add_alias_field(embed, "Animals", ["cat", "dog"])
-        fun_commands = ["wyr", "joke"]
-        if not kids_mode:
-            fun_commands.extend(["onthisday", "changenick"])
-        self._add_alias_field(embed, "Fun", fun_commands)
-        if not kids_mode:
-            self._add_alias_field(embed, "AI", ["ask", "rp", "stoprp"])
-            self._add_alias_field(embed, "Info", [
-                "stats", "invite", "bugreport", "featurerequest", "alias"
-            ])
-            self._add_alias_field(embed, "Quotes", ["quote", "quotes", "unquote"])
-        if ctx.author.id == ADMIN_ID:
-            self._add_alias_field(embed, "Admin", [
-                "adminhelp", "settings", "say", "give", "clear", "restart", "botstat"
-            ])
+        sections = self._alias_sections(show_admin=ctx.author.id == ADMIN_ID, kids_mode=kids_mode)
+        ordered_names = [name for name in self.ALIAS_CATEGORY_ORDER if name in sections]
+        ordered_names.extend(name for name in sections if name not in self.ALIAS_CATEGORY_ORDER)
+        for name in ordered_names:
+            embed.add_field(name=name, value="\n".join(sections[name]), inline=False)
         await ctx.send(embed=embed)
 
     @commands.command(aliases=["ah"])
@@ -1737,14 +1744,16 @@ class MiscCog(commands.Cog):
             f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI\n"
             f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"
             f"`{p}settings commands <command> <on|off>` - Toggle command globally\n"
-            f"`{p}settings features <feature> <mode|add|remove|clear [#ch]>` - Feature gates\n"
+            f"`{p}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#ch]>` - Feature gates\n"
             f"`{p}settings channels <name> [#channel|off]` - Configure channel IDs\n"
             f"`{p}settings silas <id|banter|react> [value]` - Silas bot config"
         ), inline=False)
         embed.add_field(name="Admin Utils", value=(
             f"`{p}botstat` - Runtime bot stats and usage\n"
+            f"`{p}garystats` - Gary autonomous gambling stats\n"
             f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
             f"`{p}give @user <amount>` - Add/remove coins\n"
+            f"`{p}repuzzle [@user]` - Regenerate a daily puzzle\n"
             f"`{p}clear <n>` - Delete last n messages from Gary\n"
             f"`{p}restart` - Restart process"
         ), inline=False)

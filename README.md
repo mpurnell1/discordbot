@@ -60,7 +60,7 @@ Rotation policy:
 - `modules/economy.py`: economy, puzzle, and gambling commands
 - `modules/games.py`: ttt/c4/hangman game commands and listeners
 - `modules/misc.py`: weather/fun/quotes/admin/help/stats/invite
-- `modules/stocks.py`: simulated stock market (curated tickers, twice-daily price ticks, morning ticker post)
+- `modules/stocks.py`: simulated stock market (curated tickers, hourly daytime price ticks, morning ticker post)
 
 ## Commands
 
@@ -73,8 +73,9 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.balance [@user]` | `.bal` | Check balance |
 | `.leaderboard` | `.lb`, `.top` | Top 10 richest |
 | `.coinflip <amount>` | `.cf` | Double or nothing |
-| `.slots <amount>` | | Slot machine |
-| `.blackjack <amount>` | `.bj` | Blackjack (then `.hit` / `.stand`) |
+| `.slots <amount>` | `.slot` | Slot machine |
+| `.blackjack <amount>` | `.bj`, `.21` | Blackjack (then `.hit`, `.stand`, `.double`, `.split`, or `.surrender`) |
+| `.bjrules` | `.bjtable` | Show current blackjack table rules |
 | `.stocks` | `.stox`, `.market`, `.ticker` | Show current simulated stock prices and overnight % change |
 | `.stocks <TICKER>` | | Per-ticker detail with 7-day sparkline and your position |
 | `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares — accepts a share count (`5`), `all` (spend full balance), or coin budget (`$500`) |
@@ -82,7 +83,7 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.portfolio [@user]` | `.port` | Show holdings + unrealized P/L |
 | `.ttt @user` | | Tic-tac-toe (use `.m <1-9>`) |
 | `.c4 @user` | | Connect 4 (use `.drop <1-7>` or `.m <1-7>`) |
-| `.hangman` | | Start hangman |
+| `.hangman [@user]` | `.hang`, `.hm` | Start hangman solo or invite someone |
 | plain single-letter message | | Hangman letter guess (when hangman active) |
 | `.g <guess>` | | Hangman guess (letter or word) |
 | `.rps <rock\|paper\|scissors>` | | Rock Paper Scissors |
@@ -91,9 +92,9 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.memory` / `.memoryanswer <sequence>` | `.memanswer`, `.memans` | Memory sequence game |
 | `.trivia` / `.triviaanswer <A-D>` | `.ta` | Kid-safe multiple-choice trivia |
 | `.scramble` / `.unscramble <word>` | | Kid-safe word scramble |
-| `.timer <seconds>` | | Simple timer, capped at one hour |
-| `.forfeit` | | Quit current game |
-| `.weather [city] [forecast]` | | Current weather (defaults to Champaign); append `forecast` for a 4-day outlook |
+| `.timer <seconds>` | `.time` | Simple timer, capped at one hour |
+| `.forfeit` | `.ff`, `.quit`, `.stop` | Quit current game |
+| `.weather [city] [forecast]` | `.w` | Current weather (defaults to Champaign); append `forecast` for a multi-day outlook |
 | `.cat` / `.dog` | | Random animal pics |
 | `.wyr` | | Would You Rather |
 | `.onthisday` | | Historical event today |
@@ -102,25 +103,28 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.rp <character>` / `.stoprp` | | Silas roleplay controls |
 | `.quote` / `.quotes` / `.unquote <id>` | | Quote system (unquote is admin only) |
 | `.stats [@user]` | `.stat` | Your puzzle/game/economy/gambling stats; tag someone for head-to-head game record |
-| `.botstat` | `.botstats` | Runtime bot stats — uptime, commands used, messages seen (admin only) |
+| `.botstat` | `.botstats`, `.bs`, `.bot` | Runtime bot stats - uptime, commands used, messages seen (admin only) |
+| `.garystats` | | Gary autonomous gambling stats (admin only) |
 | `.invite [kids]` | | Bot invite link |
+| `.bugreport <description>` | `.bug`, `.issue`, `.report` | Report a bug with status tracking |
+| `.featurerequest <description>` | `.feature`, `.request`, `.fr`, `.feat` | Request a feature with status tracking |
 | `.help` | | Command list |
-| `.adminhelp` | | Admin command list (admin only) |
+| `.adminhelp` | `.ah` | Admin command list (admin only) |
 
 ## Admin Runtime Settings
 
 Primary admin control command:
 
-- `.settings` -> show all runtime settings
+- `.settings` / `.set` -> show all runtime settings
 
 ### Kids mode
 
 Kids mode is server-specific and persisted in SQLite. It is intended for servers where Gary should keep safe utility/game features while removing unpredictable or adult-leaning behavior.
 
 - `.invite kids` -> low-permission invite link that auto-enables kids mode when Gary joins
-- `.settings kids on` or `.kidsmode on` -> enable kids mode for the current server
-- `.settings kids off` or `.kidsmode off` -> disable kids mode for the current server
-- `.settings kids status` or `.kidsmode status` -> show the current server policy
+- `.settings kids on` or `.settings kidsmode on` -> enable kids mode for the current server
+- `.settings kids off` or `.settings kidsmode off` -> disable kids mode for the current server
+- `.settings kids status` or `.settings kidsmode status` -> show the current server policy
 
 Kids mode disables:
 
@@ -152,7 +156,7 @@ Gary infers a kids invite from the low-permission shape: no Manage Messages and 
 
 ### Daily 8 AM weather alert
 
-Posts current weather plus a 4-day forecast at 8 AM Central in the configured channel.
+Posts current weather plus today's high, low, and rain chance at 8 AM Central in the configured channel.
 
 - `.settings weather on [#channel]` -> enable in current channel (or specified channel)
 - `.settings weather off` -> disable
@@ -179,11 +183,14 @@ Tickers are a curated, fully simulated set (GARY, SILS, COIN, DOGE, WORD, DEAD) 
 
 ### Other admin controls
 
-- `.setcommand <command> <on|off>`
-- `.setdeadchat <on|off>`
-- `.setfeaturemode <feature> <all|off|whitelist|blacklist>`
-- `.setfeaturechannels <feature> <add|remove|clear> [#channel ...]`
+- `.settings commands <command> <on|off>` -> toggle a command globally
+- `.settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>` -> configure feature gates
+- `.settings channels <name> [#channel|off]` -> configure report/log channels
+- `.settings silas <id|banter|react> [value]` -> configure Silas bot integration
+- `.botstat` -> runtime bot stats
+- `.garystats` -> Gary autonomous gambling stats
 - `.restart`
+- `.clear <n>` -> delete the last n messages from Gary
 - `.give @user <amount>`
 - `.say <text>` -> delete your message and post as Gary
 - `.repuzzle [@user]` -> regenerate a user's daily puzzle
