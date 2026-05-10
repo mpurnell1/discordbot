@@ -19,7 +19,7 @@ async def loaded_bot():
 
 async def test_all_four_cogs_load(loaded_bot):
     cog_names = set(loaded_bot.cogs.keys())
-    assert cog_names == {"GamesCog", "EconomyCog", "AICog", "MiscCog"}
+    assert cog_names == {"GamesCog", "EconomyCog", "AICog", "MiscCog", "StocksCog"}
 
 
 async def test_every_documented_command_is_registered(loaded_bot):

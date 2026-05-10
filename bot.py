@@ -28,7 +28,7 @@ from shared import (
     set_kids_mode_guild,
     update_activity_streak,
 )
-from modules import ai, economy, games, misc
+from modules import ai, economy, games, misc, stocks
 
 
 def configure_logging() -> logging.Logger:
@@ -78,6 +78,8 @@ class GaryBot(commands.Bot):
         logger.info("Loaded AICog")
         await misc.setup(self)
         logger.info("Loaded MiscCog")
+        await stocks.setup(self)
+        logger.info("Loaded StocksCog")
 
 
 intents = discord.Intents.default()
@@ -325,9 +327,13 @@ COMMAND_USAGE = {
     "say": "<text>",
     "invite": "[kids]",
     "alias": "",
+    "buy": "<TICKER> <qty|all|$coins>",
+    "sell": "<TICKER> <qty|all|$coins>",
+    "portfolio": "[@user]",
     "settings": (
         "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]>"
-        " | passive <unsolicited|silasbanter|silasreact> <0-100>]"
+        " | passive <unsolicited|silasbanter|silasreact> <0-100>"
+        " | ticker <on [#channel]|off|status>]"
     ),
 }
 

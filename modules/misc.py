@@ -36,6 +36,11 @@ from shared import (
     set_kids_mode_guild,
     normalize_feature_name,
 )
+from modules.stocks import (
+    get_portfolio_value,
+    get_realized_pl,
+    get_user_holdings,
+)
 
 LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
 
@@ -927,6 +932,45 @@ class MiscCog(commands.Cog):
                     f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
                 )
 
+            if sec == "ticker":
+                channel_id = shared.runtime_settings.get("ticker_channel_id")
+                channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+                if not args:
+                    state = "ON" if channel_id else "OFF"
+                    return await ctx.send(
+                        f"Daily ticker: **{state}** in {channel_text} (hourly ticks 8 AM-11 PM Central; morning post at 8 AM)"
+                    )
+                action = args[0].strip().lower()
+                if action == "on":
+                    target = ctx.channel
+                    if ctx.message.channel_mentions:
+                        target = ctx.message.channel_mentions[0]
+                    shared.runtime_settings["ticker_channel_id"] = target.id
+                    shared._save_json_setting("ticker_channel_id", target.id)
+                    return await ctx.send(
+                        f"Daily ticker is now **ON** in {target.mention} at 8 AM Central."
+                    )
+                if action == "off":
+                    shared.runtime_settings["ticker_channel_id"] = None
+                    shared._save_json_setting("ticker_channel_id", None)
+                    return await ctx.send("Daily ticker is now **OFF**.")
+                if action == "status":
+                    state = "ON" if channel_id else "OFF"
+                    return await ctx.send(
+                        f"Daily ticker: **{state}** in {channel_text}"
+                    )
+                if action == "now":
+                    stocks_cog = self.bot.get_cog("StocksCog")
+                    if stocks_cog is None:
+                        return await ctx.send("StocksCog is not loaded.")
+                    if not channel_id:
+                        return await ctx.send("Set a ticker channel first with `.settings ticker on [#channel]`.")
+                    await stocks_cog._post_morning_announcement()
+                    return
+                return await ctx.send(
+                    f"Usage: `{PREFIX}settings ticker <on [#channel]|off|status|now>`"
+                )
+
             if sec == "deadchat":
                 if not args:
                     state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
@@ -1154,6 +1198,10 @@ class MiscCog(commands.Cog):
         weather_text = f"<#{int(weather_channel_id)}>" if weather_channel_id else "(not set)"
         weather_city = shared.runtime_settings.get("weather_alert_city", "Champaign")
         embed.add_field(name="Weather Alert", value=f"{weather_state}\n{weather_text}\n{weather_city}", inline=True)
+        ticker_channel_id = shared.runtime_settings.get("ticker_channel_id")
+        ticker_state = "ON" if ticker_channel_id else "OFF"
+        ticker_text = f"<#{int(ticker_channel_id)}>" if ticker_channel_id else "(not set)"
+        embed.add_field(name="Stock Ticker", value=f"{ticker_state}\n{ticker_text}", inline=True)
         _channel_keys = (
             "guild_join_report_channel_id", "kids_interaction_log_channel_id",
             "bug_report_channel_id", "feature_request_channel_id", "request_tracking_channel_id",
@@ -1448,6 +1496,25 @@ class MiscCog(commands.Cog):
                 ),
                 inline=True,
             )
+            holdings_count = len(get_user_holdings(user_id))
+            port_value, port_cost = get_portfolio_value(user_id)
+            unrealized = port_value - port_cost
+            realized = get_realized_pl(user_id)
+            balance = shared.get_balance(user_id)
+            net_worth = balance + port_value
+            unr_sign = "+" if unrealized >= 0 else ""
+            real_sign = "+" if realized >= 0 else ""
+            embed.add_field(
+                name="📈 Stocks",
+                value=(
+                    f"Holdings: **{holdings_count}** ticker{'s' if holdings_count != 1 else ''}\n"
+                    f"Portfolio: **${port_value:,.0f}** "
+                    f"(unrealized **{unr_sign}{unrealized:,.0f}**)\n"
+                    f"Realized P/L: **{real_sign}{realized:,.0f}**\n"
+                    f"Net worth: **{net_worth:,.0f}** coins"
+                ),
+                inline=True,
+            )
         await ctx.send(embed=embed)
 
     # ---------------------------------------------------------------------------
@@ -1516,6 +1583,14 @@ class MiscCog(commands.Cog):
                 f"`{p}blackjack <amt>` - Play blackjack\n"
                 f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
                 f"`{p}bjrules` - Show current blackjack table rules"
+            ), inline=False)
+        if not kids_mode:
+            embed.add_field(name="Stocks", value=(
+                f"`{p}stocks` - List prices and overnight changes\n"
+                f"`{p}stocks <TICKER>` - Per-ticker detail with 7-day sparkline\n"
+                f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (qty, full balance, or coin amount)\n"
+                f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares\n"
+                f"`{p}portfolio [@user]` - Holdings + unrealized P/L"
             ), inline=False)
         puzzle_help = (
             f"`{p}puzzle` / `{p}solve <answer>` - Practice puzzle"
@@ -1586,6 +1661,9 @@ class MiscCog(commands.Cog):
                 "coinflip", "slots", "blackjack", "hit", "stand", "double",
                 "split", "surrender", "bjrules"
             ])
+            self._add_alias_field(embed, "Stocks", [
+                "stocks", "buy", "sell", "portfolio"
+            ])
         self._add_alias_field(embed, "Games", [
             "ttt", "c4", "hangman", "g", "rps", "roll", "mathgame",
             "mathanswer", "memory", "memoryanswer", "trivia", "triviaanswer",
@@ -1622,6 +1700,7 @@ class MiscCog(commands.Cog):
             f"`{p}settings kids <on|off|status>` - Server kids mode\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#ch]>` - Gary gambling\n"
             f"`{p}settings weather <on [#ch]|off|status|city <name>>` - 8 AM weather alert\n"
+            f"`{p}settings ticker <on [#ch]|off|status|now>` - 8 AM stock ticker\n"
             f"`{p}settings deadchat <on|off|status>` - Dead chat callouts\n"
             f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI\n"
             f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"

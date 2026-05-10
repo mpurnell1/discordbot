@@ -203,6 +203,46 @@ def init_db():
             outcome TEXT
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stock_prices (
+            ticker TEXT PRIMARY KEY,
+            price REAL NOT NULL,
+            prev_close REAL NOT NULL,
+            last_updated TEXT NOT NULL
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stock_holdings (
+            user_id INTEGER NOT NULL,
+            ticker TEXT NOT NULL,
+            shares INTEGER NOT NULL,
+            avg_cost REAL NOT NULL,
+            PRIMARY KEY (user_id, ticker)
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stock_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            ticker TEXT NOT NULL,
+            action TEXT NOT NULL,
+            shares INTEGER NOT NULL,
+            price REAL NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
+    try:
+        db.execute("ALTER TABLE stock_trades ADD COLUMN realized_pl REAL")
+    except sqlite3.OperationalError:
+        pass
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stock_price_history (
+            ticker TEXT NOT NULL,
+            date TEXT NOT NULL,
+            price REAL NOT NULL,
+            PRIMARY KEY (ticker, date)
+        )
+    """)
     db.commit()
     return db
 
@@ -242,6 +282,9 @@ SETTINGS_DEFAULTS = {
     "feature_request_channel_id": None,
     "request_tracking_channel_id": None,
     "silas_bot_id": None,
+    "ticker_channel_id": None,
+    "ticker_last_morning_date": None,
+    "ticker_last_tick_key": None,
 }
 PROTECTED_ADMIN_COMMANDS = {
     "adminhelp",
@@ -261,6 +304,11 @@ KIDS_MODE_BLOCKED_COMMANDS = {
     "give",
     "invite",
     "botstat",
+    # Stocks (economy adjacent).
+    "stocks",
+    "buy",
+    "sell",
+    "portfolio",
     # Gambling and blackjack-adjacent actions.
     "coinflip",
     "slots",
@@ -309,6 +357,10 @@ KIDS_MODE_BLOCKED_FEATURES = {
     "cmd:give",
     "cmd:invite",
     "cmd:stats",
+    "cmd:stocks",
+    "cmd:buy",
+    "cmd:sell",
+    "cmd:portfolio",
     "dead_chat",
     "late_night",
     "mention_reply",
@@ -750,6 +802,16 @@ def load_runtime_settings():
         runtime_settings[key] = int(raw) if raw else None
     silas_raw = _load_json_setting("silas_bot_id", SETTINGS_DEFAULTS["silas_bot_id"])
     runtime_settings["silas_bot_id"] = int(silas_raw) if silas_raw else None
+    ticker_channel_val = _load_json_setting(
+        "ticker_channel_id", SETTINGS_DEFAULTS["ticker_channel_id"]
+    )
+    runtime_settings["ticker_channel_id"] = int(ticker_channel_val) if ticker_channel_val else None
+    runtime_settings["ticker_last_morning_date"] = _load_json_setting(
+        "ticker_last_morning_date", SETTINGS_DEFAULTS["ticker_last_morning_date"]
+    )
+    runtime_settings["ticker_last_tick_key"] = _load_json_setting(
+        "ticker_last_tick_key", SETTINGS_DEFAULTS["ticker_last_tick_key"]
+    )
 
 
 def normalize_feature_name(feature: str) -> str:

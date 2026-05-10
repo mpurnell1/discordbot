@@ -60,6 +60,7 @@ Rotation policy:
 - `modules/economy.py`: economy, puzzle, and gambling commands
 - `modules/games.py`: ttt/c4/hangman game commands and listeners
 - `modules/misc.py`: weather/fun/quotes/admin/help/stats/invite
+- `modules/stocks.py`: simulated stock market (curated tickers, twice-daily price ticks, morning ticker post)
 
 ## Commands
 
@@ -74,6 +75,11 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.coinflip <amount>` | `.cf` | Double or nothing |
 | `.slots <amount>` | | Slot machine |
 | `.blackjack <amount>` | `.bj` | Blackjack (then `.hit` / `.stand`) |
+| `.stocks` | `.stox`, `.market`, `.ticker` | Show current simulated stock prices and overnight % change |
+| `.stocks <TICKER>` | | Per-ticker detail with 7-day sparkline and your position |
+| `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares — accepts a share count (`5`), `all` (spend full balance), or coin budget (`$500`) |
+| `.sell <TICKER> <qty\|all\|$coins>` | | Sell shares — accepts a count, `all`, or `$<coins>` worth |
+| `.portfolio [@user]` | `.port` | Show holdings + unrealized P/L |
 | `.ttt @user` | | Tic-tac-toe (use `.m <1-9>`) |
 | `.c4 @user` | | Connect 4 (use `.drop <1-7>` or `.m <1-7>`) |
 | `.hangman` | | Start hangman |
@@ -119,6 +125,7 @@ Kids mode is server-specific and persisted in SQLite. It is intended for servers
 Kids mode disables:
 
 - Economy commands: `.guess`, `.balance`, `.leaderboard`, `.give`, `.repuzzle` (and the auto-daily-award)
+- Stocks commands: `.stocks`, `.buy`, `.sell`, `.portfolio`
 - Gambling commands: `.coinflip`, `.slots`, `.blackjack`, blackjack actions, and `.bjrules`
 - All AI: `.ask`, `.rp`, `.stoprp`, mention replies, unsolicited AI, Silas roleplay/banter/reacts, and autonomous gambling in that server
 - All passive behavior: dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions
@@ -151,6 +158,17 @@ Posts current weather plus a 4-day forecast at 8 AM Central in the configured ch
 - `.settings weather off` -> disable
 - `.settings weather status` -> show state, channel, and city
 - `.settings weather city <name>` -> set the city used for alerts (defaults to Champaign)
+
+### Daily 8 AM stock ticker
+
+Posts every ticker's current price and overnight % change at 8 AM Central in the configured channel. Prices tick hourly between 8 AM and 11 PM Central (16 ticks/day); only the first tick of the day produces a public announcement, the rest are silent so live prices drift throughout the day.
+
+- `.settings ticker on [#channel]` -> enable in current channel (or specified channel)
+- `.settings ticker off` -> disable
+- `.settings ticker status` -> show state and channel
+- `.settings ticker now` -> force-post the morning ticker right now (useful for testing)
+
+Tickers are a curated, fully simulated set (GARY, SILS, COIN, DOGE, WORD, DEAD) defined in `modules/stocks.py`. Each has its own drift and volatility — DOGE swings hard, COIN is a stable index, DEAD trends down. No real-market API is used.
 
 ### Passive AI features
 
