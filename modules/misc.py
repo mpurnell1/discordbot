@@ -1635,7 +1635,7 @@ class MiscCog(commands.Cog):
             ), inline=False)
         if not kids_mode:
             embed.add_field(name="Info", value=(
-                f"`{p}stats` - Bot stats and usage\n"
+                f"`{p}stats [@user]` - Your stats or head-to-head record\n"
                 f"`{p}invite` / `{p}invite kids` - Get invite link\n"
                 f"`{p}alias` - Show command aliases\n"
                 f"`{p}bugreport <description>` - Report a bug\n"
@@ -1684,7 +1684,7 @@ class MiscCog(commands.Cog):
             self._add_alias_field(embed, "Quotes", ["quote", "quotes", "unquote"])
         if ctx.author.id == ADMIN_ID:
             self._add_alias_field(embed, "Admin", [
-                "adminhelp", "settings", "say", "give", "clear", "restart"
+                "adminhelp", "settings", "say", "give", "clear", "restart", "botstat"
             ])
         await ctx.send(embed=embed)
 
@@ -1710,6 +1710,7 @@ class MiscCog(commands.Cog):
             f"`{p}settings silas <id|banter|react> [value]` - Silas bot config"
         ), inline=False)
         embed.add_field(name="Admin Utils", value=(
+            f"`{p}botstat` - Runtime bot stats and usage\n"
             f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
             f"`{p}give @user <amount>` - Add/remove coins\n"
             f"`{p}clear <n>` - Delete last n messages from Gary\n"
