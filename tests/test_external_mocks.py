@@ -4,11 +4,13 @@ Tests assert behavior at the function boundary — never hit a real network.
 """
 import asyncio
 import re
+from datetime import datetime
 
 import pytest
 from aioresponses import aioresponses
 
 import shared
+from shared import CENTRAL_TZ
 
 
 # Match either URL with or without a trailing query string.
@@ -87,7 +89,7 @@ class TestWeatherFetch:
         }
         with aioresponses() as m:
             m.get(_WEATHER_RE, status=200, payload=payload)
-            embed = await cog._fetch_weather_embed("Champaign", include_forecast=False)
+            embed = await cog._fetch_weather_embed("Champaign")
 
         assert embed is not None
         assert embed.title == "Weather in Champaign"
@@ -133,12 +135,48 @@ class TestWeatherFetch:
         with aioresponses() as m:
             m.get(_WEATHER_RE, status=200, payload=current)
             m.get(_FORECAST_RE, status=200, payload=forecast)
-            embed = await cog._fetch_weather_embed("Champaign", include_forecast=True)
+            embed = await cog._fetch_weather_embed("Champaign", forecast_mode="multi_day")
 
         assert embed is not None
         # The forecast section adds a "— Daily Forecast —" header field.
         assert any("Daily Forecast" in str(f.value) for f in embed.fields), \
             f"forecast section not found in fields: {[(f.name, f.value) for f in embed.fields]}"
+
+    async def test_today_forecast_adds_single_day_high_low_rain_chance(self, cog):
+        current = {
+            "name": "Champaign",
+            "main": {"temp": 72.5, "feels_like": 70.0, "humidity": 60},
+            "weather": [{"description": "clear sky", "icon": "01d"}],
+            "wind": {"speed": 5.5},
+        }
+        today = datetime.now(CENTRAL_TZ)
+        forecast = {
+            "list": [
+                {
+                    "dt": int(today.replace(hour=9, minute=0, second=0, microsecond=0).timestamp()),
+                    "main": {"temp_max": 74.0, "temp_min": 62.0},
+                    "weather": [{"description": "sunny"}],
+                    "pop": 0.1,
+                },
+                {
+                    "dt": int(today.replace(hour=15, minute=0, second=0, microsecond=0).timestamp()),
+                    "main": {"temp_max": 81.0, "temp_min": 66.0},
+                    "weather": [{"description": "light rain"}],
+                    "pop": 0.45,
+                },
+            ]
+        }
+        with aioresponses() as m:
+            m.get(_WEATHER_RE, status=200, payload=current)
+            m.get(_FORECAST_RE, status=200, payload=forecast)
+            embed = await cog._fetch_weather_embed("Champaign", forecast_mode="today")
+
+        fields = {f.name: f.value for f in embed.fields}
+        assert "Today's Forecast" in fields
+        assert "High: **81°F**" in fields["Today's Forecast"]
+        assert "Low: **62°F**" in fields["Today's Forecast"]
+        assert "Rain chance: **45%**" in fields["Today's Forecast"]
+        assert not any("Daily Forecast" in str(f.value) for f in embed.fields)
 
 
 class TestCleanCity:

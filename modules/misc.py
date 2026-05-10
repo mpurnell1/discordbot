@@ -272,8 +272,13 @@ class MiscCog(commands.Cog):
             return cleaned + ",US"
         return cleaned
 
-    async def _fetch_weather_embed(self, city: str, title_prefix: str = "Weather in", include_forecast: bool = False):
-        """Fetch current weather (and optionally daily forecast) and return an embed, or None on failure."""
+    async def _fetch_weather_embed(
+        self,
+        city: str,
+        title_prefix: str = "Weather in",
+        forecast_mode: str | None = None,
+    ):
+        """Fetch current weather and optional forecast summary; return an embed, or None on failure."""
         cleaned = self._clean_city(city)
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {"q": cleaned, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
@@ -285,8 +290,11 @@ class MiscCog(commands.Cog):
                         return None
                     data = await resp.json()
                 forecast_days = None
-                if include_forecast:
+                today_forecast = None
+                if forecast_mode == "multi_day":
                     forecast_days = await self._fetch_forecast_days(session, cleaned)
+                elif forecast_mode == "today":
+                    today_forecast = await self._fetch_today_forecast(session, cleaned)
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return None
 
@@ -306,6 +314,17 @@ class MiscCog(commands.Cog):
         embed.add_field(name="Humidity", value=f"{humidity}%", inline=True)
         embed.add_field(name="Wind", value=f"{wind:.0f} mph", inline=True)
 
+        if today_forecast:
+            embed.add_field(
+                name="Today's Forecast",
+                value=(
+                    f"High: **{today_forecast['high']:.0f}°F**\n"
+                    f"Low: **{today_forecast['low']:.0f}°F**\n"
+                    f"Rain chance: **{today_forecast['rain_chance']:.0f}%**"
+                ),
+                inline=True,
+            )
+
         if forecast_days:
             embed.add_field(name="​", value="**— Daily Forecast —**", inline=False)
             for label, day in list(forecast_days.items())[:4]:
@@ -317,6 +336,31 @@ class MiscCog(commands.Cog):
                 )
 
         return embed
+
+    async def _fetch_today_forecast(self, session: aiohttp.ClientSession, cleaned_city: str):
+        """Fetch today's 3-hour forecast entries and summarize high/low/rain chance."""
+        url = "https://api.openweathermap.org/data/2.5/forecast"
+        params = {"q": cleaned_city, "appid": OPENWEATHER_API_KEY, "units": "imperial", "cnt": 8}
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return None
+
+        today = datetime.now(CENTRAL_TZ).date()
+        entries = [
+            entry for entry in data.get("list", [])
+            if datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ).date() == today
+        ]
+        if not entries:
+            return None
+
+        high = max(entry["main"]["temp_max"] for entry in entries)
+        low = min(entry["main"]["temp_min"] for entry in entries)
+        rain_chance = max(float(entry.get("pop", 0.0)) for entry in entries) * 100.0
+        return {"high": high, "low": low, "rain_chance": rain_chance}
 
     async def _fetch_forecast_days(self, session: aiohttp.ClientSession, cleaned_city: str):
         """Fetch 5-day/3-hour forecast and return an ordered dict of daily summaries."""
@@ -346,14 +390,14 @@ class MiscCog(commands.Cog):
     @commands.command(aliases=["w"])
     async def weather(self, ctx, *, city: str = "Champaign"):
         """Get the weather for a city. Append 'forecast' for a daily forecast."""
-        include_forecast = False
+        forecast_mode = None
         if city.lower() == "forecast":
             city = "Champaign"
-            include_forecast = True
+            forecast_mode = "multi_day"
         elif city.lower().endswith(" forecast"):
             city = city[:-9].strip()
-            include_forecast = True
-        embed = await self._fetch_weather_embed(city, include_forecast=include_forecast)
+            forecast_mode = "multi_day"
+        embed = await self._fetch_weather_embed(city, forecast_mode=forecast_mode)
         if embed is None:
             return await ctx.send(f"Couldn't find weather for **{city}** (or service unavailable).")
         await ctx.send(embed=embed)
@@ -374,7 +418,7 @@ class MiscCog(commands.Cog):
         if channel is None:
             return
         city = shared.runtime_settings.get("weather_alert_city", "Champaign")
-        embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —", include_forecast=True)
+        embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —", forecast_mode="today")
         if embed is None:
             return
         await channel.send(embed=embed)
