@@ -1,8 +1,6 @@
 """Tests for activity streaks and Gary session tracking."""
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
-
-import pytest
 
 import shared
 from shared import (
@@ -57,7 +55,6 @@ class datetime_with_fixed_now:
 
 def test_streak_first_day_is_one():
     _ensure_user()
-    today = date(2026, 5, 9)
     with patch("shared.datetime") as mock_dt:
         mock_dt.now.return_value = datetime(2026, 5, 9, 12, 0, 0, tzinfo=_CENTRAL)
         mock_dt.fromisoformat = datetime.fromisoformat
@@ -256,7 +253,7 @@ def test_multiple_sessions_aggregate_correctly():
     log_gary_session_end(s1, 1400, "take_profit")  # +400
     s2 = log_gary_session_start(1400)
     log_gary_session_end(s2, 1050, "stop_loss")    # -350
-    s3 = log_gary_session_start(1050)
+    log_gary_session_start(1050)
     # s3 still ongoing — should be excluded
 
     stats = get_gary_gamble_stats()

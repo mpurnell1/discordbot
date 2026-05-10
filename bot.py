@@ -13,7 +13,6 @@ from shared import (
     ADMIN_ID,
     DAILY_AMOUNT,
     CENTRAL_TZ,
-    STREAK_MILESTONES,
     COLOR_DEFAULT,
     COLOR_SUCCESS,
     COLOR_WARNING,
