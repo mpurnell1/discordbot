@@ -917,7 +917,7 @@ class EconomyCog(commands.Cog):
     # GAMBLING: COINFLIP
     # ---------------------------------------------------------------------------
 
-    @commands.command(aliases=["cf"])
+    @commands.command(aliases=["cf", "flip"])
     async def coinflip(self, ctx, amount: int):
         """Flip a coin — double or nothing."""
         if await check_bet(ctx, amount):
