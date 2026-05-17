@@ -76,7 +76,7 @@ Rotation policy:
 - `modules/economy.py`: economy, puzzle, and gambling commands
 - `modules/games.py`: ttt/c4/hangman game commands and listeners
 - `modules/misc.py`: weather/fun/quotes/admin/help/stats/invite
-- `modules/stocks.py`: simulated stock market (curated tickers, hourly daytime price ticks, morning ticker post)
+- `modules/stocks.py`: real US stock market via Yahoo Finance (curated tickers + user-added, hourly price refresh during NYSE hours, fractional shares, morning ticker post)
 
 ## Commands
 
@@ -92,10 +92,11 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.slots <amount>` | `.slot` | Slot machine |
 | `.blackjack <amount>` | `.bj`, `.21` | Blackjack (then `.hit`, `.stand`, `.double`, `.split`, or `.surrender`) |
 | `.bjrules` | `.bjtable` | Show current blackjack table rules |
-| `.stocks` | `.stox`, `.market`, `.ticker` | Show current simulated stock prices and overnight % change |
+| `.stocks` | `.stox`, `.market`, `.ticker` | Show tradable US tickers with live prices and change vs prev close |
 | `.stocks <TICKER>` | | Per-ticker detail with 7-day sparkline and your position |
-| `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares — accepts a share count (`5`), `all` (spend full balance), or coin budget (`$500`) |
-| `.sell <TICKER> <qty\|all\|$coins>` | | Sell shares — accepts a count, `all`, or `$<coins>` worth |
+| `.stocks add <TICKER>` | | Add any valid US ticker (validated via Yahoo Finance) to the tradable list |
+| `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares (fractional allowed) — accepts a share count (`5` / `0.25`), `all` (spend full balance), or coin budget (`$500`) |
+| `.sell <TICKER> <qty\|all\|$coins>` | | Sell shares (fractional allowed) — accepts a count, `all`, or `$<coins>` worth |
 | `.portfolio [@user]` | `.port` | Show holdings + unrealized P/L |
 | `.ttt @user` | | Tic-tac-toe (use `.m <1-9>`) |
 | `.c4 @user` | | Connect 4 (use `.drop <1-7>` or `.m <1-7>`) |
@@ -179,16 +180,18 @@ Posts current weather plus today's high, low, and rain chance at 8 AM Central in
 - `.settings weather status` -> show state, channel, and city
 - `.settings weather city <name>` -> set the city used for alerts (defaults to Champaign)
 
-### Daily 8 AM stock ticker
+### Daily stock ticker post
 
-Posts every ticker's current price and overnight % change at 8 AM Central in the configured channel. Prices tick hourly between 8 AM and 11 PM Central (16 ticks/day); only the first tick of the day produces a public announcement, the rest are silent so live prices drift throughout the day.
+Posts every tradable ticker's current price and change vs prev close in the configured channel. The morning post fires on the first tick of each trading day after NYSE open (9:30 AM ET / 8:30 AM CT, weekdays). Prices refresh once an hour while the market is open; outside NYSE hours the last close stays on display and trades fill at that price.
 
 - `.settings ticker on [#channel]` -> enable in current channel (or specified channel)
 - `.settings ticker off` -> disable
 - `.settings ticker status` -> show state and channel
 - `.settings ticker now` -> force-post the morning ticker right now (useful for testing)
 
-Tickers are a curated, fully simulated set (GARY, SILS, COIN, DOGE, WORD, DEAD) defined in `modules/stocks.py`. Each has its own drift and volatility — DOGE swings hard, COIN is a stable index, DEAD trends down. No real-market API is used.
+Tickers come from a curated seed list (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD, NFLX, DIS, SPY, QQQ) seeded on first boot into `stock_tickers`. Anyone can add more with `.stocks add <SYM>` — Yahoo Finance validates the symbol before it's registered. Prices, prev close, and 7-day history are all pulled from Yahoo Finance via the [yfinance](https://pypi.org/project/yfinance/) library. No API key is required.
+
+Fractional shares are supported (minimum trade size 0.0001 shares). Coin balances stay integer; cost and proceeds are rounded to the nearest coin.
 
 ### Passive AI features
 

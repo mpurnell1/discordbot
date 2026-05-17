@@ -1011,7 +1011,9 @@ class MiscCog(commands.Cog):
                 if not args:
                     state = "ON" if channel_id else "OFF"
                     return await ctx.send(
-                        f"Daily ticker: **{state}** in {channel_text} (hourly ticks 8 AM-11 PM Central; morning post at 8 AM)"
+                        f"Daily ticker: **{state}** in {channel_text} "
+                        "(prices refresh hourly during NYSE hours; "
+                        "morning post on first weekday tick)"
                     )
                 action = args[0].strip().lower()
                 if action == "on":
@@ -1021,7 +1023,9 @@ class MiscCog(commands.Cog):
                     shared.runtime_settings["ticker_channel_id"] = target.id
                     shared._save_json_setting("ticker_channel_id", target.id)
                     return await ctx.send(
-                        f"Daily ticker is now **ON** in {target.mention} at 8 AM Central."
+                        f"Daily ticker is now **ON** in {target.mention}. "
+                        "Morning post fires on the first weekday tick after "
+                        "NYSE open (9:30 AM ET / 8:30 AM CT)."
                     )
                 if action == "off":
                     shared.runtime_settings["ticker_channel_id"] = None
@@ -1695,11 +1699,12 @@ class MiscCog(commands.Cog):
                 f"`{p}bjrules` - Show current blackjack table rules"
             ), inline=False)
         if not kids_mode:
-            embed.add_field(name="Stocks", value=(
-                f"`{p}stocks` - List prices and overnight changes\n"
+            embed.add_field(name="Stocks (real US market via Yahoo Finance)", value=(
+                f"`{p}stocks` - List tradable tickers with prices and overnight change\n"
                 f"`{p}stocks <TICKER>` - Per-ticker detail with 7-day sparkline\n"
-                f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (qty, full balance, or coin amount)\n"
-                f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares\n"
+                f"`{p}stocks add <TICKER>` - Add any valid US ticker to the tradable list\n"
+                f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (fractional allowed)\n"
+                f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares (fractional allowed)\n"
                 f"`{p}portfolio [@user]` - Holdings + unrealized P/L"
             ), inline=False)
         puzzle_help = (
@@ -1782,7 +1787,7 @@ class MiscCog(commands.Cog):
             f"`{p}settings kids <on|off|status>` - Server kids mode\n"
             f"`{p}settings gamble <on|off|status|now|channel|report [#ch]>` - Gary gambling\n"
             f"`{p}settings weather <on [#ch]|off|status|city <name>>` - 8 AM weather alert\n"
-            f"`{p}settings ticker <on [#ch]|off|status|now>` - 8 AM stock ticker\n"
+            f"`{p}settings ticker <on [#ch]|off|status|now>` - Daily NYSE-open stock ticker post\n"
             f"`{p}settings deadchat <on|off|status>` - Dead chat callouts\n"
             f"`{p}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>` - Passive AI\n"
             f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"

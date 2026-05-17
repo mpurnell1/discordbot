@@ -215,7 +215,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS stock_holdings (
             user_id INTEGER NOT NULL,
             ticker TEXT NOT NULL,
-            shares INTEGER NOT NULL,
+            shares REAL NOT NULL,
             avg_cost REAL NOT NULL,
             PRIMARY KEY (user_id, ticker)
         )
@@ -226,7 +226,7 @@ def init_db():
             user_id INTEGER NOT NULL,
             ticker TEXT NOT NULL,
             action TEXT NOT NULL,
-            shares INTEGER NOT NULL,
+            shares REAL NOT NULL,
             price REAL NOT NULL,
             timestamp TEXT NOT NULL
         )
@@ -235,14 +235,50 @@ def init_db():
         db.execute("ALTER TABLE stock_trades ADD COLUMN realized_pl REAL")
     except sqlite3.OperationalError:
         pass
+    # Registry of tradable US tickers. Seeded with a curated list in
+    # modules/stocks.py on first boot; users can add more via `.stocks add SYM`.
     db.execute("""
-        CREATE TABLE IF NOT EXISTS stock_price_history (
-            ticker TEXT NOT NULL,
-            date TEXT NOT NULL,
-            price REAL NOT NULL,
-            PRIMARY KEY (ticker, date)
+        CREATE TABLE IF NOT EXISTS stock_tickers (
+            ticker TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            added_by INTEGER,
+            added_at TEXT NOT NULL
         )
     """)
+    # ----- One-time migration: retire the old simulated tickers -----
+    # If any of the legacy fake-market tickers still exist in stock_prices,
+    # liquidate every open position at the last known price (refund coins to
+    # balance), wipe their trade history's realized P/L from totals (we drop
+    # the trades along with the holdings), and remove the price rows so the
+    # new yfinance-backed seeding can take over.
+    _LEGACY_FAKE_TICKERS = ("GARY", "SILS", "COIN", "DOGE", "WORD", "DEAD")
+    legacy_present = db.execute(
+        f"SELECT ticker, price FROM stock_prices WHERE ticker IN ({','.join('?' * len(_LEGACY_FAKE_TICKERS))})",
+        _LEGACY_FAKE_TICKERS,
+    ).fetchall()
+    if legacy_present:
+        legacy_prices = {t: float(p) for t, p in legacy_present}
+        # Refund every legacy holding to its owner at the last known price.
+        legacy_holdings = db.execute(
+            f"SELECT user_id, ticker, shares FROM stock_holdings WHERE ticker IN ({','.join('?' * len(_LEGACY_FAKE_TICKERS))})",
+            _LEGACY_FAKE_TICKERS,
+        ).fetchall()
+        for user_id, ticker, shares in legacy_holdings:
+            refund = int(round(float(shares) * legacy_prices.get(ticker, 0.0)))
+            if refund <= 0:
+                continue
+            db.execute(
+                "INSERT INTO users (user_id, balance) VALUES (?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
+                (user_id, refund, refund),
+            )
+        placeholders = ",".join("?" * len(_LEGACY_FAKE_TICKERS))
+        db.execute(f"DELETE FROM stock_holdings WHERE ticker IN ({placeholders})", _LEGACY_FAKE_TICKERS)
+        db.execute(f"DELETE FROM stock_trades   WHERE ticker IN ({placeholders})", _LEGACY_FAKE_TICKERS)
+        db.execute(f"DELETE FROM stock_prices   WHERE ticker IN ({placeholders})", _LEGACY_FAKE_TICKERS)
+    # The old per-day sparkline snapshot table is gone — we now pull history
+    # straight from yfinance during the hourly tick and cache it in memory.
+    db.execute("DROP TABLE IF EXISTS stock_price_history")
     db.commit()
     return db
 
