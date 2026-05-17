@@ -305,8 +305,19 @@ class MiscCog(commands.Cog):
         wind = data["wind"]["speed"]
         icon = data["weather"][0]["icon"]
         name = data["name"]
+        country = data.get("sys", {}).get("country", "")
 
-        embed = discord.Embed(title=f"{title_prefix} {name}", color=COLOR_DEFAULT)
+        location_suffix = ""
+        if country == "US":
+            parts = [p.strip() for p in cleaned.split(",")]
+            if len(parts) >= 3 and parts[-1].upper() == "US":
+                candidate = parts[-2]
+                if len(candidate) == 2 and candidate.isalpha():
+                    location_suffix = f", {candidate.upper()}"
+        elif country:
+            location_suffix = f", {country}"
+
+        embed = discord.Embed(title=f"{title_prefix} {name}{location_suffix}", color=COLOR_DEFAULT)
         embed.set_thumbnail(url=f"https://openweathermap.org/img/wn/{icon}@2x.png")
         embed.add_field(name="Condition", value=desc, inline=True)
         embed.add_field(name="Temp", value=f"{temp:.0f}°F", inline=True)
