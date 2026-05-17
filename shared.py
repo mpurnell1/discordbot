@@ -246,25 +246,26 @@ def init_db():
         )
     """)
     # ----- One-time migration: retire the old simulated tickers -----
-    # If any of the legacy fake-market tickers still exist in stock_prices,
-    # liquidate every open position at the last known price (refund coins to
-    # balance), wipe their trade history's realized P/L from totals (we drop
-    # the trades along with the holdings), and remove the price rows so the
-    # new yfinance-backed seeding can take over.
+    # The simulated market's last "price" was itself fabricated, so we refund
+    # every open position at the user's avg_cost — they get back exactly what
+    # they paid in, zero realized P/L. Each refund is logged to balance_history
+    # for auditability. Legacy trade rows are dropped along with the holdings
+    # and price rows so the new yfinance-backed seeding can take over cleanly.
     _LEGACY_FAKE_TICKERS = ("GARY", "SILS", "COIN", "DOGE", "WORD", "DEAD")
+    _legacy_placeholders = ",".join("?" * len(_LEGACY_FAKE_TICKERS))
     legacy_present = db.execute(
-        f"SELECT ticker, price FROM stock_prices WHERE ticker IN ({','.join('?' * len(_LEGACY_FAKE_TICKERS))})",
+        f"SELECT 1 FROM stock_prices WHERE ticker IN ({_legacy_placeholders}) LIMIT 1",
         _LEGACY_FAKE_TICKERS,
-    ).fetchall()
+    ).fetchone()
     if legacy_present:
-        legacy_prices = {t: float(p) for t, p in legacy_present}
-        # Refund every legacy holding to its owner at the last known price.
         legacy_holdings = db.execute(
-            f"SELECT user_id, ticker, shares FROM stock_holdings WHERE ticker IN ({','.join('?' * len(_LEGACY_FAKE_TICKERS))})",
+            f"SELECT user_id, ticker, shares, avg_cost FROM stock_holdings "
+            f"WHERE ticker IN ({_legacy_placeholders})",
             _LEGACY_FAKE_TICKERS,
         ).fetchall()
-        for user_id, ticker, shares in legacy_holdings:
-            refund = int(round(float(shares) * legacy_prices.get(ticker, 0.0)))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for user_id, ticker, shares, avg_cost in legacy_holdings:
+            refund = int(round(float(shares) * float(avg_cost)))
             if refund <= 0:
                 continue
             db.execute(
@@ -272,10 +273,17 @@ def init_db():
                 "ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
                 (user_id, refund, refund),
             )
-        placeholders = ",".join("?" * len(_LEGACY_FAKE_TICKERS))
-        db.execute(f"DELETE FROM stock_holdings WHERE ticker IN ({placeholders})", _LEGACY_FAKE_TICKERS)
-        db.execute(f"DELETE FROM stock_trades   WHERE ticker IN ({placeholders})", _LEGACY_FAKE_TICKERS)
-        db.execute(f"DELETE FROM stock_prices   WHERE ticker IN ({placeholders})", _LEGACY_FAKE_TICKERS)
+            new_bal = db.execute(
+                "SELECT balance FROM users WHERE user_id = ?", (user_id,)
+            ).fetchone()[0]
+            db.execute(
+                "INSERT INTO balance_history (user_id, balance, timestamp) "
+                "VALUES (?, ?, ?)",
+                (user_id, new_bal, now_iso),
+            )
+        db.execute(f"DELETE FROM stock_holdings WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
+        db.execute(f"DELETE FROM stock_trades   WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
+        db.execute(f"DELETE FROM stock_prices   WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
     # The old per-day sparkline snapshot table is gone — we now pull history
     # straight from yfinance during the hourly tick and cache it in memory.
     db.execute("DROP TABLE IF EXISTS stock_price_history")

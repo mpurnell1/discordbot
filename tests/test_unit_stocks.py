@@ -349,8 +349,10 @@ class TestLegacyMigration:
     the old simulated tickers (GARY/SILS/etc.). Verify here by simulating
     the legacy state and re-running the migration logic."""
 
-    def test_legacy_holdings_are_refunded_and_dropped(self):
-        # Simulate a pre-revamp DB: legacy ticker price + holding.
+    def test_legacy_holdings_are_refunded_at_avg_cost_and_dropped(self):
+        # Simulate a pre-revamp DB: a legacy ticker with a price that diverged
+        # from the user's cost basis. Refund must be at avg_cost (what the
+        # user paid), NOT at the simulated last price.
         shared.db.execute(
             "INSERT INTO stock_prices (ticker, price, prev_close, last_updated) "
             "VALUES ('GARY', 42.00, 42.00, '2026-05-15T12:00:00+00:00')"
@@ -363,13 +365,50 @@ class TestLegacyMigration:
             "VALUES (5555, 'GARY', 10, 40.00)"
         )
         shared.db.commit()
-        # Re-run the legacy purge by reinitializing the schema.
-        # init_db is idempotent and re-running it triggers the migration block.
         shared.init_db()
-        # Holding gone, balance credited by 10 * 42 = 420 → 500 + 420 = 920
+        # Refund = 10 * 40 (avg_cost) = 400 → 500 + 400 = 900
         assert get_user_holding(5555, "GARY") is None
-        assert shared.get_balance(5555) == 920
-        # The legacy ticker row is gone too.
+        assert shared.get_balance(5555) == 900
         assert shared.db.execute(
             "SELECT 1 FROM stock_prices WHERE ticker = 'GARY'"
         ).fetchone() is None
+        # And the refund was logged to balance_history for auditability.
+        last = shared.db.execute(
+            "SELECT balance FROM balance_history WHERE user_id = 5555 "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert last is not None and last[0] == 900
+
+    def test_legacy_migration_creates_user_row_if_missing(self):
+        # A holder that has no row in `users` yet still gets refunded.
+        shared.db.execute(
+            "INSERT INTO stock_prices (ticker, price, prev_close, last_updated) "
+            "VALUES ('DOGE', 1.50, 1.50, '2026-05-15T12:00:00+00:00')"
+        )
+        shared.db.execute(
+            "INSERT INTO stock_holdings (user_id, ticker, shares, avg_cost) "
+            "VALUES (6666, 'DOGE', 100, 2.00)"
+        )
+        shared.db.commit()
+        shared.init_db()
+        # No prior balance row → refund of 200 creates the row at 200.
+        assert shared.get_balance(6666) == 200
+
+    def test_legacy_migration_is_idempotent(self):
+        # Second run after the migration completes must not double-refund.
+        shared.db.execute(
+            "INSERT INTO stock_prices (ticker, price, prev_close, last_updated) "
+            "VALUES ('GARY', 42.00, 42.00, '2026-05-15T12:00:00+00:00')"
+        )
+        shared.db.execute(
+            "INSERT INTO users (user_id, balance) VALUES (?, ?)", (7777, 100)
+        )
+        shared.db.execute(
+            "INSERT INTO stock_holdings (user_id, ticker, shares, avg_cost) "
+            "VALUES (7777, 'GARY', 5, 10.00)"
+        )
+        shared.db.commit()
+        shared.init_db()
+        assert shared.get_balance(7777) == 150  # 100 + 5*10
+        shared.init_db()  # second run = no-op
+        assert shared.get_balance(7777) == 150
