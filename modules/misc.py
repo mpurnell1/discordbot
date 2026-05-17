@@ -44,6 +44,21 @@ from modules.stocks import (
 
 LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
 
+US_STATE_ABBREV = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
+    "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
+    "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA",
+    "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
+    "Virginia": "VA", "Washington": "WA", "West Virginia": "WV", "Wisconsin": "WI",
+    "Wyoming": "WY", "District of Columbia": "DC",
+}
+
 WYR_QUESTIONS = [
     ("Always be 10 minutes late", "Always be 20 minutes early"),
     ("Have unlimited pizza for life", "Have unlimited tacos for life"),
@@ -278,23 +293,37 @@ class MiscCog(commands.Cog):
         title_prefix: str = "Weather in",
         forecast_mode: str | None = None,
     ):
-        """Fetch current weather and optional forecast summary; return an embed, or None on failure."""
+        """Geocode city, fetch current weather by lat/lon, return an embed or None on failure."""
         cleaned = self._clean_city(city)
-        url = "https://api.openweathermap.org/data/2.5/weather"
-        params = {"q": cleaned, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
+        geo_url = "https://api.openweathermap.org/geo/1.0/direct"
+        geo_params = {"q": cleaned, "limit": 1, "appid": OPENWEATHER_API_KEY}
+        weather_url = "https://api.openweathermap.org/data/2.5/weather"
         try:
             timeout = aiohttp.ClientTimeout(total=15)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params=params) as resp:
+                async with session.get(geo_url, params=geo_params) as resp:
+                    if resp.status != 200:
+                        return None
+                    geo_data = await resp.json()
+                if not geo_data:
+                    return None
+                geo = geo_data[0]
+                lat, lon = geo["lat"], geo["lon"]
+                geo_state = geo.get("state", "")
+                geo_country = geo.get("country", "")
+
+                weather_params = {"lat": lat, "lon": lon, "appid": OPENWEATHER_API_KEY, "units": "imperial"}
+                async with session.get(weather_url, params=weather_params) as resp:
                     if resp.status != 200:
                         return None
                     data = await resp.json()
+
                 forecast_days = None
                 today_forecast = None
                 if forecast_mode == "multi_day":
-                    forecast_days = await self._fetch_forecast_days(session, cleaned)
+                    forecast_days = await self._fetch_forecast_days(session, lat, lon)
                 elif forecast_mode == "today":
-                    today_forecast = await self._fetch_today_forecast(session, cleaned)
+                    today_forecast = await self._fetch_today_forecast(session, lat, lon)
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return None
 
@@ -305,17 +334,16 @@ class MiscCog(commands.Cog):
         wind = data["wind"]["speed"]
         icon = data["weather"][0]["icon"]
         name = data["name"]
-        country = data.get("sys", {}).get("country", "")
 
-        location_suffix = ""
-        if country == "US":
-            parts = [p.strip() for p in cleaned.split(",")]
-            if len(parts) >= 3 and parts[-1].upper() == "US":
-                candidate = parts[-2]
-                if len(candidate) == 2 and candidate.isalpha():
-                    location_suffix = f", {candidate.upper()}"
-        elif country:
-            location_suffix = f", {country}"
+        if geo_country == "US":
+            state_code = US_STATE_ABBREV.get(geo_state, geo_state)
+            location_suffix = f", {state_code}" if state_code else ""
+        elif geo_state and geo_country:
+            location_suffix = f", {geo_state}, {geo_country}"
+        elif geo_country:
+            location_suffix = f", {geo_country}"
+        else:
+            location_suffix = ""
 
         embed = discord.Embed(title=f"{title_prefix} {name}{location_suffix}", color=COLOR_DEFAULT)
         embed.set_thumbnail(url=f"https://openweathermap.org/img/wn/{icon}@2x.png")
@@ -348,10 +376,10 @@ class MiscCog(commands.Cog):
 
         return embed
 
-    async def _fetch_today_forecast(self, session: aiohttp.ClientSession, cleaned_city: str):
+    async def _fetch_today_forecast(self, session: aiohttp.ClientSession, lat: float, lon: float):
         """Fetch today's 3-hour forecast entries and summarize high/low/rain chance."""
         url = "https://api.openweathermap.org/data/2.5/forecast"
-        params = {"q": cleaned_city, "appid": OPENWEATHER_API_KEY, "units": "imperial", "cnt": 8}
+        params = {"lat": lat, "lon": lon, "appid": OPENWEATHER_API_KEY, "units": "imperial", "cnt": 8}
         try:
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:
@@ -373,10 +401,10 @@ class MiscCog(commands.Cog):
         rain_chance = max(float(entry.get("pop", 0.0)) for entry in entries) * 100.0
         return {"high": high, "low": low, "rain_chance": rain_chance}
 
-    async def _fetch_forecast_days(self, session: aiohttp.ClientSession, cleaned_city: str):
+    async def _fetch_forecast_days(self, session: aiohttp.ClientSession, lat: float, lon: float):
         """Fetch 5-day/3-hour forecast and return an ordered dict of daily summaries."""
         url = "https://api.openweathermap.org/data/2.5/forecast"
-        params = {"q": cleaned_city, "appid": OPENWEATHER_API_KEY, "units": "imperial", "cnt": 40}
+        params = {"lat": lat, "lon": lon, "appid": OPENWEATHER_API_KEY, "units": "imperial", "cnt": 40}
         try:
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:

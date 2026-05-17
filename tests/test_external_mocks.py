@@ -14,8 +14,22 @@ from shared import CENTRAL_TZ
 
 
 # Match either URL with or without a trailing query string.
+_GEO_RE = re.compile(r"https://api\.openweathermap\.org/geo/1\.0/direct.*")
 _WEATHER_RE = re.compile(r"https://api\.openweathermap\.org/data/2\.5/weather.*")
 _FORECAST_RE = re.compile(r"https://api\.openweathermap\.org/data/2\.5/forecast.*")
+
+_GEO_US = [{"name": "Champaign", "lat": 40.12, "lon": -88.24, "country": "US", "state": "Illinois"}]
+_GEO_GB = [{"name": "London", "lat": 51.51, "lon": -0.13, "country": "GB", "state": "England"}]
+_GEO_JP = [{"name": "Tokyo", "lat": 35.69, "lon": 139.69, "country": "JP"}]
+
+def _current_payload(name="Champaign"):
+    return {
+        "name": name,
+        "main": {"temp": 72.5, "feels_like": 70.0, "humidity": 60},
+        "weather": [{"description": "clear sky", "icon": "01d"}],
+        "wind": {"speed": 5.5},
+        "sys": {"country": "US"},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -81,24 +95,31 @@ class TestWeatherFetch:
         return MiscCog(bot=None)
 
     async def test_returns_embed_on_200_payload(self, cog):
-        payload = {
-            "name": "Champaign",
-            "main": {"temp": 72.5, "feels_like": 70.0, "humidity": 60},
-            "weather": [{"description": "clear sky", "icon": "01d"}],
-            "wind": {"speed": 5.5},
-        }
         with aioresponses() as m:
-            m.get(_WEATHER_RE, status=200, payload=payload)
+            m.get(_GEO_RE, status=200, payload=_GEO_US)
+            m.get(_WEATHER_RE, status=200, payload=_current_payload())
             embed = await cog._fetch_weather_embed("Champaign")
 
         assert embed is not None
-        assert embed.title == "Weather in Champaign"
-        # Each field name should appear in the field list.
+        assert embed.title == "Weather in Champaign, IL"
         names = {f.name for f in embed.fields}
         assert {"Condition", "Temp", "Feels Like", "Humidity", "Wind"} <= names
 
-    async def test_returns_none_on_500(self, cog):
+    async def test_returns_none_on_geo_500(self, cog):
         with aioresponses() as m:
+            m.get(_GEO_RE, status=500, payload={})
+            result = await cog._fetch_weather_embed("Champaign")
+        assert result is None
+
+    async def test_returns_none_on_empty_geo_result(self, cog):
+        with aioresponses() as m:
+            m.get(_GEO_RE, status=200, payload=[])
+            result = await cog._fetch_weather_embed("notacity")
+        assert result is None
+
+    async def test_returns_none_on_weather_500(self, cog):
+        with aioresponses() as m:
+            m.get(_GEO_RE, status=200, payload=_GEO_US)
             m.get(_WEATHER_RE, status=500, payload={})
             result = await cog._fetch_weather_embed("Champaign")
         assert result is None
@@ -106,22 +127,46 @@ class TestWeatherFetch:
     async def test_returns_none_on_connection_error(self, cog):
         import aiohttp
         with aioresponses() as m:
-            m.get(_WEATHER_RE, exception=aiohttp.ClientConnectionError())
+            m.get(_GEO_RE, exception=aiohttp.ClientConnectionError())
             result = await cog._fetch_weather_embed("Champaign")
         assert result is None
 
+    async def test_us_city_shows_state_abbreviation(self, cog):
+        with aioresponses() as m:
+            m.get(_GEO_RE, status=200, payload=_GEO_US)
+            m.get(_WEATHER_RE, status=200, payload=_current_payload())
+            embed = await cog._fetch_weather_embed("Champaign")
+        assert embed.title == "Weather in Champaign, IL"
+
+    async def test_us_city_without_state_shows_no_suffix(self, cog):
+        geo_no_state = [{"name": "Springfield", "lat": 39.8, "lon": -89.6, "country": "US"}]
+        with aioresponses() as m:
+            m.get(_GEO_RE, status=200, payload=geo_no_state)
+            m.get(_WEATHER_RE, status=200, payload=_current_payload("Springfield"))
+            embed = await cog._fetch_weather_embed("Springfield")
+        assert embed.title == "Weather in Springfield"
+
+    async def test_non_us_city_with_state_shows_state_and_country(self, cog):
+        payload = _current_payload("London")
+        with aioresponses() as m:
+            m.get(_GEO_RE, status=200, payload=_GEO_GB)
+            m.get(_WEATHER_RE, status=200, payload=payload)
+            embed = await cog._fetch_weather_embed("London")
+        assert embed.title == "Weather in London, England, GB"
+
+    async def test_non_us_city_without_state_shows_country_only(self, cog):
+        payload = _current_payload("Tokyo")
+        with aioresponses() as m:
+            m.get(_GEO_RE, status=200, payload=_GEO_JP)
+            m.get(_WEATHER_RE, status=200, payload=payload)
+            embed = await cog._fetch_weather_embed("Tokyo")
+        assert embed.title == "Weather in Tokyo, JP"
+
     async def test_forecast_appends_daily_summary_field(self, cog):
-        current = {
-            "name": "Champaign",
-            "main": {"temp": 72.5, "feels_like": 70.0, "humidity": 60},
-            "weather": [{"description": "clear sky", "icon": "01d"}],
-            "wind": {"speed": 5.5},
-        }
-        # Two synthetic forecast entries for the same day.
         forecast = {
             "list": [
                 {
-                    "dt": 1762560000,  # arbitrary unix ts
+                    "dt": 1762560000,
                     "main": {"temp_max": 75.0, "temp_min": 60.0},
                     "weather": [{"description": "sunny"}],
                 },
@@ -133,22 +178,16 @@ class TestWeatherFetch:
             ]
         }
         with aioresponses() as m:
-            m.get(_WEATHER_RE, status=200, payload=current)
+            m.get(_GEO_RE, status=200, payload=_GEO_US)
+            m.get(_WEATHER_RE, status=200, payload=_current_payload())
             m.get(_FORECAST_RE, status=200, payload=forecast)
             embed = await cog._fetch_weather_embed("Champaign", forecast_mode="multi_day")
 
         assert embed is not None
-        # The forecast section adds a "— Daily Forecast —" header field.
         assert any("Daily Forecast" in str(f.value) for f in embed.fields), \
             f"forecast section not found in fields: {[(f.name, f.value) for f in embed.fields]}"
 
     async def test_today_forecast_adds_single_day_high_low_rain_chance(self, cog):
-        current = {
-            "name": "Champaign",
-            "main": {"temp": 72.5, "feels_like": 70.0, "humidity": 60},
-            "weather": [{"description": "clear sky", "icon": "01d"}],
-            "wind": {"speed": 5.5},
-        }
         today = datetime.now(CENTRAL_TZ)
         forecast = {
             "list": [
@@ -167,7 +206,8 @@ class TestWeatherFetch:
             ]
         }
         with aioresponses() as m:
-            m.get(_WEATHER_RE, status=200, payload=current)
+            m.get(_GEO_RE, status=200, payload=_GEO_US)
+            m.get(_WEATHER_RE, status=200, payload=_current_payload())
             m.get(_FORECAST_RE, status=200, payload=forecast)
             embed = await cog._fetch_weather_embed("Champaign", forecast_mode="today")
 
