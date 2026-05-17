@@ -839,18 +839,20 @@ class MiscCog(commands.Cog):
                     "unsolicited": "unsolicited_chance_pct",
                     "silasbanter": "silas_banter_chance_pct",
                     "silasreact": "silas_react_chance_pct",
+                    "latenight": "late_night_chance_pct",
                 }
                 if not args:
                     lines = [
                         f"Unsolicited AI: **{shared.runtime_settings.get('unsolicited_chance_pct', 0)}%**",
                         f"Silas banter: **{shared.runtime_settings.get('silas_banter_chance_pct', 0)}%**",
                         f"Silas react: **{shared.runtime_settings.get('silas_react_chance_pct', 0)}%**",
+                        f"Late night: **{shared.runtime_settings.get('late_night_chance_pct', 0)}%**",
                     ]
                     return await ctx.send("\n".join(lines))
                 target = args[0].strip().lower()
                 if target not in keys:
                     return await ctx.send(
-                        f"Usage: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact> <0-100>`"
+                        f"Usage: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>`"
                     )
                 if len(args) < 2:
                     current = shared.runtime_settings.get(keys[target], 0)
@@ -1215,10 +1217,12 @@ class MiscCog(commands.Cog):
         unsolicited_pct = shared.runtime_settings.get("unsolicited_chance_pct", 0)
         silas_banter_pct = shared.runtime_settings.get("silas_banter_chance_pct", 0)
         silas_react_pct = shared.runtime_settings.get("silas_react_chance_pct", 0)
+        late_night_pct = shared.runtime_settings.get("late_night_chance_pct", 0)
         passive_value = (
             f"Unsolicited: **{unsolicited_pct}%**\n"
             f"Silas banter: **{silas_banter_pct}%**\n"
-            f"Silas react: **{silas_react_pct}%**"
+            f"Silas react: **{silas_react_pct}%**\n"
+            f"Late night: **{late_night_pct}%**"
         )
 
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
@@ -1741,7 +1745,7 @@ class MiscCog(commands.Cog):
             f"`{p}settings weather <on [#ch]|off|status|city <name>>` - 8 AM weather alert\n"
             f"`{p}settings ticker <on [#ch]|off|status|now>` - 8 AM stock ticker\n"
             f"`{p}settings deadchat <on|off|status>` - Dead chat callouts\n"
-            f"`{p}settings passive <unsolicited|silasbanter|silasreact> <0-100>` - Passive AI\n"
+            f"`{p}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>` - Passive AI\n"
             f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"
             f"`{p}settings commands <command> <on|off>` - Toggle command globally\n"
             f"`{p}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#ch]>` - Feature gates\n"

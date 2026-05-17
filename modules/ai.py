@@ -15,7 +15,6 @@ from shared import (
     OLLAMA_REASONING_MODEL,
     LATE_NIGHT_START,
     LATE_NIGHT_END,
-    LATE_NIGHT_CHANCE,
     DEAD_CHAT_THRESHOLDS,
     DEAD_CHAT_CHANNEL,
     LATE_NIGHT_RESPONSES,
@@ -889,7 +888,8 @@ class AICog(commands.Cog):
         ):
             today_str = now.strftime("%Y-%m-%d")
             user_key = f"{message.author.id}-{today_str}"
-            if user_key not in shared.last_late_night and random.random() < LATE_NIGHT_CHANCE:
+            late_night_chance = shared.runtime_settings.get("late_night_chance_pct", 0) / 100.0
+            if user_key not in shared.last_late_night and random.random() < late_night_chance:
                 shared.last_late_night[user_key] = True
                 # Small delay so it doesn't feel instant
                 await asyncio.sleep(random.uniform(2, 8))
