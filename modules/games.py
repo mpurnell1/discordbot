@@ -433,24 +433,26 @@ class GamesCog(commands.Cog):
 
     @commands.command()
     async def memory(self, ctx, level: int = 1):
-        """Start a short memory challenge."""
-        if ctx.author.id in active_memory_games:
-            return await ctx.send(f"You already have a memory game active. Answer it with `{PREFIX}memoryanswer <sequence>`.")
+        """Start a channel-wide memory challenge — first to repeat the sequence wins."""
+        if ctx.channel.id in active_memory_games:
+            return await ctx.send("There's already a memory game in this channel.")
         level = max(1, min(5, level))
         length = level + 2
         sequence = [random.choice(MEMORY_SYMBOLS) for _ in range(length)]
         answer = " ".join(sequence)
-        active_memory_games[ctx.author.id] = {"answer": answer}
+        active_memory_games[ctx.channel.id] = {"answer": answer}
         msg = await ctx.send(embed=make_embed(
             "Memory Game",
-            f"Memorize this sequence:\n\n**{answer}**\n\nIt will hide in 8 seconds.",
+            f"Memorize this sequence:\n\n**{answer}**\n\nHiding in 8 seconds — first to `{PREFIX}memoryanswer <sequence>` wins!",
             COLOR_DEFAULT,
         ))
         await asyncio.sleep(8)
+        if ctx.channel.id not in active_memory_games:
+            return
         try:
             await msg.edit(embed=make_embed(
                 "Memory Game",
-                f"Now repeat the sequence with `{PREFIX}memoryanswer <sequence>`.",
+                f"Sequence hidden! Use `{PREFIX}memoryanswer <sequence>` to answer.",
                 COLOR_DEFAULT,
             ))
         except discord.HTTPException:
@@ -458,66 +460,78 @@ class GamesCog(commands.Cog):
 
     @commands.command(aliases=["memanswer", "memans"])
     async def memoryanswer(self, ctx, *, answer: str):
-        """Answer your current memory challenge."""
-        game = active_memory_games.get(ctx.author.id)
+        """Answer the active memory challenge."""
+        game = active_memory_games.get(ctx.channel.id)
         if not game:
             return await ctx.send(f"No memory game active. Start one with `{PREFIX}memory`.")
         normalized = " ".join(answer.lower().strip().split())
         if normalized == game["answer"]:
-            del active_memory_games[ctx.author.id]
-            return await ctx.send(embed=make_embed("Correct", "You remembered it.", COLOR_SUCCESS))
+            del active_memory_games[ctx.channel.id]
+            return await ctx.send(embed=make_embed(
+                "Correct!",
+                f"{ctx.author.mention} got it!",
+                COLOR_SUCCESS,
+            ))
         await ctx.send(embed=make_embed(
             "Not Quite",
-            f"Try again with `{PREFIX}memoryanswer <sequence>`.",
+            f"{ctx.author.mention} got it wrong — others can still try!",
             COLOR_WARNING,
         ))
 
     @commands.command()
     async def trivia(self, ctx):
-        """Start a kid-safe multiple-choice trivia question."""
+        """Start a channel-wide trivia question — first correct answer wins."""
+        if ctx.channel.id in active_trivia:
+            return await ctx.send("There's already a trivia question active in this channel.")
         item = random.choice(TRIVIA_QUESTIONS)
         letters = ["A", "B", "C", "D"]
         lines = [
             f"**{letter}.** {choice}"
             for letter, choice in zip(letters, item["choices"])
         ]
-        active_trivia[ctx.author.id] = {
+        active_trivia[ctx.channel.id] = {
             "answer": item["answer"],
             "explanation": item["explanation"],
+            "wrong_users": set(),
         }
         await ctx.send(embed=make_embed(
             "Trivia",
-            f"{ctx.author.mention}, {item['question']}\n\n"
+            item["question"] + "\n\n"
             + "\n".join(lines)
-            + f"\n\nUse `{PREFIX}triviaanswer <A|B|C|D>`.",
+            + f"\n\nFirst to `{PREFIX}triviaanswer <A|B|C|D>` wins!",
             COLOR_DEFAULT,
         ))
 
     @commands.command(aliases=["ta"])
     async def triviaanswer(self, ctx, answer: str):
-        """Answer your current trivia question."""
-        game = active_trivia.get(ctx.author.id)
+        """Answer the active trivia question."""
+        game = active_trivia.get(ctx.channel.id)
         if not game:
             return await ctx.send(f"No trivia question active. Start one with `{PREFIX}trivia`.")
+        if ctx.author.id in game["wrong_users"]:
+            return await ctx.send(f"{ctx.author.mention} you already used your guess.", delete_after=5)
         choice = answer.strip().upper()
         if choice not in {"A", "B", "C", "D"}:
             return await ctx.send(f"Usage: `{PREFIX}triviaanswer <A|B|C|D>`")
         if choice == game["answer"]:
-            del active_trivia[ctx.author.id]
+            del active_trivia[ctx.channel.id]
             return await ctx.send(embed=make_embed(
-                "Correct",
-                game["explanation"],
+                "Correct!",
+                f"{ctx.author.mention} got it!\n{game['explanation']}",
                 COLOR_SUCCESS,
             ))
+        game["wrong_users"].add(ctx.author.id)
         await ctx.send(embed=make_embed(
             "Not Quite",
-            f"Try again. Use `{PREFIX}triviaanswer <A|B|C|D>`.",
+            f"{ctx.author.mention} got it wrong — others can still try!",
             COLOR_WARNING,
         ))
 
     @commands.command()
     async def scramble(self, ctx):
-        """Start a kid-safe word scramble."""
+        """Start a channel-wide word scramble — first to unscramble wins."""
+        if ctx.channel.id in active_scrambles:
+            return await ctx.send("There's already a scramble active in this channel.")
         word = random.choice(SCRAMBLE_WORDS)
         letters = list(word)
         while True:
@@ -525,30 +539,30 @@ class GamesCog(commands.Cog):
             scrambled = "".join(letters)
             if scrambled != word:
                 break
-        active_scrambles[ctx.author.id] = {"answer": word}
+        active_scrambles[ctx.channel.id] = {"answer": word}
         await ctx.send(embed=make_embed(
             "Word Scramble",
-            f"Unscramble this word: **{scrambled}**\nUse `{PREFIX}unscramble <word>`.",
+            f"Unscramble this word: **{scrambled}**\nFirst to `{PREFIX}unscramble <word>` wins!",
             COLOR_DEFAULT,
         ))
 
     @commands.command()
     async def unscramble(self, ctx, *, answer: str):
-        """Answer your current word scramble."""
-        game = active_scrambles.get(ctx.author.id)
+        """Answer the active word scramble."""
+        game = active_scrambles.get(ctx.channel.id)
         if not game:
             return await ctx.send(f"No scramble active. Start one with `{PREFIX}scramble`.")
         guess = answer.lower().strip()
         if guess == game["answer"]:
-            del active_scrambles[ctx.author.id]
+            del active_scrambles[ctx.channel.id]
             return await ctx.send(embed=make_embed(
-                "Correct",
-                f"The word was **{game['answer']}**.",
+                "Correct!",
+                f"{ctx.author.mention} got it! The word was **{game['answer']}**.",
                 COLOR_SUCCESS,
             ))
         await ctx.send(embed=make_embed(
             "Try Again",
-            f"Not quite. Try again or start a new one with `{PREFIX}scramble`.",
+            f"Not quite, {ctx.author.mention} — others can still try!",
             COLOR_WARNING,
         ))
 
@@ -685,8 +699,18 @@ class GamesCog(commands.Cog):
         if game:
             del active_hangman[ctx.channel.id]
             hangman_msg.pop(ctx.channel.id, None)
-
             return await ctx.send(f"Hangman game ended. The word was **{game['word']}**.")
+        if ctx.channel.id in active_memory_games:
+            del active_memory_games[ctx.channel.id]
+            return await ctx.send("Memory game cancelled.")
+        if ctx.channel.id in active_trivia:
+            answer = active_trivia[ctx.channel.id]["answer"]
+            del active_trivia[ctx.channel.id]
+            return await ctx.send(f"Trivia cancelled. The answer was **{answer}**.")
+        if ctx.channel.id in active_scrambles:
+            word = active_scrambles[ctx.channel.id]["answer"]
+            del active_scrambles[ctx.channel.id]
+            return await ctx.send(f"Scramble cancelled. The word was **{word}**.")
         await ctx.send("No active game to forfeit.")
 
     # ---------------------------------------------------------------------------
