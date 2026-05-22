@@ -689,7 +689,7 @@ class StocksCog(commands.Cog):
     @commands.command(aliases=["stox", "market", "ticker"])
     async def stocks(self, ctx, *args):
         """`.stocks` lists prices; `.stocks <TICKER>` shows detail;
-        `.stocks add <TICKER>` registers a new US ticker."""
+        `.stocks add <TICKER>` registers a new ticker; `.stocks remove <TICKER>` deletes one (admin)."""
         if not args:
             return await self._stock_overview(ctx)
         first = args[0].lower()
@@ -697,6 +697,10 @@ class StocksCog(commands.Cog):
             if len(args) < 2:
                 return await ctx.send(f"Usage: `{PREFIX}stocks add <TICKER>`")
             return await self._stock_add(ctx, args[1].upper())
+        if first in ("remove", "delete", "del", "rm"):
+            if len(args) < 2:
+                return await ctx.send(f"Usage: `{PREFIX}stocks remove <TICKER>`")
+            return await self._stock_remove(ctx, args[1].upper())
         if first in ("list", "all"):
             return await self._stock_overview(ctx)
         return await self._stock_detail(ctx, args[0].upper())
@@ -762,6 +766,41 @@ class StocksCog(commands.Cog):
             "🟢 Ticker Added",
             f"`{ticker}` ({name}) is now tradable.{remap_note}\nUse `{PREFIX}stocks {ticker}` to view.",
             COLOR_SUCCESS,
+        ))
+
+    async def _stock_remove(self, ctx, ticker: str):
+        if ctx.author.id != shared.ADMIN_ID:
+            return await ctx.send(embed=make_embed(
+                "Permission Denied", "Only admins can remove tickers.", COLOR_ERROR
+            ))
+        tickers = get_tickers()
+        if ticker not in tickers:
+            return await ctx.send(embed=make_embed(
+                "Not Listed", f"`{ticker}` isn't in the ticker list.", COLOR_ERROR
+            ))
+        # Warn if anyone has an open position in this ticker.
+        holders = shared.db.execute(
+            "SELECT COUNT(*) FROM stock_holdings WHERE ticker = ? AND shares > 0", (ticker,)
+        ).fetchone()[0]
+        open_opts = shared.db.execute(
+            "SELECT COUNT(*) FROM options WHERE ticker = ? AND settled = 0", (ticker,)
+        ).fetchone()[0]
+        warnings = []
+        if holders:
+            warnings.append(f"⚠️ {holders} user(s) still hold shares of `{ticker}`")
+        if open_opts:
+            warnings.append(f"⚠️ {open_opts} open option(s) on `{ticker}`")
+
+        shared.db.execute("DELETE FROM stock_tickers WHERE ticker = ?", (ticker,))
+        shared.db.execute("DELETE FROM stock_prices  WHERE ticker = ?", (ticker,))
+        _history_cache.pop(ticker, None)
+        shared.db.commit()
+
+        note = "\n" + "\n".join(warnings) if warnings else ""
+        await ctx.send(embed=make_embed(
+            "🗑️ Ticker Removed",
+            f"`{ticker}` has been removed from the market.{note}",
+            COLOR_WARNING,
         ))
 
     async def _stock_detail(self, ctx, ticker: str):
