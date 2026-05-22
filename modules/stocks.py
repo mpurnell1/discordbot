@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import discord
@@ -30,6 +30,31 @@ from shared import (
 logger = logging.getLogger(__name__)
 
 EASTERN_TZ = ZoneInfo("America/New_York")
+
+# Maps common crypto short-names to their Yahoo Finance symbols so users can
+# type `.stocks add BTC` instead of `.stocks add BTC-USD`.
+CRYPTO_ALIASES: dict[str, str] = {
+    "BTC":   "BTC-USD",
+    "ETH":   "ETH-USD",
+    "SOL":   "SOL-USD",
+    "ADA":   "ADA-USD",
+    "DOGE":  "DOGE-USD",
+    "XRP":   "XRP-USD",
+    "AVAX":  "AVAX-USD",
+    "DOT":   "DOT-USD",
+    "LINK":  "LINK-USD",
+    "LTC":   "LTC-USD",
+    "BCH":   "BCH-USD",
+    "BNB":   "BNB-USD",
+    "SHIB":  "SHIB-USD",
+    "UNI":   "UNI-USD",
+    "ATOM":  "ATOM-USD",
+    "MATIC": "MATIC-USD",
+}
+
+# Options paper-trading config.
+OPTIONS_LEVERAGE = 10      # 1% price move → 10% return on the bet
+OPTIONS_EXPIRY_HOURS = 24
 
 # Curated seed list. Anything users add via `.stocks add SYM` is appended to
 # the same `stock_tickers` table — this dict only matters on first boot or
@@ -111,26 +136,28 @@ def _fetch_quotes(symbols: list[str]) -> dict[str, dict]:
     return out
 
 
-def _validate_symbol(symbol: str) -> tuple[bool, str | None]:
-    """Blocking yfinance lookup for `.stocks add`. Returns (ok, display_name)."""
+def _validate_symbol(symbol: str) -> tuple[bool, str | None, float | None]:
+    """Blocking yfinance lookup for `.stocks add`. Returns (ok, display_name, last_price).
+    last_price comes directly from fast_info so it works after hours too."""
     try:
         import yfinance as yf
     except ImportError:
-        return False, None
+        return False, None, None
     try:
         t = yf.Ticker(symbol)
         info = getattr(t, "fast_info", None)
         last = info["last_price"] if info else None
         if last is None or float(last) <= 0:
-            return False, None
+            return False, None, None
+        price = float(last)
         name = None
         try:
             name = t.info.get("shortName") or t.info.get("longName")
         except Exception:
             pass
-        return True, (name or symbol)
+        return True, (name or symbol), price
     except Exception:
-        return False, None
+        return False, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +466,92 @@ def get_portfolio_value(user_id: int) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
+# OPTIONS
+# ---------------------------------------------------------------------------
+def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike: float) -> int:
+    """Deduct coins_bet, insert an unsettled option row. Returns the new option id."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    expires_iso = (datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)).isoformat()
+    opt_id: int | None = None
+    with shared.db:
+        row = shared.db.execute(
+            "SELECT balance FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if row is None:
+            shared.db.execute(
+                "INSERT INTO users (user_id, balance) VALUES (?, ?)",
+                (user_id, shared.STARTING_BALANCE),
+            )
+            current_bal = shared.STARTING_BALANCE
+        else:
+            current_bal = int(row[0])
+        shared.db.execute(
+            "UPDATE users SET balance = ? WHERE user_id = ?",
+            (current_bal - coins_bet, user_id),
+        )
+        cursor = shared.db.execute(
+            "INSERT INTO options "
+            "(user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, ticker, opt_type, coins_bet, strike, now_iso, expires_iso),
+        )
+        opt_id = cursor.lastrowid
+    return opt_id
+
+
+def get_open_options(user_id: int | None = None) -> list[dict]:
+    """Return all unsettled options, optionally filtered to a single user."""
+    if user_id is not None:
+        rows = shared.db.execute(
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at "
+            "FROM options WHERE settled = 0 AND user_id = ? ORDER BY expires_at",
+            (user_id,),
+        ).fetchall()
+    else:
+        rows = shared.db.execute(
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at "
+            "FROM options WHERE settled = 0 ORDER BY expires_at",
+        ).fetchall()
+    return [
+        {
+            "id": int(r[0]), "user_id": int(r[1]), "ticker": r[2],
+            "option_type": r[3], "coins_bet": int(r[4]),
+            "strike_price": float(r[5]), "opened_at": r[6], "expires_at": r[7],
+        }
+        for r in rows
+    ]
+
+
+def settle_option(
+    opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str
+) -> tuple[int, int]:
+    """Mark option settled, credit payout to user. Returns (pnl, payout).
+    pnl is negative (−coins_bet) on a loss; positive on a win."""
+    pct_change = abs(exit_price - strike) / strike if strike > 0 else 0.0
+    won = (exit_price > strike) if opt_type == "call" else (exit_price < strike)
+    if won:
+        multiplier = max(1.1, 1.0 + pct_change * OPTIONS_LEVERAGE)
+        payout = int(round(coins_bet * multiplier))
+        pnl = payout - coins_bet
+    else:
+        payout = 0
+        pnl = -coins_bet
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with shared.db:
+        if payout > 0:
+            shared.db.execute(
+                "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+                (payout, user_id),
+            )
+        shared.db.execute(
+            "UPDATE options SET settled = 1, exit_price = ?, pnl = ?, settled_at = ? WHERE id = ?",
+            (exit_price, pnl, now_iso, opt_id),
+        )
+    return pnl, payout
+
+
+# ---------------------------------------------------------------------------
 # DISPLAY HELPERS
 # ---------------------------------------------------------------------------
 def make_sparkline(values: list[float]) -> str:
@@ -495,6 +608,8 @@ class StocksCog(commands.Cog):
     async def _start_stock_tasks(self):
         if not self.stock_tick_check.is_running():
             self.stock_tick_check.start()
+        if not self.options_settle_check.is_running():
+            self.options_settle_check.start()
 
     @tasks.loop(minutes=5)
     async def stock_tick_check(self):
@@ -609,6 +724,13 @@ class StocksCog(commands.Cog):
         await ctx.send(embed=embed)
 
     async def _stock_add(self, ctx, ticker: str):
+        # Remap common crypto short-names (e.g. BTC → BTC-USD) so users don't
+        # accidentally add a random small-cap stock with the same ticker.
+        remapped = CRYPTO_ALIASES.get(ticker)
+        remap_note = f" (mapped `{ticker}` → `{remapped}` for crypto)" if remapped else ""
+        if remapped:
+            ticker = remapped
+
         tickers = get_tickers()
         if ticker in tickers:
             return await ctx.send(embed=make_embed(
@@ -617,23 +739,28 @@ class StocksCog(commands.Cog):
                 COLOR_ERROR,
             ))
         async with ctx.typing():
-            ok, name = await asyncio.to_thread(_validate_symbol, ticker)
+            ok, name, bootstrap_price = await asyncio.to_thread(_validate_symbol, ticker)
         if not ok:
             return await ctx.send(embed=make_embed(
                 "Unknown Symbol",
-                f"`{ticker}` doesn't look like a valid US ticker on Yahoo Finance.",
+                f"`{ticker}` doesn't look like a valid ticker on Yahoo Finance.",
                 COLOR_ERROR,
             ))
         add_ticker(ticker, name or ticker, added_by=ctx.author.id)
-        # Pull a price right away so the new ticker shows up immediately.
+        # Bootstrap with the validation price immediately so the ticker appears
+        # in .stocks right away — even after hours or if the history fetch fails.
+        if bootstrap_price and bootstrap_price > 0:
+            _upsert_quote(ticker, bootstrap_price, bootstrap_price)
+            shared.db.commit()
+        # Then try a full 7-day history fetch for the sparkline.
         try:
             quotes = await asyncio.to_thread(_fetch_quotes, [ticker])
             refresh_prices(quotes)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Price history fetch failed for %s after add: %s", ticker, e)
         await ctx.send(embed=make_embed(
             "🟢 Ticker Added",
-            f"`{ticker}` ({name}) is now tradable. Use `{PREFIX}stocks {ticker}` to view.",
+            f"`{ticker}` ({name}) is now tradable.{remap_note}\nUse `{PREFIX}stocks {ticker}` to view.",
             COLOR_SUCCESS,
         ))
 
@@ -850,6 +977,161 @@ class StocksCog(commands.Cog):
             "\n".join(lines),
             COLOR_DEFAULT,
         ))
+
+
+    # ---------------------------------------------------------------------------
+    # OPTIONS COMMANDS
+    # ---------------------------------------------------------------------------
+
+    @commands.command(name="call", aliases=["callopt"])
+    async def call_option(self, ctx, ticker: str = None, coins: int = None):
+        """Buy a call — win coins if the price goes UP in 24h (10× leverage paper trade)."""
+        await self._open_option(ctx, "call", ticker, coins)
+
+    @commands.command(name="put", aliases=["putopt"])
+    async def put_option(self, ctx, ticker: str = None, coins: int = None):
+        """Buy a put — win coins if the price goes DOWN in 24h (10× leverage paper trade)."""
+        await self._open_option(ctx, "put", ticker, coins)
+
+    async def _open_option(self, ctx, opt_type: str, ticker: str | None, coins: int | None):
+        cmd = "call" if opt_type == "call" else "put"
+        if ticker is None or coins is None:
+            return await ctx.send(f"Usage: `{PREFIX}{cmd} <TICKER> <coins>`")
+        ticker = CRYPTO_ALIASES.get(ticker.upper(), ticker.upper())
+        if ticker not in get_tickers():
+            return await ctx.send(embed=make_embed(
+                "Unknown Ticker",
+                f"`{ticker}` isn't listed. Use `{PREFIX}stocks add {ticker}` to add it first.",
+                COLOR_ERROR,
+            ))
+        if coins <= 0:
+            return await ctx.send(embed=make_embed("Invalid", "Bet must be positive.", COLOR_ERROR))
+        bal = get_balance(ctx.author.id)
+        if coins > bal:
+            return await ctx.send(embed=make_embed(
+                "❌ Broke",
+                f"That'd cost **{coins:,}** coins; you only have **{bal:,}**.",
+                COLOR_ERROR,
+            ))
+        price = get_price(ticker)
+        if price is None or price <= 0:
+            return await ctx.send(embed=make_embed(
+                "No Price", "Price unavailable right now — try again in a minute.", COLOR_ERROR
+            ))
+
+        expiry_dt = datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)
+        open_option(ctx.author.id, ticker, opt_type, coins, price)
+
+        direction = "📈 **UP**" if opt_type == "call" else "📉 **DOWN**"
+        type_label = "CALL" if opt_type == "call" else "PUT"
+        icon = "📈" if opt_type == "call" else "📉"
+        await ctx.send(embed=make_embed(
+            f"{icon} {type_label} Opened — `{ticker}`",
+            f"You bet **{coins:,}** coins that `{ticker}` goes {direction}.\n"
+            f"Strike: **${price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
+            f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
+            f"**Lose:** forfeit entire bet\n\n"
+            f"Use `{PREFIX}options` to track your positions.",
+            COLOR_SUCCESS,
+        ))
+
+    @commands.command(name="options", aliases=["opts", "positions", "pos"])
+    async def options_cmd(self, ctx, member: discord.Member = None):
+        """Show open call/put positions with live estimated P/L."""
+        target = member or ctx.author
+        opts = get_open_options(target.id)
+        if not opts:
+            who = "You have" if target.id == ctx.author.id else f"{target.display_name} has"
+            return await ctx.send(
+                f"{who} no open options. Use `{PREFIX}call` or `{PREFIX}put` to open one."
+            )
+        prices = get_all_prices()
+        lines = []
+        for o in opts:
+            current = prices.get(o["ticker"], {}).get("price", 0.0)
+            type_label = "📈 CALL" if o["option_type"] == "call" else "📉 PUT"
+            pct = (current - o["strike_price"]) / o["strike_price"] * 100 if o["strike_price"] else 0.0
+            in_money = (current > o["strike_price"]) if o["option_type"] == "call" else (current < o["strike_price"])
+            if in_money:
+                multiplier = max(1.1, 1.0 + abs(pct) / 100 * OPTIONS_LEVERAGE)
+                est_payout = int(round(o["coins_bet"] * multiplier))
+                est_pnl = est_payout - o["coins_bet"]
+                est_str = f"🟢 +{est_pnl:,} (×{multiplier:.2f})"
+            else:
+                est_str = f"🔴 −{o['coins_bet']:,} (out of the money)"
+            expires_at = datetime.fromisoformat(o["expires_at"])
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            lines.append(
+                f"{type_label} `{o['ticker']}` — bet **{o['coins_bet']:,}** @ ${o['strike_price']:,.2f}\n"
+                f"  Now: ${current:,.2f} ({pct:+.2f}%) | Est. P/L: {est_str}\n"
+                f"  Expires: <t:{int(expires_at.timestamp())}:R>"
+            )
+        embed = make_embed(
+            f"📋 {target.display_name}'s Options",
+            "\n\n".join(lines),
+            COLOR_DEFAULT,
+        )
+        embed.set_footer(
+            text=f"Auto-settles after {OPTIONS_EXPIRY_HOURS}h · {PREFIX}call / {PREFIX}put to open"
+        )
+        await ctx.send(embed=embed)
+
+    # ---------------------------------------------------------------------------
+    # OPTIONS SETTLEMENT TASK
+    # ---------------------------------------------------------------------------
+
+    @tasks.loop(minutes=10)
+    async def options_settle_check(self):
+        """Settle expired options and post results to the ticker channel."""
+        now = datetime.now(timezone.utc)
+        rows = shared.db.execute(
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price "
+            "FROM options WHERE settled = 0 AND expires_at <= ?",
+            (now.isoformat(),),
+        ).fetchall()
+        if not rows:
+            return
+
+        prices = get_all_prices()
+        channel_id = shared.runtime_settings.get("ticker_channel_id")
+        channel = None
+        if channel_id:
+            try:
+                channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+            except discord.HTTPException:
+                pass
+
+        for opt_id, user_id, ticker, opt_type, coins_bet, strike in rows:
+            exit_price = prices.get(ticker, {}).get("price", 0.0)
+            if exit_price <= 0:
+                continue  # No price yet — retry next tick
+
+            pnl, payout = settle_option(
+                int(opt_id), int(user_id), int(coins_bet), float(strike), exit_price, opt_type
+            )
+
+            if channel is not None:
+                type_label = "📈 CALL" if opt_type == "call" else "📉 PUT"
+                if pnl >= 0:
+                    result_str = f"🟢 Won **+{pnl:,}** coins (paid out {payout:,})"
+                else:
+                    result_str = f"🔴 Lost **{abs(pnl):,}** coins (forfeited bet)"
+                try:
+                    member = self.bot.get_user(user_id)
+                    user_str = member.mention if member else f"<@{user_id}>"
+                    await channel.send(embed=make_embed(
+                        f"Options Settled — {type_label} `{ticker}`",
+                        f"{user_str} | Strike: ${float(strike):,.2f} → Exit: ${exit_price:,.2f}\n"
+                        f"{result_str}",
+                        shared.COLOR_SUCCESS if pnl >= 0 else shared.COLOR_ERROR,
+                    ))
+                except discord.HTTPException:
+                    pass
+
+    @options_settle_check.before_loop
+    async def _wait_until_ready_opts(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot):

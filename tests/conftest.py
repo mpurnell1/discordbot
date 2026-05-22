@@ -36,6 +36,7 @@ _TABLES = (
     "users", "nick_changes", "quotes", "settings", "guild_settings",
     "command_log", "balance_history", "puzzle_history", "game_results", "gambling_log",
     "gary_sessions", "stock_prices", "stock_holdings", "stock_trades", "stock_tickers",
+    "options",
 )
 
 

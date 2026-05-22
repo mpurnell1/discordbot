@@ -412,3 +412,179 @@ class TestLegacyMigration:
         assert shared.get_balance(7777) == 150  # 100 + 5*10
         shared.init_db()  # second run = no-op
         assert shared.get_balance(7777) == 150
+
+
+# ---------------------------------------------------------------------------
+# Crypto alias remapping
+# ---------------------------------------------------------------------------
+
+from modules.stocks import CRYPTO_ALIASES  # noqa: E402
+
+
+class TestCryptoAliases:
+    def test_btc_maps_to_btc_usd(self):
+        assert CRYPTO_ALIASES["BTC"] == "BTC-USD"
+
+    def test_eth_maps_to_eth_usd(self):
+        assert CRYPTO_ALIASES["ETH"] == "ETH-USD"
+
+    def test_sol_maps_to_sol_usd(self):
+        assert CRYPTO_ALIASES["SOL"] == "SOL-USD"
+
+    def test_stock_tickers_not_in_aliases(self):
+        assert "AAPL" not in CRYPTO_ALIASES
+        assert "MSFT" not in CRYPTO_ALIASES
+        assert "NVDA" not in CRYPTO_ALIASES
+
+    def test_all_alias_values_end_with_usd(self):
+        for short, yf_sym in CRYPTO_ALIASES.items():
+            assert yf_sym.endswith("-USD"), f"{short} → {yf_sym} should end with -USD"
+
+
+# ---------------------------------------------------------------------------
+# Options helpers — open / settle
+# ---------------------------------------------------------------------------
+
+from modules.stocks import open_option, get_open_options, settle_option, OPTIONS_LEVERAGE  # noqa: E402
+
+
+def _set_balance(user_id: int, amount: int) -> None:
+    shared.db.execute(
+        "INSERT INTO users (user_id, balance) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET balance = ?",
+        (user_id, amount, amount),
+    )
+    shared.db.commit()
+
+
+def _get_balance(user_id: int) -> int:
+    row = shared.db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    return int(row[0]) if row else 0
+
+
+class TestOpenOption:
+    def test_deducts_coins_from_balance(self):
+        _set_balance(20001, 500)
+        open_option(20001, "AAPL", "call", 200, 150.0)
+        assert _get_balance(20001) == 300
+
+    def test_stores_open_option_row(self):
+        _set_balance(20002, 1000)
+        open_option(20002, "MSFT", "put", 100, 400.0)
+        opts = get_open_options(20002)
+        assert len(opts) == 1
+        o = opts[0]
+        assert o["ticker"] == "MSFT"
+        assert o["option_type"] == "put"
+        assert o["coins_bet"] == 100
+        assert abs(o["strike_price"] - 400.0) < 0.01
+
+    def test_returns_positive_option_id(self):
+        _set_balance(20003, 500)
+        opt_id = open_option(20003, "TSLA", "call", 50, 200.0)
+        assert isinstance(opt_id, int) and opt_id > 0
+
+    def test_multiple_options_tracked_separately(self):
+        _set_balance(20004, 1000)
+        open_option(20004, "NVDA", "call", 200, 800.0)
+        open_option(20004, "AMD",  "put",  100, 100.0)
+        opts = get_open_options(20004)
+        assert len(opts) == 2
+        assert {o["ticker"] for o in opts} == {"NVDA", "AMD"}
+
+
+class TestGetOpenOptions:
+    def test_returns_only_unsettled(self):
+        _set_balance(20010, 500)
+        opt_id = open_option(20010, "AAPL", "call", 100, 150.0)
+        settle_option(opt_id, 20010, 100, 150.0, 155.0, "call")
+        assert get_open_options(20010) == []
+
+    def test_user_filter(self):
+        _set_balance(20011, 500)
+        _set_balance(20012, 500)
+        open_option(20011, "MSFT", "call", 100, 400.0)
+        open_option(20012, "MSFT", "put",  100, 400.0)
+        assert len(get_open_options(20011)) == 1
+        assert len(get_open_options(20012)) == 1
+
+    def test_no_filter_returns_all_users(self):
+        _set_balance(20013, 500)
+        _set_balance(20014, 500)
+        open_option(20013, "SPY", "call", 100, 500.0)
+        open_option(20014, "SPY", "put",  100, 500.0)
+        # May include rows from other tests in the same session — just assert ≥ 2.
+        assert len(get_open_options()) >= 2
+
+
+class TestSettleOption:
+    def test_call_wins_when_price_rises(self):
+        _set_balance(20020, 500)
+        opt_id = open_option(20020, "AAPL", "call", 200, 100.0)
+        pnl, payout = settle_option(opt_id, 20020, 200, 100.0, 110.0, "call")
+        assert pnl > 0
+        assert payout > 200
+
+    def test_call_loses_when_price_falls(self):
+        _set_balance(20021, 500)
+        opt_id = open_option(20021, "AAPL", "call", 200, 100.0)
+        pnl, payout = settle_option(opt_id, 20021, 200, 100.0, 90.0, "call")
+        assert pnl == -200
+        assert payout == 0
+
+    def test_put_wins_when_price_falls(self):
+        _set_balance(20022, 500)
+        opt_id = open_option(20022, "TSLA", "put", 150, 200.0)
+        pnl, payout = settle_option(opt_id, 20022, 150, 200.0, 180.0, "put")
+        assert pnl > 0
+        assert payout > 150
+
+    def test_put_loses_when_price_rises(self):
+        _set_balance(20023, 500)
+        opt_id = open_option(20023, "TSLA", "put", 150, 200.0)
+        pnl, payout = settle_option(opt_id, 20023, 150, 200.0, 220.0, "put")
+        assert pnl == -150
+        assert payout == 0
+
+    def test_minimum_win_is_1_1x(self):
+        # Tiny move still guarantees at least 1.1× on a win.
+        _set_balance(20024, 500)
+        opt_id = open_option(20024, "SPY", "call", 100, 500.0)
+        pnl, payout = settle_option(opt_id, 20024, 100, 500.0, 500.005, "call")
+        assert payout >= 110
+
+    def test_10pct_move_gives_2x_payout(self):
+        # 10% move × OPTIONS_LEVERAGE(10) → multiplier = 2.0
+        _set_balance(20025, 1000)
+        opt_id = open_option(20025, "BTC-USD", "call", 100, 50000.0)
+        pnl, payout = settle_option(opt_id, 20025, 100, 50000.0, 55000.0, "call")
+        expected = int(round(100 * (1.0 + 0.10 * OPTIONS_LEVERAGE)))
+        assert abs(payout - expected) <= 1
+
+    def test_win_credits_balance(self):
+        _set_balance(20026, 1000)
+        opt_id = open_option(20026, "MSFT", "call", 200, 400.0)
+        bal_after_open = _get_balance(20026)
+        _, payout = settle_option(opt_id, 20026, 200, 400.0, 440.0, "call")
+        assert _get_balance(20026) == bal_after_open + payout
+
+    def test_loss_does_not_change_balance(self):
+        _set_balance(20027, 1000)
+        opt_id = open_option(20027, "NVDA", "call", 300, 800.0)
+        bal_after_open = _get_balance(20027)
+        _, payout = settle_option(opt_id, 20027, 300, 800.0, 750.0, "call")
+        assert payout == 0
+        assert _get_balance(20027) == bal_after_open
+
+    @pytest.mark.parametrize("opt_type", ["call", "put"])
+    def test_flat_price_loses(self, opt_type):
+        _set_balance(20028, 500)
+        opt_id = open_option(20028, "AAPL", opt_type, 100, 150.0)
+        pnl, _ = settle_option(opt_id, 20028, 100, 150.0, 150.0, opt_type)
+        assert pnl == -100
+
+    def test_settled_option_disappears_from_open_list(self):
+        _set_balance(20029, 500)
+        opt_id = open_option(20029, "GOOGL", "call", 100, 170.0)
+        settle_option(opt_id, 20029, 100, 170.0, 180.0, "call")
+        assert get_open_options(20029) == []

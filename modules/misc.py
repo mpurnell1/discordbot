@@ -1699,13 +1699,16 @@ class MiscCog(commands.Cog):
                 f"`{p}bjrules` - Show current blackjack table rules"
             ), inline=False)
         if not kids_mode:
-            embed.add_field(name="Stocks (real US market via Yahoo Finance)", value=(
+            embed.add_field(name="Stocks & Options (paper trading)", value=(
                 f"`{p}stocks` - List tradable tickers with prices and overnight change\n"
                 f"`{p}stocks <TICKER>` - Per-ticker detail with 7-day sparkline\n"
-                f"`{p}stocks add <TICKER>` - Add any valid US ticker to the tradable list\n"
+                f"`{p}stocks add <TICKER>` - Add a US stock or crypto (e.g. `BTC`, `AAPL`)\n"
                 f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (fractional allowed)\n"
                 f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares (fractional allowed)\n"
-                f"`{p}portfolio [@user]` - Holdings + unrealized P/L"
+                f"`{p}portfolio [@user]` - Holdings + unrealized P/L\n"
+                f"`{p}call <TICKER> <coins>` - Bet price goes **UP** in 24h (10× leverage)\n"
+                f"`{p}put <TICKER> <coins>` - Bet price goes **DOWN** in 24h (10× leverage)\n"
+                f"`{p}options [@user]` - Your open call/put positions"
             ), inline=False)
         puzzle_help = (
             f"`{p}puzzle` / `{p}solve <answer>` - Practice puzzle"

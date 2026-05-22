@@ -284,6 +284,22 @@ def init_db():
         db.execute(f"DELETE FROM stock_holdings WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
         db.execute(f"DELETE FROM stock_trades   WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
         db.execute(f"DELETE FROM stock_prices   WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS options (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            ticker TEXT NOT NULL,
+            option_type TEXT NOT NULL,
+            coins_bet INTEGER NOT NULL,
+            strike_price REAL NOT NULL,
+            opened_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            settled INTEGER DEFAULT 0,
+            exit_price REAL,
+            pnl INTEGER,
+            settled_at TEXT
+        )
+    """)
     # The old per-day sparkline snapshot table is gone — we now pull history
     # straight from yfinance during the hourly tick and cache it in memory.
     db.execute("DROP TABLE IF EXISTS stock_price_history")

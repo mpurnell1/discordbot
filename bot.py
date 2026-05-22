@@ -329,6 +329,9 @@ COMMAND_USAGE = {
     "buy": "<TICKER> <qty|all|$coins>",
     "sell": "<TICKER> <qty|all|$coins>",
     "portfolio": "[@user]",
+    "call": "<TICKER> <coins>",
+    "put": "<TICKER> <coins>",
+    "options": "[@user]",
     "settings": (
         "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]>"
         " | passive <unsolicited|silasbanter|silasreact> <0-100>"
