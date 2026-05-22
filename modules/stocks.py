@@ -22,6 +22,7 @@ from shared import (
     COLOR_DEFAULT,
     COLOR_SUCCESS,
     COLOR_ERROR,
+    COLOR_WARNING,
     COLOR_GOLD,
     get_balance,
     make_embed,
