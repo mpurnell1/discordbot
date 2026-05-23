@@ -3,6 +3,7 @@
 Each test pins down behavior the team intentionally established. If one starts
 failing, look at the bug it's named after before "fixing" the test.
 """
+
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,6 +19,7 @@ import bot as bot_module
 def test_daily_reset_uses_5am_central_not_utc():
     """The 'logical day' for scratch resets cuts at 5am Central, not UTC midnight."""
     from modules.ai import AICog
+
     cog = AICog(MagicMock())
 
     # Just before 5am Central on 2026-05-08 -> previous day's key.
@@ -101,9 +103,7 @@ async def test_first_command_of_day_awards_daily_via_before_invoke():
     await bot_module.auto_daily_award(ctx)
 
     new_bal = shared.get_balance(user_id)
-    assert new_bal == starting_bal + shared.DAILY_AMOUNT, (
-        "First-command auto-daily should add DAILY_AMOUNT"
-    )
+    assert new_bal == starting_bal + shared.DAILY_AMOUNT, "First-command auto-daily should add DAILY_AMOUNT"
     # The hook should have sent the reward embed.
     assert ctx.send.await_count == 1
 
@@ -149,9 +149,7 @@ async def test_auto_daily_not_awarded_in_kids_guild():
 
     await bot_module.auto_daily_award(ctx)
 
-    assert shared.get_balance(user_id) == bal_before, (
-        "No coins should be awarded in a kids mode guild"
-    )
+    assert shared.get_balance(user_id) == bal_before, "No coins should be awarded in a kids mode guild"
     assert ctx.send.await_count == 0
 
 

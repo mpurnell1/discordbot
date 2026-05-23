@@ -4,6 +4,7 @@ The DB path is redirected to a tmp file before any project import so cogs
 opening connections through `shared.db` land in the test sandbox, never
 touching the real `bot.db`.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,9 +34,21 @@ import shared  # noqa: E402  (must come after env-var setup)
 # DB / settings reset
 # --------------------------------------------------------------------------
 _TABLES = (
-    "users", "nick_changes", "quotes", "settings", "guild_settings",
-    "command_log", "balance_history", "puzzle_history", "game_results", "gambling_log",
-    "gary_sessions", "stock_prices", "stock_holdings", "stock_trades", "stock_tickers",
+    "users",
+    "nick_changes",
+    "quotes",
+    "settings",
+    "guild_settings",
+    "command_log",
+    "balance_history",
+    "puzzle_history",
+    "game_results",
+    "gambling_log",
+    "gary_sessions",
+    "stock_prices",
+    "stock_holdings",
+    "stock_trades",
+    "stock_tickers",
     "options",
 )
 

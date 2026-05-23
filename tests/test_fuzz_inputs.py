@@ -4,6 +4,7 @@ The two highest-value targets:
   - check_bet (bet validation for all gambling commands)
   - quote command's content sanitization (SQL parameterization sanity check)
 """
+
 import pytest
 
 import shared
@@ -66,16 +67,19 @@ class TestCheckBet:
 # Quote storage — make sure SQL parameterization handles weird inputs
 # ---------------------------------------------------------------------------
 class TestQuoteSqlSafety:
-    @pytest.mark.parametrize("payload", [
-        "normal text",
-        "'; DROP TABLE quotes; --",          # SQLi attempt
-        '"hello"',                            # double quotes
-        "emoji 🎉 unicode ☃",             # multi-byte
-        "\n\nmultiline\n\nbreaks",            # newlines
-        "x" * 5000,                           # very long
-        "",                                   # empty
-        "null\x00byte",                       # null byte
-    ])
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "normal text",
+            "'; DROP TABLE quotes; --",  # SQLi attempt
+            '"hello"',  # double quotes
+            "emoji 🎉 unicode ☃",  # multi-byte
+            "\n\nmultiline\n\nbreaks",  # newlines
+            "x" * 5000,  # very long
+            "",  # empty
+            "null\x00byte",  # null byte
+        ],
+    )
     def test_quote_round_trips_safely(self, payload):
         """Inserting unusual content should round-trip and not affect schema."""
         shared.db.execute(
@@ -84,12 +88,8 @@ class TestQuoteSqlSafety:
             (1, 100, "Tester", payload, 1, "2026-05-08"),
         )
         shared.db.commit()
-        row = shared.db.execute(
-            "SELECT content FROM quotes ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        row = shared.db.execute("SELECT content FROM quotes ORDER BY id DESC LIMIT 1").fetchone()
         assert row[0] == payload
         # Confirm schema wasn't dropped.
-        tables = {r[0] for r in shared.db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {r[0] for r in shared.db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         assert "quotes" in tables

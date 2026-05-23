@@ -104,11 +104,13 @@ def _report_cog():
     bug_channel = FakeReportChannel(_BUG_REPORT_CHANNEL_ID)
     feature_channel = FakeReportChannel(_FEATURE_REQUEST_CHANNEL_ID)
     tracking_channel = FakeReportChannel(_REQUEST_TRACKING_CHANNEL_ID)
-    bot = FakeBot({
-        bug_channel.id: bug_channel,
-        feature_channel.id: feature_channel,
-        tracking_channel.id: tracking_channel,
-    })
+    bot = FakeBot(
+        {
+            bug_channel.id: bug_channel,
+            feature_channel.id: feature_channel,
+            tracking_channel.id: tracking_channel,
+        }
+    )
     from modules.misc import MiscCog
 
     return MiscCog(bot), bug_channel, feature_channel, tracking_channel
@@ -116,10 +118,12 @@ def _report_cog():
 
 async def test_bugreport_posts_public_report_and_tracking_controls():
     cog, bug_channel, _, tracking_channel = _report_cog()
-    source_channel = HistoryChannel(messages=[
-        PriorMessage("Alice", "first context"),
-        PriorMessage("Bob", "second context"),
-    ])
+    source_channel = HistoryChannel(
+        messages=[
+            PriorMessage("Alice", "first context"),
+            PriorMessage("Bob", "second context"),
+        ]
+    )
     ctx = FakeContext(
         author=FakeAuthor(user_id=123, name="Reporter"),
         guild=FakeGuild(guild_id=999, name="Bug Guild"),
@@ -150,15 +154,17 @@ async def test_bugreport_posts_public_report_and_tracking_controls():
 
 async def test_bugreport_uses_immediate_five_prior_messages_in_chronological_order():
     cog, bug_channel, _, _ = _report_cog()
-    source_channel = HistoryChannel(messages=[
-        PriorMessage("Old", "stale 1"),
-        PriorMessage("Old", "stale 2"),
-        PriorMessage("Reporter", "1"),
-        PriorMessage("Reporter", "2"),
-        PriorMessage("Reporter", "3"),
-        PriorMessage("Reporter", "4"),
-        PriorMessage("Reporter", "5"),
-    ])
+    source_channel = HistoryChannel(
+        messages=[
+            PriorMessage("Old", "stale 1"),
+            PriorMessage("Old", "stale 2"),
+            PriorMessage("Reporter", "1"),
+            PriorMessage("Reporter", "2"),
+            PriorMessage("Reporter", "3"),
+            PriorMessage("Reporter", "4"),
+            PriorMessage("Reporter", "5"),
+        ]
+    )
     ctx = FakeContext(guild=FakeGuild(), channel=source_channel)
     ctx.message.id = 333
     ctx.message.jump_url = "https://discord.com/channels/999/100/333"
@@ -210,9 +216,7 @@ async def test_status_button_updates_tracking_and_public_report():
     tracking_embed.add_field(
         name="Public Report Tracking Card",
         value=(
-            f"[Jump to report]({public_message.jump_url})\n"
-            f"Channel ID: `{public_channel.id}`\n"
-            f"Message ID: `{public_message.id}`"
+            f"[Jump to report]({public_message.jump_url})\nChannel ID: `{public_channel.id}`\nMessage ID: `{public_message.id}`"
         ),
         inline=False,
     )

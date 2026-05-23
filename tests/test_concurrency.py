@@ -5,6 +5,7 @@ The bot runs single-threaded under asyncio — no actual parallelism. So the
 form proper critical sections (no `await` between read and write of the
 same row).
 """
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -61,9 +62,7 @@ async def test_two_concurrent_awards_credit_at_most_once():
     # In the actual single-threaded asyncio model, the entire await-free
     # critical section finishes before the second coroutine runs, so
     # the second one observes last_daily already set and skips.
-    assert final - starting == shared.DAILY_AMOUNT, (
-        f"expected exactly one award, got delta={final - starting}"
-    )
+    assert final - starting == shared.DAILY_AMOUNT, f"expected exactly one award, got delta={final - starting}"
 
 
 async def test_many_concurrent_awards_credit_at_most_once():
@@ -77,9 +76,7 @@ async def test_many_concurrent_awards_credit_at_most_once():
     shared.db.commit()
     starting = shared.get_balance(user)
 
-    await asyncio.gather(*(
-        bot_module.auto_daily_award(_make_ctx(user)) for _ in range(20)
-    ))
+    await asyncio.gather(*(bot_module.auto_daily_award(_make_ctx(user)) for _ in range(20)))
 
     final = shared.get_balance(user)
     assert final - starting == shared.DAILY_AMOUNT
@@ -101,12 +98,8 @@ async def test_distinct_users_each_get_one_award():
         starts[u] = shared.get_balance(u)
     shared.db.commit()
 
-    await asyncio.gather(*(
-        bot_module.auto_daily_award(_make_ctx(u)) for u in users
-    ))
+    await asyncio.gather(*(bot_module.auto_daily_award(_make_ctx(u)) for u in users))
 
     for u in users:
         delta = shared.get_balance(u) - starts[u]
-        assert delta == shared.DAILY_AMOUNT, (
-            f"user {u} got delta={delta}, expected {shared.DAILY_AMOUNT}"
-        )
+        assert delta == shared.DAILY_AMOUNT, f"user {u} got delta={delta}, expected {shared.DAILY_AMOUNT}"

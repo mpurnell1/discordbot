@@ -27,13 +27,13 @@ NICKNAME_DURATION_HOURS = 24
 STARTING_BALANCE = 100
 
 # --- Embed colors ---
-COLOR_DEFAULT = 0x5865F2   # Discord blurple
-COLOR_SUCCESS = 0x57F287   # Green
-COLOR_ERROR   = 0xED4245   # Red
-COLOR_WARNING = 0xFEE75C   # Yellow
-COLOR_PINK    = 0xEB459E
-COLOR_ORANGE  = 0xE67E22
-COLOR_GOLD    = 0xF1C40F
+COLOR_DEFAULT = 0x5865F2  # Discord blurple
+COLOR_SUCCESS = 0x57F287  # Green
+COLOR_ERROR = 0xED4245  # Red
+COLOR_WARNING = 0xFEE75C  # Yellow
+COLOR_PINK = 0xEB459E
+COLOR_ORANGE = 0xE67E22
+COLOR_GOLD = 0xF1C40F
 
 # --- Passive feature config ---
 OLLAMA_URL = os.getenv("OLLAMA_URL", "")
@@ -41,8 +41,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_REASONING_MODEL", "deepseek-r1:8b")
 
 # Late night callout: hours in US Central time that count as "late"
-LATE_NIGHT_START = 1   # 1am Central
-LATE_NIGHT_END = 5     # 5am Central
+LATE_NIGHT_START = 1  # 1am Central
+LATE_NIGHT_END = 5  # 5am Central
 LATE_NIGHT_CHANCE = 0.4  # 40% chance to call someone out
 
 # Dead chat: minutes of silence before escalating
@@ -52,21 +52,20 @@ DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 # --- Lucky guess config ---
-LUCKY_GUESS_RANGE = 10       # Guess 1-N
-LUCKY_GUESS_REWARD = 1       # Coins awarded on correct guess
-LUCKY_GUESS_MAX_DAILY = 3    # Max attempts per day
+LUCKY_GUESS_RANGE = 10  # Guess 1-N
+LUCKY_GUESS_REWARD = 1  # Coins awarded on correct guess
+LUCKY_GUESS_MAX_DAILY = 3  # Max attempts per day
 
 # --- Daily puzzle config ---
-PUZZLE_REWARD = 50           # Coins awarded for solving daily puzzle
-PUZZLE_MAX_ATTEMPTS = 3      # Max wrong answers before lockout
+PUZZLE_REWARD = 50  # Coins awarded for solving daily puzzle
+PUZZLE_MAX_ATTEMPTS = 3  # Max wrong answers before lockout
+
 
 # ---------------------------------------------------------------------------
 # DATABASE SETUP
 # ---------------------------------------------------------------------------
 def init_db():
-    db_path = os.getenv("DISCORDBOT_DB_PATH") or str(
-        Path(__file__).resolve().parent / "bot.db"
-    )
+    db_path = os.getenv("DISCORDBOT_DB_PATH") or str(Path(__file__).resolve().parent / "bot.db")
     db = sqlite3.connect(db_path)
     db.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -259,8 +258,7 @@ def init_db():
     ).fetchone()
     if legacy_present:
         legacy_holdings = db.execute(
-            f"SELECT user_id, ticker, shares, avg_cost FROM stock_holdings "
-            f"WHERE ticker IN ({_legacy_placeholders})",
+            f"SELECT user_id, ticker, shares, avg_cost FROM stock_holdings WHERE ticker IN ({_legacy_placeholders})",
             _LEGACY_FAKE_TICKERS,
         ).fetchall()
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -269,16 +267,12 @@ def init_db():
             if refund <= 0:
                 continue
             db.execute(
-                "INSERT INTO users (user_id, balance) VALUES (?, ?) "
-                "ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
+                "INSERT INTO users (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
                 (user_id, refund, refund),
             )
-            new_bal = db.execute(
-                "SELECT balance FROM users WHERE user_id = ?", (user_id,)
-            ).fetchone()[0]
+            new_bal = db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
             db.execute(
-                "INSERT INTO balance_history (user_id, balance, timestamp) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO balance_history (user_id, balance, timestamp) VALUES (?, ?, ?)",
                 (user_id, new_bal, now_iso),
             )
         db.execute(f"DELETE FROM stock_holdings WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
@@ -306,6 +300,7 @@ def init_db():
     db.commit()
     return db
 
+
 db = init_db()
 
 # ---------------------------------------------------------------------------
@@ -313,13 +308,13 @@ db = init_db()
 # ---------------------------------------------------------------------------
 
 # Passive feature state
-last_message_time = {}    # channel_id -> datetime
-dead_chat_stage = {}      # channel_id -> threshold stage hit; -1 means no threshold hit yet
-last_late_night = {}      # user_id -> date string, so we only bug them once per night
-recent_messages = {}      # channel_id -> list of last N messages for context
-bot_start_time = None     # set in on_ready
-command_usage = Counter() # command name -> count (resets on restart)
-messages_seen = 0         # non-self messages observed (resets on restart)
+last_message_time = {}  # channel_id -> datetime
+dead_chat_stage = {}  # channel_id -> threshold stage hit; -1 means no threshold hit yet
+last_late_night = {}  # user_id -> date string, so we only bug them once per night
+recent_messages = {}  # channel_id -> list of last N messages for context
+bot_start_time = None  # set in on_ready
+command_usage = Counter()  # command name -> count (resets on restart)
+messages_seen = 0  # non-self messages observed (resets on restart)
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
     "command_toggles": {},
@@ -442,6 +437,7 @@ KIDS_MODE_SUMMARY = (
 runtime_settings = dict(SETTINGS_DEFAULTS)
 guild_runtime_settings = {}
 
+
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
@@ -462,10 +458,12 @@ def get_balance(user_id: int) -> int:
         return STARTING_BALANCE
     return row[0]
 
+
 def peek_balance(user_id: int) -> int:
     """Read-only balance check — returns 0 if the user has no row."""
     row = db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
     return row[0] if row else 0
+
 
 def update_balance(user_id: int, amount: int):
     old_bal = get_balance(user_id)
@@ -494,8 +492,7 @@ def log_game_win(winner_id: int, loser_id: int, game_type: str):
     now = datetime.now(timezone.utc).isoformat()
     db.executemany(
         "INSERT INTO game_results (user_id, opponent_id, game_type, outcome, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [(winner_id, loser_id, game_type, "win", now),
-         (loser_id, winner_id, game_type, "loss", now)],
+        [(winner_id, loser_id, game_type, "win", now), (loser_id, winner_id, game_type, "loss", now)],
     )
     db.commit()
 
@@ -504,8 +501,7 @@ def log_game_draw(p1_id: int, p2_id: int, game_type: str):
     now = datetime.now(timezone.utc).isoformat()
     db.executemany(
         "INSERT INTO game_results (user_id, opponent_id, game_type, outcome, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [(p1_id, p2_id, game_type, "draw", now),
-         (p2_id, p1_id, game_type, "draw", now)],
+        [(p1_id, p2_id, game_type, "draw", now), (p2_id, p1_id, game_type, "draw", now)],
     )
     db.commit()
 
@@ -533,8 +529,8 @@ def get_gambling_stats(user_id: int) -> dict:
     ).fetchall()
     stats: dict[str, dict] = {
         "coinflip": {"net": 0, "wagered": 0, "hands": 0},
-        "slots":    {"net": 0, "wagered": 0, "hands": 0},
-        "blackjack":{"net": 0, "wagered": 0, "hands": 0},
+        "slots": {"net": 0, "wagered": 0, "hands": 0},
+        "blackjack": {"net": 0, "wagered": 0, "hands": 0},
     }
     for game_type, wager, delta in rows:
         if game_type in stats:
@@ -549,9 +545,7 @@ STREAK_MILESTONES = {7: 100, 30: 500, 100: 2000}
 
 def update_activity_streak(user_id: int, prev_daily_iso: str | None) -> tuple[int, bool, int]:
     """Update daily activity streak. Returns (new_streak, is_milestone, bonus_coins)."""
-    row = db.execute(
-        "SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)
-    ).fetchone()
+    row = db.execute("SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)).fetchone()
     current_streak = row[0] or 0 if row else 0
     max_streak = row[1] or 0 if row else 0
 
@@ -579,9 +573,7 @@ def update_activity_streak(user_id: int, prev_daily_iso: str | None) -> tuple[in
 
 def get_activity_streak(user_id: int) -> tuple[int, int]:
     """Return (current_streak, max_streak)."""
-    row = db.execute(
-        "SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)
-    ).fetchone()
+    row = db.execute("SELECT activity_streak, activity_streak_max FROM users WHERE user_id = ?", (user_id,)).fetchone()
     return (row[0] or 0, row[1] or 0) if row else (0, 0)
 
 
@@ -612,17 +604,22 @@ def log_gary_session_end(session_id: int, end_balance: int, outcome: str):
 
 def get_gary_gamble_stats() -> dict:
     rows = db.execute(
-        "SELECT start_balance, end_balance, peak_balance, outcome, started_at "
-        "FROM gary_sessions ORDER BY id DESC"
+        "SELECT start_balance, end_balance, peak_balance, outcome, started_at FROM gary_sessions ORDER BY id DESC"
     ).fetchall()
     completed = []
     for start_bal, end_bal, peak_bal, outcome, started_at in rows:
         if end_bal is None:
             continue
-        completed.append({
-            "start": start_bal, "end": end_bal, "peak": peak_bal,
-            "outcome": outcome, "delta": end_bal - start_bal, "started_at": started_at,
-        })
+        completed.append(
+            {
+                "start": start_bal,
+                "end": end_bal,
+                "peak": peak_bal,
+                "outcome": outcome,
+                "delta": end_bal - start_bal,
+                "started_at": started_at,
+            }
+        )
     net = sum(s["delta"] for s in completed)
     wins = sum(1 for s in completed if s["delta"] > 0)
     best = max((s["delta"] for s in completed), default=0)
@@ -744,8 +741,7 @@ def _load_json_setting(key: str, default):
 
 def _save_json_setting(key: str, value):
     db.execute(
-        "INSERT INTO settings (key, value) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, json.dumps(value)),
     )
     db.commit()
@@ -775,9 +771,7 @@ def _save_guild_json_setting(guild_id: int, key: str, value):
 
 def load_guild_settings():
     guild_runtime_settings.clear()
-    rows = db.execute(
-        "SELECT guild_id, key, value FROM guild_settings"
-    ).fetchall()
+    rows = db.execute("SELECT guild_id, key, value FROM guild_settings").fetchall()
     for guild_id, key, raw in rows:
         settings = guild_runtime_settings.setdefault(int(guild_id), {})
         try:
@@ -805,25 +799,17 @@ def is_kids_command_allowed(command_name: str) -> bool:
 
 
 def load_runtime_settings():
-    runtime_settings["dead_chat_enabled"] = bool(
-        _load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"])
-    )
-    runtime_settings["command_toggles"] = _load_json_setting(
-        "command_toggles", SETTINGS_DEFAULTS["command_toggles"]
-    )
+    runtime_settings["dead_chat_enabled"] = bool(_load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"]))
+    runtime_settings["command_toggles"] = _load_json_setting("command_toggles", SETTINGS_DEFAULTS["command_toggles"])
     runtime_settings["feature_channel_rules"] = _load_json_setting(
         "feature_channel_rules", SETTINGS_DEFAULTS["feature_channel_rules"]
     )
     runtime_settings["gary_gamble_enabled"] = bool(
         _load_json_setting("gary_gamble_enabled", SETTINGS_DEFAULTS["gary_gamble_enabled"])
     )
-    channel_val = _load_json_setting(
-        "gary_gamble_channel_id", SETTINGS_DEFAULTS["gary_gamble_channel_id"]
-    )
+    channel_val = _load_json_setting("gary_gamble_channel_id", SETTINGS_DEFAULTS["gary_gamble_channel_id"])
     runtime_settings["gary_gamble_channel_id"] = int(channel_val) if channel_val else None
-    report_val = _load_json_setting(
-        "gary_gamble_report_channel_id", SETTINGS_DEFAULTS["gary_gamble_report_channel_id"]
-    )
+    report_val = _load_json_setting("gary_gamble_report_channel_id", SETTINGS_DEFAULTS["gary_gamble_report_channel_id"])
     runtime_settings["gary_gamble_report_channel_id"] = int(report_val) if report_val else None
     bj_ruleset = _load_json_setting("bj_ruleset", SETTINGS_DEFAULTS["bj_ruleset"])
     runtime_settings["bj_ruleset"] = (
@@ -834,13 +820,9 @@ def load_runtime_settings():
     runtime_settings["bj_basic_hint_enabled"] = bool(
         _load_json_setting("bj_basic_hint_enabled", SETTINGS_DEFAULTS["bj_basic_hint_enabled"])
     )
-    weather_channel_val = _load_json_setting(
-        "weather_alert_channel_id", SETTINGS_DEFAULTS["weather_alert_channel_id"]
-    )
+    weather_channel_val = _load_json_setting("weather_alert_channel_id", SETTINGS_DEFAULTS["weather_alert_channel_id"])
     runtime_settings["weather_alert_channel_id"] = int(weather_channel_val) if weather_channel_val else None
-    runtime_settings["weather_alert_city"] = str(
-        _load_json_setting("weather_alert_city", SETTINGS_DEFAULTS["weather_alert_city"])
-    )
+    runtime_settings["weather_alert_city"] = str(_load_json_setting("weather_alert_city", SETTINGS_DEFAULTS["weather_alert_city"]))
     runtime_settings["weather_alert_last_date"] = _load_json_setting(
         "weather_alert_last_date", SETTINGS_DEFAULTS["weather_alert_last_date"]
     )
@@ -862,16 +844,12 @@ def load_runtime_settings():
         runtime_settings[key] = int(raw) if raw else None
     silas_raw = _load_json_setting("silas_bot_id", SETTINGS_DEFAULTS["silas_bot_id"])
     runtime_settings["silas_bot_id"] = int(silas_raw) if silas_raw else None
-    ticker_channel_val = _load_json_setting(
-        "ticker_channel_id", SETTINGS_DEFAULTS["ticker_channel_id"]
-    )
+    ticker_channel_val = _load_json_setting("ticker_channel_id", SETTINGS_DEFAULTS["ticker_channel_id"])
     runtime_settings["ticker_channel_id"] = int(ticker_channel_val) if ticker_channel_val else None
     runtime_settings["ticker_last_morning_date"] = _load_json_setting(
         "ticker_last_morning_date", SETTINGS_DEFAULTS["ticker_last_morning_date"]
     )
-    runtime_settings["ticker_last_tick_key"] = _load_json_setting(
-        "ticker_last_tick_key", SETTINGS_DEFAULTS["ticker_last_tick_key"]
-    )
+    runtime_settings["ticker_last_tick_key"] = _load_json_setting("ticker_last_tick_key", SETTINGS_DEFAULTS["ticker_last_tick_key"])
 
 
 def normalize_feature_name(feature: str) -> str:
@@ -929,22 +907,12 @@ def load_gary_gamble_state():
         "hangman_started_at": raw.get("hangman_started_at"),
         "hangman_ended_at": raw.get("hangman_ended_at"),
         "last_report_key": raw.get("last_report_key"),
-        "last_known_balance": (
-            int(raw.get("last_known_balance"))
-            if raw.get("last_known_balance") is not None
-            else None
-        ),
+        "last_known_balance": (int(raw.get("last_known_balance")) if raw.get("last_known_balance") is not None else None),
         "session_anchor_balance": (
-            int(raw.get("session_anchor_balance"))
-            if raw.get("session_anchor_balance") is not None
-            else None
+            int(raw.get("session_anchor_balance")) if raw.get("session_anchor_balance") is not None else None
         ),
         "morning_hangman_done": bool(raw.get("morning_hangman_done", False)),
-        "session_id": (
-            int(raw.get("session_id"))
-            if raw.get("session_id") is not None
-            else None
-        ),
+        "session_id": (int(raw.get("session_id")) if raw.get("session_id") is not None else None),
     }
 
 
@@ -959,28 +927,19 @@ def save_gary_gamble_state(state: dict):
         "hangman_started_at": state.get("hangman_started_at"),
         "hangman_ended_at": state.get("hangman_ended_at"),
         "last_report_key": state.get("last_report_key"),
-        "last_known_balance": (
-            int(state.get("last_known_balance"))
-            if state.get("last_known_balance") is not None
-            else None
-        ),
+        "last_known_balance": (int(state.get("last_known_balance")) if state.get("last_known_balance") is not None else None),
         "session_anchor_balance": (
-            int(state.get("session_anchor_balance"))
-            if state.get("session_anchor_balance") is not None
-            else None
+            int(state.get("session_anchor_balance")) if state.get("session_anchor_balance") is not None else None
         ),
         "morning_hangman_done": bool(state.get("morning_hangman_done", False)),
-        "session_id": (
-            int(state.get("session_id"))
-            if state.get("session_id") is not None
-            else None
-        ),
+        "session_id": (int(state.get("session_id")) if state.get("session_id") is not None else None),
     }
     _save_json_setting("gary_gamble_state", payload)
 
 
 load_runtime_settings()
 load_guild_settings()
+
 
 async def check_bet(ctx, amount: int) -> bool:
     """Validate a bet. Returns True if the bet is invalid (caller should return)."""
@@ -992,6 +951,7 @@ async def check_bet(ctx, amount: int) -> bool:
         await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", COLOR_ERROR))
         return True
     return False
+
 
 # ---------------------------------------------------------------------------
 # LATE NIGHT CALLOUT — canned responses
@@ -1082,6 +1042,7 @@ DEAD_CHAT_RESPONSES = {
     ],
 }
 
+
 # ---------------------------------------------------------------------------
 # OLLAMA INTEGRATION
 # ---------------------------------------------------------------------------
@@ -1106,6 +1067,7 @@ async def query_ollama(system: str, prompt: str, model: str = None) -> str | Non
     except (aiohttp.ClientError, asyncio.TimeoutError):
         return None
 
+
 async def query_ollama_chat(messages: list, model: str = None) -> str | None:
     """Send a multi-turn conversation to Ollama."""
     try:
@@ -1119,6 +1081,7 @@ async def query_ollama_chat(messages: list, model: str = None) -> str | None:
     except (aiohttp.ClientError, asyncio.TimeoutError):
         return None
 
+
 def clean_reasoning(text: str) -> str:
     """Strip <think> reasoning blocks and wrapping quotes from model output."""
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
@@ -1126,6 +1089,7 @@ def clean_reasoning(text: str) -> str:
     if cleaned.startswith('"') and cleaned.endswith('"'):
         cleaned = cleaned[1:-1].strip()
     return cleaned
+
 
 ASK_SYSTEM_PROMPT = (
     "You are a helpful but casual assistant in a Discord server. "
@@ -1173,4 +1137,3 @@ SILAS_REACTIONS = ["😒", "🙄", "💀", "🤡", "👀", "😤", "🫠", "💅
 
 # --- Silas roleplay state ---
 active_silas_rp = {}  # channel_id -> {"character": str, "history": list}
-

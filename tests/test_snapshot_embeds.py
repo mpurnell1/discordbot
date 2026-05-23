@@ -3,6 +3,7 @@
 These lock in the user-visible shape of key embeds. If they start failing,
 either fix the code (regression) or update the assertion (intentional change).
 """
+
 import discord
 
 import shared
@@ -19,6 +20,7 @@ def _embed_fields(embed: discord.Embed):
 # ---------------------------------------------------------------------------
 async def test_balance_embed_shape():
     from modules.economy import EconomyCog
+
     cog = EconomyCog(bot=None)
 
     user = 9001
@@ -40,6 +42,7 @@ async def test_balance_embed_shape():
 # ---------------------------------------------------------------------------
 async def test_leaderboard_embed_when_no_members():
     from modules.misc import MiscCog
+
     cog = MiscCog(bot=None)
     ctx = FakeContext()
     # Force the guild lookup to return no members.
@@ -48,9 +51,7 @@ async def test_leaderboard_embed_when_no_members():
     # No users in DB -> "no one has any coins" branch.
     await cog.leaderboard.callback(cog, ctx)
     msg = ctx.sent[0]
-    assert msg["content"] == "No one has any coins yet!" or (
-        msg.get("embed") is None and "No one" in (msg.get("content") or "")
-    )
+    assert msg["content"] == "No one has any coins yet!" or (msg.get("embed") is None and "No one" in (msg.get("content") or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +94,7 @@ async def test_daily_reward_embed_shape():
 # ---------------------------------------------------------------------------
 async def test_bjrules_summary_format():
     from modules.economy import EconomyCog, apply_blackjack_ruleset
+
     apply_blackjack_ruleset("realistic")
 
     cog = EconomyCog(bot=None)

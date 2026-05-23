@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import logging
 import random
 import re
@@ -42,7 +42,7 @@ logger = logging.getLogger("garybot")
 
 
 class AICog(commands.Cog):
-    BJ_BET_PCT_MIN = 1   # percent when losing (< 80 % of anchor)
+    BJ_BET_PCT_MIN = 1  # percent when losing (< 80 % of anchor)
     BJ_BET_PCT_BASE = 3  # percent at or near anchor
     BJ_BET_PCT_MAX = 15  # percent at take-profit threshold
     BJ_MIN_BALANCE = 200
@@ -96,6 +96,7 @@ class AICog(commands.Cog):
         def _iso(key):
             v = self.gamble_state.get(key)
             return v.isoformat() if isinstance(v, datetime) else None
+
         save_gary_gamble_state(
             {
                 "day": self.gamble_state.get("day", ""),
@@ -315,10 +316,7 @@ class AICog(commands.Cog):
         if cls._silas_wordlist is None:
             path = Path(__file__).resolve().parent.parent / "data" / "wordlist_10k.txt"
             try:
-                cls._silas_wordlist = [
-                    w.strip().lower() for w in path.read_text(encoding="utf-8").splitlines()
-                    if w.strip()
-                ]
+                cls._silas_wordlist = [w.strip().lower() for w in path.read_text(encoding="utf-8").splitlines() if w.strip()]
             except FileNotFoundError:
                 cls._silas_wordlist = []
         return cls._silas_wordlist
@@ -330,7 +328,7 @@ class AICog(commands.Cog):
         """
         from modules.games import best_hangman_letter, LETTER_PRIORITY
 
-        revealed = {ch for ch in word_pattern if ch != '_'}
+        revealed = {ch for ch in word_pattern if ch != "_"}
         wrong = {ch for ch in guessed if ch not in revealed}
         tried = guessed | revealed
         target_len = len(word_pattern)
@@ -344,7 +342,7 @@ class AICog(commands.Cog):
                 continue
             match = True
             for i, pat in enumerate(word_pattern):
-                if pat != '_':
+                if pat != "_":
                     if word[i] != pat:
                         match = False
                         break
@@ -365,7 +363,7 @@ class AICog(commands.Cog):
                 return max(counts, key=counts.get)
 
         # --- Tier 2: Gary's built-in word list (covers edge cases) ---
-        word_str = "".join(ch if ch != '_' else '\x00' for ch in word_pattern)
+        word_str = "".join(ch if ch != "_" else "\x00" for ch in word_pattern)
         game = {"word": word_str, "guessed": revealed, "wrong": list(wrong)}
         letter, _ = best_hangman_letter(game)
         if letter:
@@ -428,9 +426,7 @@ class AICog(commands.Cog):
             self._persist_gamble_state()
             parsed = self._parse_blackjack_prompt(silas_text)
             if parsed is None:
-                await self._send_gamble_report(
-                    f"BJ parse failed, falling back to stand. Text: {silas_text[:200]}", force=True
-                )
+                await self._send_gamble_report(f"BJ parse failed, falling back to stand. Text: {silas_text[:200]}", force=True)
                 await message.channel.send("stand")
                 return
             total, dealer_up, soft = parsed
@@ -504,22 +500,14 @@ class AICog(commands.Cog):
             ("hangman_active", "hangman_started_at", self.HM_ACTIVE_TIMEOUT),
         ]:
             started_at = self.gamble_state.get(started_key)
-            if (
-                self.gamble_state.get(game)
-                and isinstance(started_at, datetime)
-                and now - started_at > timeout
-            ):
+            if self.gamble_state.get(game) and isinstance(started_at, datetime) and now - started_at > timeout:
                 self.gamble_state[game] = False
                 self.gamble_state[started_key] = None
                 self._persist_gamble_state()
                 return f"Cleared stale {game} after timeout."
 
         last_action = self.gamble_state["last_action_at"]
-        if (
-            not bypass_cooldown
-            and last_action
-            and now - last_action < self.GAMBLE_ACTION_COOLDOWN
-        ):
+        if not bypass_cooldown and last_action and now - last_action < self.GAMBLE_ACTION_COOLDOWN:
             return "Cooldown active; next action will happen automatically."
 
         if self.gamble_state["scratchoffs_used"] < 3:
@@ -692,7 +680,6 @@ class AICog(commands.Cog):
         if not self.silas_gambler.is_running():
             self.silas_gambler.start()
 
-
     @commands.Cog.listener("on_raw_message_edit")
     async def on_raw_message_edit(self, payload):
         """Handle Silas editing his hangman message in place."""
@@ -756,23 +743,30 @@ class AICog(commands.Cog):
                         shared.active_silas_rp[channel_id] = {
                             "character": "Gary",
                             "history": [
-                                {"role": "system", "content": (
-                                    "You are Gary, a Discord bot with attitude. You're in a roleplay with another bot named Silas. "
-                                    "You're snarky, competitive, and think you're the better bot. "
-                                    "Stay in character as yourself — a witty, slightly unhinged bot"
-                                    " who doesn't take anything too seriously. "
-                                    "Keep responses short (2-4 sentences). Use lowercase."
-                                )},
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are Gary, a Discord bot with attitude. You're in a roleplay with another bot named Silas. "
+                                        "You're snarky, competitive, and think you're the better bot. "
+                                        "Stay in character as yourself — a witty, slightly unhinged bot"
+                                        " who doesn't take anything too seriously. "
+                                        "Keep responses short (2-4 sentences). Use lowercase."
+                                    ),
+                                },
                             ],
                         }
                         await asyncio.sleep(random.uniform(1, 3))
                         response = await query_ollama_chat(
-                            shared.active_silas_rp[channel_id]["history"] + [
-                                {"role": "user", "content": (
-                                    "The roleplay is starting. Silas just invited you."
-                                    " Say something to kick things off."
-                                )}
-                            ])
+                            shared.active_silas_rp[channel_id]["history"]
+                            + [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "The roleplay is starting. Silas just invited you. Say something to kick things off."
+                                    ),
+                                }
+                            ]
+                        )
                         if response:
                             text = response.strip()
                             if len(text) > 500:
@@ -849,11 +843,13 @@ class AICog(commands.Cog):
         # --- Track recent messages for Ollama context ---
         if channel_id not in shared.recent_messages:
             shared.recent_messages[channel_id] = []
-        shared.recent_messages[channel_id].append({
-            "author": message.author.display_name,
-            "content": message.content,
-            "time": now.isoformat(),
-        })
+        shared.recent_messages[channel_id].append(
+            {
+                "author": message.author.display_name,
+                "content": message.content,
+                "time": now.isoformat(),
+            }
+        )
         # Keep only last 15 messages
         shared.recent_messages[channel_id] = shared.recent_messages[channel_id][-15:]
 
@@ -882,10 +878,7 @@ class AICog(commands.Cog):
 
         # --- Late night callout ---
         hour_central = now.astimezone(CENTRAL_TZ).hour
-        if (
-            LATE_NIGHT_START <= hour_central < LATE_NIGHT_END
-            and is_feature_allowed("late_night", channel_id, guild_id)
-        ):
+        if LATE_NIGHT_START <= hour_central < LATE_NIGHT_END and is_feature_allowed("late_night", channel_id, guild_id):
             today_str = now.strftime("%Y-%m-%d")
             user_key = f"{message.author.id}-{today_str}"
             late_night_chance = shared.runtime_settings.get("late_night_chance_pct", 0) / 100.0
@@ -908,9 +901,7 @@ class AICog(commands.Cog):
             context = shared.recent_messages.get(channel_id, [])
             if len(context) >= 2:
                 # Format recent messages for the LLM
-                chat_log = "\n".join(
-                    f"{m['author']}: {m['content']}" for m in context[-10:]
-                )
+                chat_log = "\n".join(f"{m['author']}: {m['content']}" for m in context[-10:])
                 prompt = f"Here are the last few messages in the group chat:\n\n{chat_log}\n\nDo you have anything to say?"
 
                 response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt, model=OLLAMA_REASONING_MODEL)
@@ -926,7 +917,6 @@ class AICog(commands.Cog):
                         await message.channel.send(text)
 
         # Process commands as normal
-
 
     # DEAD CHAT CHECKER — background task
     # ---------------------------------------------------------------------------
@@ -1019,7 +1009,6 @@ class AICog(commands.Cog):
             response = response[:1900] + "..."
         await ctx.send(response)
 
-
     # SILAS ROLEPLAY
     # ---------------------------------------------------------------------------
 
@@ -1031,22 +1020,24 @@ class AICog(commands.Cog):
         shared.active_silas_rp[ctx.channel.id] = {
             "character": character,
             "history": [
-                {"role": "system", "content": (
-                    f"You are roleplaying as {character} in a Discord chat. "
-                    "Another character (played by Silas) is roleplaying with you. "
-                    "Stay in character. Keep responses short (2-4 sentences). "
-                    "Be creative and dramatic. Use lowercase, no quotation marks around your dialogue."
-                )},
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are roleplaying as {character} in a Discord chat. "
+                        "Another character (played by Silas) is roleplaying with you. "
+                        "Stay in character. Keep responses short (2-4 sentences). "
+                        "Be creative and dramatic. Use lowercase, no quotation marks around your dialogue."
+                    ),
+                },
             ],
         }
         # Trigger Silas's roleplay command
         await ctx.send(f"!roleplay {character}")
-        await ctx.send(embed=make_embed(
-            "Roleplay Started",
-            f"Gary is roleplaying as **{character}** with Silas.\n"
-            f"Use `{PREFIX}stoprp` to end the session."))
-
-
+        await ctx.send(
+            embed=make_embed(
+                "Roleplay Started", f"Gary is roleplaying as **{character}** with Silas.\nUse `{PREFIX}stoprp` to end the session."
+            )
+        )
 
     @commands.command()
     async def stoprp(self, ctx):
@@ -1062,4 +1053,3 @@ class AICog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(AICog(bot))
-

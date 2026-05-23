@@ -92,12 +92,15 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.slots <amount>` | `.slot` | Slot machine |
 | `.blackjack <amount>` | `.bj`, `.21` | Blackjack (then `.hit`, `.stand`, `.double`, `.split`, or `.surrender`) |
 | `.bjrules` | `.bjtable` | Show current blackjack table rules |
-| `.stocks` | `.stox`, `.market`, `.ticker` | Show tradable US tickers with live prices and change vs prev close |
+| `.stocks` | `.stox`, `.stonks`, `.market`, `.ticker` | Show tradable US tickers with live prices and change vs prev close |
 | `.stocks <TICKER>` | | Per-ticker detail with 7-day sparkline and your position |
 | `.stocks add <TICKER>` | | Add any valid US ticker (validated via Yahoo Finance) to the tradable list |
 | `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares (fractional allowed) — accepts a share count (`5` / `0.25`), `all` (spend full balance), or coin budget (`$500`) |
 | `.sell <TICKER> <qty\|all\|$coins>` | | Sell shares (fractional allowed) — accepts a count, `all`, or `$<coins>` worth |
 | `.portfolio [@user]` | `.port` | Show holdings + unrealized P/L |
+| `.call <TICKER> <coins>` | `.callopt` | Open a call — win coins if price goes UP in 24h (10× leverage paper trade) |
+| `.put <TICKER> <coins>` | `.putopt` | Open a put — win coins if price goes DOWN in 24h (10× leverage paper trade) |
+| `.options [@user]` | `.opts`, `.positions`, `.pos` | Show open call/put positions with live estimated P/L |
 | `.ttt @user` | | Tic-tac-toe (use `.m <1-9>`) |
 | `.c4 @user` | | Connect 4 (use `.drop <1-7>` or `.m <1-7>`) |
 | `.hangman [@user]` | `.hang`, `.hm` | Start hangman solo or invite someone |
@@ -146,7 +149,7 @@ Kids mode is server-specific and persisted in SQLite. It is intended for servers
 Kids mode disables:
 
 - Economy commands: `.guess`, `.balance`, `.leaderboard`, `.give`, `.repuzzle` (and the auto-daily-award)
-- Stocks commands: `.stocks`, `.buy`, `.sell`, `.portfolio`
+- Stocks commands: `.stocks`, `.buy`, `.sell`, `.portfolio`, `.call`, `.put`, `.options`
 - Gambling commands: `.coinflip`, `.slots`, `.blackjack`, blackjack actions, and `.bjrules`
 - All AI: `.ask`, `.rp`, `.stoprp`, mention replies, unsolicited AI, Silas roleplay/banter/reacts, and autonomous gambling in that server
 - All passive behavior: dead-chat callouts, late-night callouts, unsolicited AI, and other background chat reactions

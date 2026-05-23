@@ -3,6 +3,7 @@
 The bot is supposed to degrade gracefully — no unhandled exceptions, user
 gets a sensible message.
 """
+
 from unittest.mock import AsyncMock, patch
 
 from aioresponses import aioresponses
@@ -16,6 +17,7 @@ from tests.conftest import FakeContext
 # ---------------------------------------------------------------------------
 async def test_ask_command_degrades_when_ollama_returns_none():
     from modules.ai import AICog
+
     cog = AICog(bot=AsyncMock())
     ctx = FakeContext()
 
@@ -34,11 +36,13 @@ async def test_ask_command_handles_aiohttp_failure_inside_query():
     """If aiohttp itself raises (mid-call), shared.query_ollama should swallow
     it and the .ask command should still respond."""
     from modules.ai import AICog
+
     cog = AICog(bot=AsyncMock())
     ctx = FakeContext()
 
     with aioresponses() as m:
         import aiohttp
+
         m.post(
             f"{shared.OLLAMA_URL}/api/chat",
             exception=aiohttp.ClientConnectionError("desktop sleeping"),
@@ -53,6 +57,7 @@ async def test_ask_command_handles_aiohttp_failure_inside_query():
 # ---------------------------------------------------------------------------
 async def test_weather_command_handles_api_failure(monkeypatch):
     from modules.misc import MiscCog
+
     cog = MiscCog(bot=None)
     ctx = FakeContext()
 
@@ -85,7 +90,5 @@ def test_load_runtime_settings_recovers_from_corrupt_json():
     shared.load_runtime_settings()
 
     # Defaults should be in place after the recovery.
-    assert shared.runtime_settings["dead_chat_enabled"] == \
-        shared.SETTINGS_DEFAULTS["dead_chat_enabled"]
-    assert shared.runtime_settings["command_toggles"] == \
-        shared.SETTINGS_DEFAULTS["command_toggles"]
+    assert shared.runtime_settings["dead_chat_enabled"] == shared.SETTINGS_DEFAULTS["dead_chat_enabled"]
+    assert shared.runtime_settings["command_toggles"] == shared.SETTINGS_DEFAULTS["command_toggles"]

@@ -2,6 +2,7 @@
 
 Tests assert behavior at the function boundary — never hit a real network.
 """
+
 import asyncio
 import re
 from datetime import datetime
@@ -21,6 +22,7 @@ _FORECAST_RE = re.compile(r"https://api\.openweathermap\.org/data/2\.5/forecast.
 _GEO_US = [{"name": "Champaign", "lat": 40.12, "lon": -88.24, "country": "US", "state": "Illinois"}]
 _GEO_GB = [{"name": "London", "lat": 51.51, "lon": -0.13, "country": "GB", "state": "England"}]
 _GEO_JP = [{"name": "Tokyo", "lat": 35.69, "lon": 139.69, "country": "JP"}]
+
 
 def _current_payload(name="Champaign"):
     return {
@@ -56,6 +58,7 @@ class TestQueryOllama:
 
     async def test_returns_none_on_connection_error(self):
         import aiohttp
+
         with aioresponses() as m:
             m.post(self.URL, exception=aiohttp.ClientConnectionError("offline"))
             result = await shared.query_ollama("system", "prompt")
@@ -92,6 +95,7 @@ class TestWeatherFetch:
     @pytest.fixture
     def cog(self):
         from modules.misc import MiscCog
+
         return MiscCog(bot=None)
 
     async def test_returns_embed_on_200_payload(self, cog):
@@ -126,6 +130,7 @@ class TestWeatherFetch:
 
     async def test_returns_none_on_connection_error(self, cog):
         import aiohttp
+
         with aioresponses() as m:
             m.get(_GEO_RE, exception=aiohttp.ClientConnectionError())
             result = await cog._fetch_weather_embed("Champaign")
@@ -184,8 +189,9 @@ class TestWeatherFetch:
             embed = await cog._fetch_weather_embed("Champaign", forecast_mode="multi_day")
 
         assert embed is not None
-        assert any("Daily Forecast" in str(f.value) for f in embed.fields), \
+        assert any("Daily Forecast" in str(f.value) for f in embed.fields), (
             f"forecast section not found in fields: {[(f.name, f.value) for f in embed.fields]}"
+        )
 
     async def test_today_forecast_adds_single_day_high_low_rain_chance(self, cog):
         today = datetime.now(CENTRAL_TZ)
@@ -223,6 +229,7 @@ class TestCleanCity:
     @pytest.fixture
     def cog(self):
         from modules.misc import MiscCog
+
         return MiscCog(bot=None)
 
     def test_local_city_gets_il_us_suffix(self, cog):

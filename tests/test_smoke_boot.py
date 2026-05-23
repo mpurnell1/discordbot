@@ -1,10 +1,11 @@
 """Smoke test: bot boots, all cogs load, every documented command registers."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import bot as bot_module
-from tests.conftest import FakeAuthor, FakeContext
+from tests.conftest import FakeAuthor, FakeContext, FakeGuild
 
 
 @pytest.fixture
@@ -39,9 +40,24 @@ async def test_no_command_name_collisions(loaded_bot):
 async def test_critical_commands_exist(loaded_bot):
     """Spot-check the handful of commands that absolutely must exist."""
     expected = {
-        "balance", "blackjack", "coinflip", "slots", "puzzle", "solve",
-        "ttt", "c4", "hangman", "weather", "ask", "settings",
-        "help", "adminhelp", "leaderboard", "alias", "bugreport", "featurerequest",
+        "balance",
+        "blackjack",
+        "coinflip",
+        "slots",
+        "puzzle",
+        "solve",
+        "ttt",
+        "c4",
+        "hangman",
+        "weather",
+        "ask",
+        "settings",
+        "help",
+        "adminhelp",
+        "leaderboard",
+        "alias",
+        "bugreport",
+        "featurerequest",
     }
     registered = {c.name for c in loaded_bot.commands}
     missing = expected - registered
@@ -110,6 +126,63 @@ async def test_adminhelp_command_lists_botstat_for_runtime_stats(loaded_bot):
     assert "`.botstat` - Runtime bot stats and usage" in fields["Admin Utils"]
     assert "`.garystats` - Gary autonomous gambling stats" in fields["Admin Utils"]
     assert "`.repuzzle [@user]` - Regenerate a daily puzzle" in fields["Admin Utils"]
+
+
+# Commands intentionally absent from public .help — documented in .adminhelp only.
+_ADMIN_COMMANDS = frozenset(
+    {
+        "settings",
+        "botstat",
+        "garystats",
+        "say",
+        "give",
+        "repuzzle",
+        "clear",
+        "restart",
+        "unquote",
+    }
+)
+
+# In-game sub-commands: players learn these from in-game prompts, not from .help.
+# Blackjack actions are shown as a pipe-joined inline string (.hit|stand|...) so
+# only `.hit` gets the dot prefix; the rest don't pass a `.name` substring check.
+_GAME_ACTION_COMMANDS = frozenset(
+    {
+        "hit",
+        "stand",
+        "double",
+        "split",
+        "surrender",
+        "m",  # ttt / c4 move
+        "drop",  # c4 column drop
+    }
+)
+
+# The help commands don't need to document themselves.
+_SELF_COMMANDS = frozenset({"help", "adminhelp"})
+
+_SKIP_PUBLIC_HELP = _ADMIN_COMMANDS | _GAME_ACTION_COMMANDS | _SELF_COMMANDS
+
+
+async def test_help_documents_all_public_commands(loaded_bot):
+    """Every registered non-admin, non-internal command must appear in .help output."""
+    cog = loaded_bot.get_cog("MiscCog")
+    ctx = FakeContext(guild=FakeGuild())
+    await cog.help.callback(cog, ctx)
+    output = "\n".join(f.value for f in ctx.sent[0]["embed"].fields)
+    registered = {c.name for c in loaded_bot.commands}
+    missing = sorted(n for n in registered - _SKIP_PUBLIC_HELP if f".{n}" not in output)
+    assert not missing, f"Commands registered but missing from .help: {missing}"
+
+
+async def test_adminhelp_documents_all_admin_commands(loaded_bot):
+    """Every admin command must appear in .adminhelp output."""
+    cog = loaded_bot.get_cog("MiscCog")
+    ctx = FakeContext(author=FakeAuthor(user_id=bot_module.ADMIN_ID), guild=FakeGuild())
+    await cog.adminhelp.callback(cog, ctx)
+    output = "\n".join(f.value for f in ctx.sent[0]["embed"].fields)
+    missing = sorted(n for n in _ADMIN_COMMANDS if f".{n}" not in output)
+    assert not missing, f"Admin commands missing from .adminhelp: {missing}"
 
 
 async def test_raw_blackjack_action_dispatches_when_hand_is_active():

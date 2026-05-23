@@ -1,4 +1,4 @@
-﻿import discord
+import discord
 from discord.ext import commands, tasks
 import aiohttp
 import asyncio
@@ -45,18 +45,57 @@ from modules.stocks import (
 LOCAL_CITIES = {"champaign", "urbana", "savoy", "mattoon", "mahomet", "sidney", "tuscola"}
 
 US_STATE_ABBREV = {
-    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
-    "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
-    "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA",
-    "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
-    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
-    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
-    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
-    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
-    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
-    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
-    "Virginia": "VA", "Washington": "WA", "West Virginia": "WV", "Wisconsin": "WI",
-    "Wyoming": "WY", "District of Columbia": "DC",
+    "Alabama": "AL",
+    "Alaska": "AK",
+    "Arizona": "AZ",
+    "Arkansas": "AR",
+    "California": "CA",
+    "Colorado": "CO",
+    "Connecticut": "CT",
+    "Delaware": "DE",
+    "Florida": "FL",
+    "Georgia": "GA",
+    "Hawaii": "HI",
+    "Idaho": "ID",
+    "Illinois": "IL",
+    "Indiana": "IN",
+    "Iowa": "IA",
+    "Kansas": "KS",
+    "Kentucky": "KY",
+    "Louisiana": "LA",
+    "Maine": "ME",
+    "Maryland": "MD",
+    "Massachusetts": "MA",
+    "Michigan": "MI",
+    "Minnesota": "MN",
+    "Mississippi": "MS",
+    "Missouri": "MO",
+    "Montana": "MT",
+    "Nebraska": "NE",
+    "Nevada": "NV",
+    "New Hampshire": "NH",
+    "New Jersey": "NJ",
+    "New Mexico": "NM",
+    "New York": "NY",
+    "North Carolina": "NC",
+    "North Dakota": "ND",
+    "Ohio": "OH",
+    "Oklahoma": "OK",
+    "Oregon": "OR",
+    "Pennsylvania": "PA",
+    "Rhode Island": "RI",
+    "South Carolina": "SC",
+    "South Dakota": "SD",
+    "Tennessee": "TN",
+    "Texas": "TX",
+    "Utah": "UT",
+    "Vermont": "VT",
+    "Virginia": "VA",
+    "Washington": "WA",
+    "West Virginia": "WV",
+    "Wisconsin": "WI",
+    "Wyoming": "WY",
+    "District of Columbia": "DC",
 }
 
 WYR_QUESTIONS = [
@@ -260,7 +299,6 @@ def format_quote(content, name, date, prefix=""):
     return f'{prefix}> "{short}"\n\\- {name} 2k{year}'
 
 
-
 class MiscCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -283,7 +321,7 @@ class MiscCog(commands.Cog):
         cleaned = city.strip()
         if cleaned.lower() in LOCAL_CITIES:
             return cleaned + ",IL,US"
-        if re.match(r'^.+,\s*[A-Za-z]{2}$', cleaned):
+        if re.match(r"^.+,\s*[A-Za-z]{2}$", cleaned):
             return cleaned + ",US"
         return cleaned
 
@@ -389,10 +427,7 @@ class MiscCog(commands.Cog):
             return None
 
         today = datetime.now(CENTRAL_TZ).date()
-        entries = [
-            entry for entry in data.get("list", [])
-            if datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ).date() == today
-        ]
+        entries = [entry for entry in data.get("list", []) if datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ).date() == today]
         if not entries:
             return None
 
@@ -482,7 +517,6 @@ class MiscCog(commands.Cog):
         except (aiohttp.ClientError, asyncio.TimeoutError, IndexError, KeyError, TypeError):
             await ctx.send("Couldn't fetch a cat right now. Try again in a bit.")
 
-
     @commands.command()
     async def dog(self, ctx):
         """Random dog picture."""
@@ -501,14 +535,12 @@ class MiscCog(commands.Cog):
     # WOULD YOU RATHER
     # ---------------------------------------------------------------------------
 
-
     @commands.command()
     async def wyr(self, ctx):
         """Would You Rather — vote with reactions!"""
         pool = KIDS_WYR_QUESTIONS if ctx.guild and is_kids_mode_guild(ctx.guild.id) else WYR_QUESTIONS
         a, b = random.choice(pool)
-        embed = make_embed("🤔 Would You Rather...",
-            f"🅰️ {a}\n\n**OR**\n\n🅱️ {b}", COLOR_PINK)
+        embed = make_embed("🤔 Would You Rather...", f"🅰️ {a}\n\n**OR**\n\n🅱️ {b}", COLOR_PINK)
         msg = await ctx.send(embed=embed)
         await msg.add_reaction("🅰️")
         await msg.add_reaction("🅱️")
@@ -649,13 +681,9 @@ class MiscCog(commands.Cog):
             return await ctx.send("I couldn't post that report. Matt may need to check my report-channel permissions.")
 
         if kind == "bug":
-            await ctx.send(
-                f"Sorry you ran into an issue! Track the status of your report here: {report_message.jump_url}"
-            )
+            await ctx.send(f"Sorry you ran into an issue! Track the status of your report here: {report_message.jump_url}")
         else:
-            await ctx.send(
-                f"Thank you for your feedback! Track the status of your request here: {report_message.jump_url}"
-            )
+            await ctx.send(f"Thank you for your feedback! Track the status of your request here: {report_message.jump_url}")
 
     @commands.command(aliases=["bug", "issue", "report"])
     async def bugreport(self, ctx, *, description: str = ""):
@@ -693,9 +721,7 @@ class MiscCog(commands.Cog):
         year = event.get("year", "???")
         desc = event.get("description", "No description available.")
 
-        embed = make_embed(
-            f"📜 On This Day — {today.strftime('%B %d')}",
-            f"**{year}**: {desc}", COLOR_ORANGE)
+        embed = make_embed(f"📜 On This Day — {today.strftime('%B %d')}", f"**{year}**: {desc}", COLOR_ORANGE)
         await ctx.send(embed=embed)
 
     # ---------------------------------------------------------------------------
@@ -713,15 +739,17 @@ class MiscCog(commands.Cog):
 
         bal = get_balance(ctx.author.id)
         if bal < NICKNAME_COST:
-            return await ctx.send(embed=make_embed("❌ Not Enough Coins",
-                f"Changing a nickname costs **{NICKNAME_COST}** coins.\nYou have **{bal}**.", COLOR_ERROR))
+            return await ctx.send(
+                embed=make_embed(
+                    "❌ Not Enough Coins", f"Changing a nickname costs **{NICKNAME_COST}** coins.\nYou have **{bal}**.", COLOR_ERROR
+                )
+            )
 
         # If this user is already under an active changenick, preserve the
         # truly-original nick from the existing row instead of capturing the
         # current (already-overridden) display name.
         existing = shared.db.execute(
-            "SELECT original_nick FROM nick_changes WHERE guild_id = ? AND target_id = ? "
-            "ORDER BY id ASC LIMIT 1",
+            "SELECT original_nick FROM nick_changes WHERE guild_id = ? AND target_id = ? ORDER BY id ASC LIMIT 1",
             (ctx.guild.id, member.id),
         ).fetchone()
         original_nick = existing[0] if existing else member.display_name
@@ -742,14 +770,19 @@ class MiscCog(commands.Cog):
         )
         shared.db.execute(
             "INSERT INTO nick_changes (guild_id, target_id, original_nick, expires_at) VALUES (?, ?, ?, ?)",
-            (ctx.guild.id, member.id, original_nick, expires.isoformat())
+            (ctx.guild.id, member.id, original_nick, expires.isoformat()),
         )
         shared.db.commit()
 
         new_bal = get_balance(ctx.author.id)
-        await ctx.send(embed=make_embed("✏️ Nickname Changed!",
-            f"**{original_nick}** is now **{new_nick}** for {NICKNAME_DURATION_HOURS} hours.\n"
-            f"Cost: **{NICKNAME_COST}** coins | Balance: **{new_bal}**", COLOR_SUCCESS))
+        await ctx.send(
+            embed=make_embed(
+                "✏️ Nickname Changed!",
+                f"**{original_nick}** is now **{new_nick}** for {NICKNAME_DURATION_HOURS} hours.\n"
+                f"Cost: **{NICKNAME_COST}** coins | Balance: **{new_bal}**",
+                COLOR_SUCCESS,
+            )
+        )
 
     # ---------------------------------------------------------------------------
     # NICKNAME RESTORE TASK
@@ -794,11 +827,10 @@ class MiscCog(commands.Cog):
         shared.db.execute(
             "INSERT INTO quotes (guild_id, quoted_user_id, quoted_user_name, content, saved_by, saved_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (ctx.guild.id, msg.author.id, msg.author.display_name, msg.content, ctx.author.id, now)
+            (ctx.guild.id, msg.author.id, msg.author.display_name, msg.content, ctx.author.id, now),
         )
         shared.db.commit()
         await ctx.send(format_quote(msg.content, msg.author.mention, now))
-
 
     @commands.command()
     @commands.guild_only()
@@ -807,15 +839,16 @@ class MiscCog(commands.Cog):
         show_ids = flag.lower() == "ids" and ctx.author.id == ADMIN_ID
         rows = shared.db.execute(
             "SELECT id, quoted_user_name, content, saved_at FROM quotes WHERE guild_id = ? ORDER BY id DESC LIMIT 10",
-            (ctx.guild.id,)
+            (ctx.guild.id,),
         ).fetchall()
         if not rows:
             return await ctx.send("No quotes saved yet.")
+
         def prefix_fn(qid):
             return f"**#{qid}** " if show_ids else ""
+
         lines = [format_quote(content, name, date, prefix_fn(qid)) for qid, name, content, date in rows]
         await ctx.send("\n".join(lines))
-
 
     @commands.command()
     @commands.guild_only()
@@ -844,22 +877,26 @@ class MiscCog(commands.Cog):
         if value in {"", "status"}:
             enabled = is_kids_mode_guild(ctx.guild.id)
             state = "ON" if enabled else "OFF"
-            return await ctx.send(embed=make_embed(
-                "Kids Mode",
-                f"Kids mode is **{state}** for **{ctx.guild.name}**.\n\n{KIDS_MODE_SUMMARY}",
-                COLOR_DEFAULT,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Kids Mode",
+                    f"Kids mode is **{state}** for **{ctx.guild.name}**.\n\n{KIDS_MODE_SUMMARY}",
+                    COLOR_DEFAULT,
+                )
+            )
         if value not in {"on", "off"}:
             return await ctx.send(f"Usage: `{PREFIX}kidsmode <on|off|status>`")
 
         enabled = value == "on"
         set_kids_mode_guild(ctx.guild.id, enabled)
         state = "ON" if enabled else "OFF"
-        await ctx.send(embed=make_embed(
-            "Kids Mode Updated",
-            f"Kids mode is now **{state}** for **{ctx.guild.name}**.\n\n{KIDS_MODE_SUMMARY}",
-            COLOR_SUCCESS if enabled else COLOR_WARNING,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "Kids Mode Updated",
+                f"Kids mode is now **{state}** for **{ctx.guild.name}**.\n\n{KIDS_MODE_SUMMARY}",
+                COLOR_SUCCESS if enabled else COLOR_WARNING,
+            )
+        )
 
     @commands.command(aliases=["set"])
     async def settings(self, ctx, section: str = "", *args):
@@ -913,9 +950,7 @@ class MiscCog(commands.Cog):
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                     report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(
-                        f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}"
-                    )
+                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}")
 
                 action = args[0].strip().lower()
                 if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
@@ -925,9 +960,7 @@ class MiscCog(commands.Cog):
                     shared.runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
                     shared._save_json_setting("gary_gamble_enabled", True)
                     shared._save_json_setting("gary_gamble_channel_id", ctx.channel.id)
-                    return await ctx.send(
-                        f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}."
-                    )
+                    return await ctx.send(f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}.")
                 if action == "off":
                     shared.runtime_settings["gary_gamble_enabled"] = False
                     shared._save_json_setting("gary_gamble_enabled", False)
@@ -939,9 +972,7 @@ class MiscCog(commands.Cog):
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                     report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(
-                        f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}"
-                    )
+                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}")
                 if action == "channel":
                     target = ctx.channel
                     if ctx.message.channel_mentions:
@@ -962,9 +993,7 @@ class MiscCog(commands.Cog):
                     shared.runtime_settings["gary_gamble_report_channel_id"] = target.id
                     shared._save_json_setting("gary_gamble_report_channel_id", target.id)
                     return await ctx.send(f"Gamble report channel set to {target.mention}.")
-                return await ctx.send(
-                    f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`"
-                )
+                return await ctx.send(f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`")
 
             if sec == "weather":
                 channel_id = shared.runtime_settings.get("weather_alert_channel_id")
@@ -972,9 +1001,7 @@ class MiscCog(commands.Cog):
                 channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                 if not args:
                     state = "ON" if channel_id else "OFF"
-                    return await ctx.send(
-                        f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)"
-                    )
+                    return await ctx.send(f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)")
                 action = args[0].strip().lower()
                 if action == "on":
                     target = ctx.channel
@@ -982,18 +1009,14 @@ class MiscCog(commands.Cog):
                         target = ctx.message.channel_mentions[0]
                     shared.runtime_settings["weather_alert_channel_id"] = target.id
                     shared._save_json_setting("weather_alert_channel_id", target.id)
-                    return await ctx.send(
-                        f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central."
-                    )
+                    return await ctx.send(f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central.")
                 if action == "off":
                     shared.runtime_settings["weather_alert_channel_id"] = None
                     shared._save_json_setting("weather_alert_channel_id", None)
                     return await ctx.send("Daily weather alert is now **OFF**.")
                 if action == "status":
                     state = "ON" if channel_id else "OFF"
-                    return await ctx.send(
-                        f"Daily weather alert: **{state}** in {channel_text} for **{city}**"
-                    )
+                    return await ctx.send(f"Daily weather alert: **{state}** in {channel_text} for **{city}**")
                 if action == "city":
                     if len(args) < 2:
                         return await ctx.send(f"Usage: `{PREFIX}settings weather city <city name>`")
@@ -1001,9 +1024,7 @@ class MiscCog(commands.Cog):
                     shared.runtime_settings["weather_alert_city"] = new_city
                     shared._save_json_setting("weather_alert_city", new_city)
                     return await ctx.send(f"Weather alert city set to **{new_city}**.")
-                return await ctx.send(
-                    f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
-                )
+                return await ctx.send(f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`")
 
             if sec == "ticker":
                 channel_id = shared.runtime_settings.get("ticker_channel_id")
@@ -1033,9 +1054,7 @@ class MiscCog(commands.Cog):
                     return await ctx.send("Daily ticker is now **OFF**.")
                 if action == "status":
                     state = "ON" if channel_id else "OFF"
-                    return await ctx.send(
-                        f"Daily ticker: **{state}** in {channel_text}"
-                    )
+                    return await ctx.send(f"Daily ticker: **{state}** in {channel_text}")
                 if action == "now":
                     stocks_cog = self.bot.get_cog("StocksCog")
                     if stocks_cog is None:
@@ -1044,9 +1063,7 @@ class MiscCog(commands.Cog):
                         return await ctx.send("Set a ticker channel first with `.settings ticker on [#channel]`.")
                     await stocks_cog._post_morning_announcement()
                     return
-                return await ctx.send(
-                    f"Usage: `{PREFIX}settings ticker <on [#channel]|off|status|now>`"
-                )
+                return await ctx.send(f"Usage: `{PREFIX}settings ticker <on [#channel]|off|status|now>`")
 
             if sec == "deadchat":
                 if not args:
@@ -1090,7 +1107,7 @@ class MiscCog(commands.Cog):
                 if canonical_name in PROTECTED_ADMIN_COMMANDS:
                     return await ctx.send("That command cannot be disabled.")
                 toggles = shared.runtime_settings.get("command_toggles", {})
-                toggles[canonical_name] = (state_arg == "on")
+                toggles[canonical_name] = state_arg == "on"
                 shared.runtime_settings["command_toggles"] = toggles
                 shared._save_json_setting("command_toggles", toggles)
                 return await ctx.send(f"`{PREFIX}{canonical_name}` is now **{state_arg.upper()}**.")
@@ -1190,9 +1207,7 @@ class MiscCog(commands.Cog):
                     return await ctx.send(f"`{name}` channel cleared.")
                 mentioned = ctx.message.channel_mentions
                 if not mentioned:
-                    return await ctx.send(
-                        f"Mention a channel or use `off`. Example: `{PREFIX}settings channels {name} #general`"
-                    )
+                    return await ctx.send(f"Mention a channel or use `off`. Example: `{PREFIX}settings channels {name} #general`")
                 shared.runtime_settings[key] = mentioned[0].id
                 shared._save_json_setting(key, mentioned[0].id)
                 return await ctx.send(f"`{name}` channel set to {mentioned[0].mention}.")
@@ -1203,9 +1218,7 @@ class MiscCog(commands.Cog):
                 react = shared.runtime_settings.get("silas_react_chance_pct", 0)
                 if not args:
                     id_text = f"`{silas_id}`" if silas_id else "(not set)"
-                    return await ctx.send(
-                        f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**"
-                    )
+                    return await ctx.send(f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**")
                 sub = args[0].strip().lower()
                 if sub == "id":
                     if len(args) < 2:
@@ -1241,9 +1254,7 @@ class MiscCog(commands.Cog):
         bj_hint_state = "ON" if shared.runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
         gary_gamble_channel = shared.runtime_settings.get("gary_gamble_channel_id")
         gary_gamble_channel_text = f"<#{int(gary_gamble_channel)}>" if gary_gamble_channel else "(not set)"
-        disabled = sorted(
-            name for name, enabled in shared.runtime_settings.get("command_toggles", {}).items() if not enabled
-        )
+        disabled = sorted(name for name, enabled in shared.runtime_settings.get("command_toggles", {}).items() if not enabled)
         disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
 
         rule_lines = []
@@ -1282,8 +1293,11 @@ class MiscCog(commands.Cog):
         ticker_text = f"<#{int(ticker_channel_id)}>" if ticker_channel_id else "(not set)"
         embed.add_field(name="Stock Ticker", value=f"{ticker_state}\n{ticker_text}", inline=True)
         _channel_keys = (
-            "guild_join_report_channel_id", "kids_interaction_log_channel_id",
-            "bug_report_channel_id", "feature_request_channel_id", "request_tracking_channel_id",
+            "guild_join_report_channel_id",
+            "kids_interaction_log_channel_id",
+            "bug_report_channel_id",
+            "feature_request_channel_id",
+            "request_tracking_channel_id",
         )
         channels_set = sum(1 for k in _channel_keys if shared.runtime_settings.get(k))
         silas_id = shared.runtime_settings.get("silas_bot_id")
@@ -1301,8 +1315,6 @@ class MiscCog(commands.Cog):
         embed.set_footer(text="Command features use cmd:<command> (example: cmd:ask)")
         await ctx.send(embed=embed)
 
-
-
     @commands.command()
     async def restart(self, ctx):
         """Admin only: restart this bot process."""
@@ -1312,8 +1324,6 @@ class MiscCog(commands.Cog):
         shared.db.commit()
         python = sys.executable
         os.execv(python, [python] + sys.argv)
-
-
 
     @commands.command()
     async def clear(self, ctx, count: str = ""):
@@ -1365,8 +1375,6 @@ class MiscCog(commands.Cog):
             except (discord.HTTPException, discord.Forbidden):
                 pass
 
-
-
     @commands.command(aliases=["botstats", "bs", "bot"])
     async def botstat(self, ctx):
         """Admin only: show runtime bot stats."""
@@ -1414,11 +1422,7 @@ class MiscCog(commands.Cog):
         embed.add_field(name="⏱️ Uptime", value=uptime, inline=True)
         embed.add_field(
             name="🌐 Presence",
-            value=(
-                f"{len(guilds)} servers\n"
-                f"{text_channels} text channels\n"
-                f"{voice_channels} voice channels"
-            ),
+            value=(f"{len(guilds)} servers\n{text_channels} text channels\n{voice_channels} voice channels"),
             inline=False,
         )
         embed.add_field(
@@ -1432,7 +1436,6 @@ class MiscCog(commands.Cog):
         )
         embed.set_footer(text=f"Latency: {self.bot.latency * 1000:.0f}ms")
         await ctx.send(embed=embed)
-
 
     @commands.command()
     async def invite(self, ctx, mode: str = ""):
@@ -1458,7 +1461,6 @@ class MiscCog(commands.Cog):
             return await ctx.send(embed=make_embed("Kids Mode Invite", description, COLOR_SUCCESS))
         await ctx.send(embed=make_embed("🔗 Invite Link", f"[Click here to invite me!]({link})"))
 
-
     @commands.command()
     async def give(self, ctx, member: discord.Member, amount: int):
         """Admin only: add coins to a user."""
@@ -1467,7 +1469,6 @@ class MiscCog(commands.Cog):
         update_balance(member.id, amount)
         new_bal = get_balance(member.id)
         await ctx.send(f"Gave **{amount}** coins to {member.mention}. New balance: **{new_bal}**")
-
 
     @commands.command()
     async def say(self, ctx, *, text: str):
@@ -1498,21 +1499,25 @@ class MiscCog(commands.Cog):
             c4 = game_stats["c4"]
             total = sum(ttt.values()) + sum(c4.values())
             if total == 0:
-                return await ctx.send(embed=make_embed(
-                    f"vs {member.display_name}",
-                    "No games played against this person yet.",
-                ))
-            return await ctx.send(embed=make_embed(
-                f"Head-to-Head vs {member.display_name}",
-                f"**Tic-Tac-Toe**: {ttt['win']}W / {ttt['loss']}L / {ttt['draw']}D\n"
-                f"**Connect 4**: {c4['win']}W / {c4['loss']}L / {c4['draw']}D",
-            ))
+                return await ctx.send(
+                    embed=make_embed(
+                        f"vs {member.display_name}",
+                        "No games played against this person yet.",
+                    )
+                )
+            return await ctx.send(
+                embed=make_embed(
+                    f"Head-to-Head vs {member.display_name}",
+                    f"**Tic-Tac-Toe**: {ttt['win']}W / {ttt['loss']}L / {ttt['draw']}D\n"
+                    f"**Connect 4**: {c4['win']}W / {c4['loss']}L / {c4['draw']}D",
+                )
+            )
 
         user_id = ctx.author.id
         puzzle = shared.get_puzzle_stats(user_id)
         games = shared.get_game_stats(user_id)
         act_streak, act_max = shared.get_activity_streak(user_id)
-        puzzle_streak = puzzle['streak']
+        puzzle_streak = puzzle["streak"]
         ttt = games["ttt"]
         c4 = games["c4"]
 
@@ -1532,19 +1537,14 @@ class MiscCog(commands.Cog):
         streak_line = f"**{act_streak}** day{'s' if act_streak != 1 else ''}"
         if act_max > act_streak:
             streak_line += f" (best: **{act_max}**)"
-        next_milestone = next(
-            (f"+{b:,} at {d}d" for d, b in shared.STREAK_MILESTONES.items() if d > act_streak), None
-        )
+        next_milestone = next((f"+{b:,} at {d}d" for d, b in shared.STREAK_MILESTONES.items() if d > act_streak), None)
         activity_value = f"Daily streak: {streak_line}"
         if next_milestone:
             activity_value += f"\nNext bonus: {next_milestone}"
         embed.add_field(name="🔥 Activity", value=activity_value, inline=True)
         embed.add_field(
             name="🎮 Games",
-            value=(
-                f"TTT: {ttt['win']}W / {ttt['loss']}L / {ttt['draw']}D\n"
-                f"C4:  {c4['win']}W / {c4['loss']}L / {c4['draw']}D"
-            ),
+            value=(f"TTT: {ttt['win']}W / {ttt['loss']}L / {ttt['draw']}D\nC4:  {c4['win']}W / {c4['loss']}L / {c4['draw']}D"),
             inline=True,
         )
         if not kids:
@@ -1568,11 +1568,7 @@ class MiscCog(commands.Cog):
 
             embed.add_field(
                 name="🎲 Gambling",
-                value=(
-                    f"Coinflip: {_fmt_gambling(cf)}\n"
-                    f"Slots: {_fmt_gambling(sl)}\n"
-                    f"Blackjack: {_fmt_gambling(bj)}"
-                ),
+                value=(f"Coinflip: {_fmt_gambling(cf)}\nSlots: {_fmt_gambling(sl)}\nBlackjack: {_fmt_gambling(bj)}"),
                 inline=True,
             )
             holdings_count = len(get_user_holdings(user_id))
@@ -1684,58 +1680,75 @@ class MiscCog(commands.Cog):
         p = PREFIX
         kids_mode = ctx.guild is not None and is_kids_mode_guild(ctx.guild.id)
         if not kids_mode:
-            embed.add_field(name="Economy", value=(
-                f"`{p}guess <1-10>` - Guess for a free coin (3x/day)\n"
-                f"`{p}puzzle` - Daily puzzle for {PUZZLE_REWARD} coins\n"
-                f"`{p}balance` - Check balance\n"
-                f"`{p}leaderboard` - Top 10 richest"
-            ), inline=False)
+            embed.add_field(
+                name="Economy",
+                value=(
+                    f"`{p}guess <1-10>` - Guess for a free coin (3x/day)\n"
+                    f"`{p}puzzle` - Daily puzzle for {PUZZLE_REWARD} coins\n"
+                    f"`{p}balance` - Check balance\n"
+                    f"`{p}leaderboard` - Top 10 richest"
+                ),
+                inline=False,
+            )
         if not kids_mode:
-            embed.add_field(name="Gambling", value=(
-                f"`{p}coinflip <amt>` - Double or nothing\n"
-                f"`{p}slots <amt>` - Slot machine\n"
-                f"`{p}blackjack <amt>` - Play blackjack\n"
-                f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
-                f"`{p}bjrules` - Show current blackjack table rules"
-            ), inline=False)
+            embed.add_field(
+                name="Gambling",
+                value=(
+                    f"`{p}coinflip <amt>` - Double or nothing\n"
+                    f"`{p}slots <amt>` - Slot machine\n"
+                    f"`{p}blackjack <amt>` - Play blackjack\n"
+                    f"`{p}hit|stand|double|split|surrender` - Blackjack actions\n"
+                    f"`{p}bjrules` - Show current blackjack table rules"
+                ),
+                inline=False,
+            )
         if not kids_mode:
-            embed.add_field(name="Stocks & Options (paper trading)", value=(
-                f"`{p}stocks` - List tradable tickers with prices and overnight change\n"
-                f"`{p}stocks <TICKER>` - Per-ticker detail with 7-day sparkline\n"
-                f"`{p}stocks add <TICKER>` - Add a US stock or crypto (e.g. `BTC`, `AAPL`)\n"
-                f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (fractional allowed)\n"
-                f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares (fractional allowed)\n"
-                f"`{p}portfolio [@user]` - Holdings + unrealized P/L\n"
-                f"`{p}call <TICKER> <coins>` - Bet price goes **UP** in 24h (10× leverage)\n"
-                f"`{p}put <TICKER> <coins>` - Bet price goes **DOWN** in 24h (10× leverage)\n"
-                f"`{p}options [@user]` - Your open call/put positions"
-            ), inline=False)
+            embed.add_field(
+                name="Stocks & Options (paper trading)",
+                value=(
+                    f"`{p}stocks` - List tradable tickers with prices and overnight change\n"
+                    f"`{p}stocks <TICKER>` - Per-ticker detail with 7-day sparkline\n"
+                    f"`{p}stocks add <TICKER>` - Add a US stock or crypto (e.g. `BTC`, `AAPL`)\n"
+                    f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (fractional allowed)\n"
+                    f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares (fractional allowed)\n"
+                    f"`{p}portfolio [@user]` - Holdings + unrealized P/L\n"
+                    f"`{p}call <TICKER> <coins>` - Bet price goes **UP** in 24h (10× leverage)\n"
+                    f"`{p}put <TICKER> <coins>` - Bet price goes **DOWN** in 24h (10× leverage)\n"
+                    f"`{p}options [@user]` - Your open call/put positions"
+                ),
+                inline=False,
+            )
         puzzle_help = (
             f"`{p}puzzle` / `{p}solve <answer>` - Practice puzzle"
             if kids_mode
             else f"`{p}puzzle` / `{p}solve <answer>` - Daily puzzle"
         )
-        embed.add_field(name="Games", value=(
-            f"`{p}ttt @user` - Tic-tac-toe\n"
-            f"`{p}c4 @user` - Connect 4\n"
-            f"`{p}hangman` - Hangman (plain single letters or `{p}g <guess>`)\n"
-            f"`{p}rps <rock|paper|scissors>` - Rock Paper Scissors\n"
-            f"`{p}roll [sides]` - Roll a die\n"
-            f"`{p}mathgame` / `{p}mathanswer <answer>` - Quick math quiz\n"
-            f"`{p}memory` / `{p}memoryanswer <sequence>` - Memory game\n"
-            f"`{p}trivia` / `{p}triviaanswer <A-D>` - Trivia\n"
-            f"`{p}scramble` / `{p}unscramble <word>` - Word scramble\n"
-            f"{puzzle_help}\n"
-            f"`{p}timer <seconds>` - Start a timer\n"
-            f"`{p}forfeit` - Quit current game"
-        ), inline=False)
+        embed.add_field(
+            name="Games",
+            value=(
+                f"`{p}ttt @user` - Tic-tac-toe\n"
+                f"`{p}c4 @user` - Connect 4\n"
+                f"`{p}hangman` - Hangman (plain single letters or `{p}g <guess>`)\n"
+                f"`{p}rps <rock|paper|scissors>` - Rock Paper Scissors\n"
+                f"`{p}roll [sides]` - Roll a die\n"
+                f"`{p}mathgame` / `{p}mathanswer <answer>` - Quick math quiz\n"
+                f"`{p}memory` / `{p}memoryanswer <sequence>` - Memory game\n"
+                f"`{p}trivia` / `{p}triviaanswer <A-D>` - Trivia\n"
+                f"`{p}scramble` / `{p}unscramble <word>` - Word scramble\n"
+                f"{puzzle_help}\n"
+                f"`{p}timer <seconds>` - Start a timer\n"
+                f"`{p}forfeit` - Quit current game"
+            ),
+            inline=False,
+        )
         embed.add_field(
             name="Weather",
             value=(
                 f"`{p}weather [city]` - Current weather (defaults to Champaign)\n"
                 f"`{p}weather [city] forecast` - Current weather + multi-day forecast"
             ),
-            inline=False)
+            inline=False,
+        )
         embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
         fun_lines = [
             f"`{p}wyr` - Would You Rather",
@@ -1746,24 +1759,31 @@ class MiscCog(commands.Cog):
             fun_lines.append(f"`{p}changenick @user name` - Change nickname ({NICKNAME_COST} coins)")
         embed.add_field(name="Fun", value="\n".join(fun_lines), inline=False)
         if not kids_mode:
-            embed.add_field(name="AI", value=(
-                f"`{p}ask <question>` - Ask the AI (needs desktop on)\n"
-                f"`{p}rp <character>` - Roleplay with Silas\n"
-                f"`{p}stoprp` - End roleplay"
-            ), inline=False)
+            embed.add_field(
+                name="AI",
+                value=(
+                    f"`{p}ask <question>` - Ask the AI (needs desktop on)\n"
+                    f"`{p}rp <character>` - Roleplay with Silas\n"
+                    f"`{p}stoprp` - End roleplay"
+                ),
+                inline=False,
+            )
         if not kids_mode:
-            embed.add_field(name="Info", value=(
-                f"`{p}stats [@user]` - Your stats or head-to-head record\n"
-                f"`{p}invite` / `{p}invite kids` - Get invite link\n"
-                f"`{p}alias` - Show command aliases\n"
-                f"`{p}bugreport <description>` - Report a bug\n"
-                f"`{p}featurerequest <description>` - Request a feature"
-            ), inline=False)
+            embed.add_field(
+                name="Info",
+                value=(
+                    f"`{p}stats [@user]` - Your stats or head-to-head record\n"
+                    f"`{p}invite` / `{p}invite kids` - Get invite link\n"
+                    f"`{p}alias` - Show command aliases\n"
+                    f"`{p}bugreport <description>` - Report a bug\n"
+                    f"`{p}featurerequest <description>` - Request a feature"
+                ),
+                inline=False,
+            )
         if not kids_mode:
-            embed.add_field(name="Quotes", value=(
-                f"`{p}quote` - Reply to a message to save it\n"
-                f"`{p}quotes` - Show recent quotes"
-            ), inline=False)
+            embed.add_field(
+                name="Quotes", value=(f"`{p}quote` - Reply to a message to save it\n`{p}quotes` - Show recent quotes"), inline=False
+            )
         await ctx.send(embed=embed)
 
     @commands.command(aliases=["aliases"])
@@ -1785,30 +1805,40 @@ class MiscCog(commands.Cog):
             return
         p = PREFIX
         embed = discord.Embed(title="Admin Commands", color=COLOR_DEFAULT)
-        embed.add_field(name="Runtime", value=(
-            f"`{p}settings` - Show all runtime settings\n"
-            f"`{p}settings kids <on|off|status>` - Server kids mode\n"
-            f"`{p}settings gamble <on|off|status|now|channel|report [#ch]>` - Gary gambling\n"
-            f"`{p}settings weather <on [#ch]|off|status|city <name>>` - 8 AM weather alert\n"
-            f"`{p}settings ticker <on [#ch]|off|status|now>` - Daily NYSE-open stock ticker post\n"
-            f"`{p}settings deadchat <on|off|status>` - Dead chat callouts\n"
-            f"`{p}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>` - Passive AI\n"
-            f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"
-            f"`{p}settings commands <command> <on|off>` - Toggle command globally\n"
-            f"`{p}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#ch]>` - Feature gates\n"
-            f"`{p}settings channels <name> [#channel|off]` - Configure channel IDs\n"
-            f"`{p}settings silas <id|banter|react> [value]` - Silas bot config"
-        ), inline=False)
-        embed.add_field(name="Admin Utils", value=(
-            f"`{p}botstat` - Runtime bot stats and usage\n"
-            f"`{p}garystats` - Gary autonomous gambling stats\n"
-            f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
-            f"`{p}give @user <amount>` - Add/remove coins\n"
-            f"`{p}repuzzle [@user]` - Regenerate a daily puzzle\n"
-            f"`{p}clear <n>` - Delete last n messages from Gary\n"
-            f"`{p}restart` - Restart process"
-        ), inline=False)
+        embed.add_field(
+            name="Runtime",
+            value=(
+                f"`{p}settings` - Show all runtime settings\n"
+                f"`{p}settings kids <on|off|status>` - Server kids mode\n"
+                f"`{p}settings gamble <on|off|status|now|channel|report [#ch]>` - Gary gambling\n"
+                f"`{p}settings weather <on [#ch]|off|status|city <name>>` - 8 AM weather alert\n"
+                f"`{p}settings ticker <on [#ch]|off|status|now>` - Daily NYSE-open stock ticker post\n"
+                f"`{p}settings deadchat <on|off|status>` - Dead chat callouts\n"
+                f"`{p}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>` - Passive AI\n"
+                f"`{p}settings blackjack <ruleset|hint> [value]` - Blackjack settings\n"
+                f"`{p}settings commands <command> <on|off>` - Toggle command globally\n"
+                f"`{p}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#ch]>` - Feature gates\n"
+                f"`{p}settings channels <name> [#channel|off]` - Configure channel IDs\n"
+                f"`{p}settings silas <id|banter|react> [value]` - Silas bot config"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Admin Utils",
+            value=(
+                f"`{p}botstat` - Runtime bot stats and usage\n"
+                f"`{p}garystats` - Gary autonomous gambling stats\n"
+                f"`{p}say <text>` - Make Gary post as bot (deletes your command)\n"
+                f"`{p}give @user <amount>` - Add/remove coins\n"
+                f"`{p}repuzzle [@user]` - Regenerate a daily puzzle\n"
+                f"`{p}unquote <id>` - Delete a quote by ID\n"
+                f"`{p}clear <n>` - Delete last n messages from Gary\n"
+                f"`{p}restart` - Restart process"
+            ),
+            inline=False,
+        )
         await ctx.send(embed=embed)
+
 
 async def setup(bot):
     bot.remove_command("help")

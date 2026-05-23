@@ -9,3 +9,17 @@ repos:
           - ruff>=0.15.12
         pass_filenames: false
         stages: [pre-commit, pre-push]
+      - id: ruff-format
+        name: ruff format check
+        entry: ruff format --check .
+        language: python
+        additional_dependencies:
+          - ruff>=0.15.12
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: pytest
+        name: pytest
+        entry: python -m pytest tests/ -q --tb=short
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

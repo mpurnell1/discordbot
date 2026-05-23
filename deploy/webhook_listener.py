@@ -25,9 +25,7 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 DEPLOY_BRANCH = os.getenv("DEPLOY_BRANCH", "main")
 EXPECTED_REPO = os.getenv("GITHUB_REPO", "")  # example: "owner/repo"
 REPO_DIR = Path(os.getenv("REPO_DIR", str(Path(__file__).resolve().parents[1]))).resolve()
-DEPLOY_SCRIPT = Path(
-    os.getenv("DEPLOY_SCRIPT", str(REPO_DIR / "deploy" / "deploy.sh"))
-).resolve()
+DEPLOY_SCRIPT = Path(os.getenv("DEPLOY_SCRIPT", str(REPO_DIR / "deploy" / "deploy.sh"))).resolve()
 
 
 def _verify_signature(secret: str, payload: bytes, header_value: str | None) -> bool:

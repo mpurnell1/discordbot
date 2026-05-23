@@ -41,9 +41,7 @@ def configure_logging() -> logging.Logger:
     if logger.handlers:
         return logger
 
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
     # Rotate at UTC midnight and keep 14 daily log files.
     rotating = TimedRotatingFileHandler(
@@ -101,10 +99,7 @@ async def notify_admin_guild_join(guild):
         set_kids_mode_guild(guild.id, True)
         kids_mode_auto_enabled = True
     owner_text = f"{guild.owner} ({guild.owner_id})" if guild.owner_id else "unknown"
-    unforce_sql = (
-        "DELETE FROM guild_settings\n"
-        f"WHERE guild_id = {guild.id} AND key = 'kids_mode';"
-    )
+    unforce_sql = f"DELETE FROM guild_settings\nWHERE guild_id = {guild.id} AND key = 'kids_mode';"
     description = (
         f"Gary was added to **{guild.name}**.\n\n"
         f"Guild ID: `{guild.id}`\n"
@@ -152,11 +147,13 @@ async def on_guild_join(guild):
     if target is None:
         return
     try:
-        await target.send(embed=make_embed(
-            "Gary Added",
-            f"Gary is ready. Use `{PREFIX}help` to see available commands.",
-            COLOR_DEFAULT,
-        ))
+        await target.send(
+            embed=make_embed(
+                "Gary Added",
+                f"Gary is ready. Use `{PREFIX}help` to see available commands.",
+                COLOR_DEFAULT,
+            )
+        )
     except discord.HTTPException:
         logger.warning("Could not send guild join setup message in guild %s", guild.id)
 
@@ -225,18 +222,14 @@ async def log_kids_interactions(message):
     if not is_kids_mode_guild(message.guild.id):
         return
     if message.author.id == bot.user.id:
-        await post_kids_log(
-            f"📤 **{message.guild.name}** `#{message.channel}` — Gary\n"
-            f"{summarize_bot_message(message)}"
-        )
+        await post_kids_log(f"📤 **{message.guild.name}** `#{message.channel}` — Gary\n{summarize_bot_message(message)}")
         return
     if message.author.bot:
         return
     if not message.content.startswith(PREFIX):
         return
     await post_kids_log(
-        f"📥 **{message.guild.name}** `#{message.channel}` — {message.author} (`{message.author.id}`)\n"
-        f"> {message.content}"
+        f"📥 **{message.guild.name}** `#{message.channel}` — {message.author} (`{message.author.id}`)\n> {message.content}"
     )
 
 
@@ -267,8 +260,7 @@ async def auto_daily_award(ctx):
         bal = get_balance(user_id)
         if is_milestone:
             desc = (
-                f"You got **{DAILY_AMOUNT}** coins + **{bonus:,}** streak bonus!\n"
-                f"🔥 **{streak}-day streak!** Balance: **{bal:,}**"
+                f"You got **{DAILY_AMOUNT}** coins + **{bonus:,}** streak bonus!\n🔥 **{streak}-day streak!** Balance: **{bal:,}**"
             )
         elif streak > 1:
             desc = f"You got **{DAILY_AMOUNT}** coins!\n🔥 {streak}-day streak | Balance: **{bal:,}**"
@@ -366,6 +358,7 @@ async def on_command_error(ctx, error):
         logger.info("Unknown command from %s (%s)", ctx.author, ctx.author.id)
     else:
         import traceback as _tb
+
         tb_text = _tb.format_exc()
         logger.exception(
             "Unhandled command error: command=%s user=%s (%s)",
@@ -380,19 +373,17 @@ async def on_command_error(ctx, error):
             f"**User:** {ctx.author} (`{ctx.author.id}`)\n"
             f"**Guild:** {getattr(ctx.guild, 'name', 'DM')} (`{getattr(ctx.guild, 'id', 'N/A')}`)\n"
             f"**Error:** `{type(error).__name__}: {error}`\n"
-            f"```\n{tb_text[-1500:]}\n```"
+            f"```\n{tb_text[-1500:]}\n```",
         )
 
 
 @bot.event
 async def on_error(event, *args, **kwargs):
     import traceback as _tb
+
     tb_text = _tb.format_exc()
     logger.exception("Unhandled error in event listener: %s", event)
-    await post_error_log(
-        "⚠️ Event Listener Error",
-        f"**Event:** `{event}`\n```\n{tb_text[-1800:]}\n```"
-    )
+    await post_error_log("⚠️ Event Listener Error", f"**Event:** `{event}`\n```\n{tb_text[-1800:]}\n```")
 
 
 @bot.event

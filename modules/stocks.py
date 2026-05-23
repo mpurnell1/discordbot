@@ -5,6 +5,7 @@ Trades are allowed 24/7 at the last known close so the bot stays fun on
 evenings and weekends. Fractional shares are supported (positions stored as
 REAL); coin balances remain integers and trade cost/proceeds are rounded.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,44 +36,44 @@ EASTERN_TZ = ZoneInfo("America/New_York")
 # Maps common crypto short-names to their Yahoo Finance symbols so users can
 # type `.stocks add BTC` instead of `.stocks add BTC-USD`.
 CRYPTO_ALIASES: dict[str, str] = {
-    "BTC":   "BTC-USD",
-    "ETH":   "ETH-USD",
-    "SOL":   "SOL-USD",
-    "ADA":   "ADA-USD",
-    "DOGE":  "DOGE-USD",
-    "XRP":   "XRP-USD",
-    "AVAX":  "AVAX-USD",
-    "DOT":   "DOT-USD",
-    "LINK":  "LINK-USD",
-    "LTC":   "LTC-USD",
-    "BCH":   "BCH-USD",
-    "BNB":   "BNB-USD",
-    "SHIB":  "SHIB-USD",
-    "UNI":   "UNI-USD",
-    "ATOM":  "ATOM-USD",
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+    "ADA": "ADA-USD",
+    "DOGE": "DOGE-USD",
+    "XRP": "XRP-USD",
+    "AVAX": "AVAX-USD",
+    "DOT": "DOT-USD",
+    "LINK": "LINK-USD",
+    "LTC": "LTC-USD",
+    "BCH": "BCH-USD",
+    "BNB": "BNB-USD",
+    "SHIB": "SHIB-USD",
+    "UNI": "UNI-USD",
+    "ATOM": "ATOM-USD",
     "MATIC": "MATIC-USD",
 }
 
 # Options paper-trading config.
-OPTIONS_LEVERAGE = 10      # 1% price move → 10% return on the bet
+OPTIONS_LEVERAGE = 10  # 1% price move → 10% return on the bet
 OPTIONS_EXPIRY_HOURS = 24
 
 # Curated seed list. Anything users add via `.stocks add SYM` is appended to
 # the same `stock_tickers` table — this dict only matters on first boot or
 # when the table is empty.
 SEED_TICKERS: dict[str, str] = {
-    "AAPL":  "Apple Inc.",
-    "MSFT":  "Microsoft Corporation",
+    "AAPL": "Apple Inc.",
+    "MSFT": "Microsoft Corporation",
     "GOOGL": "Alphabet Inc. (Class A)",
-    "AMZN":  "Amazon.com, Inc.",
-    "NVDA":  "NVIDIA Corporation",
-    "META":  "Meta Platforms, Inc.",
-    "TSLA":  "Tesla, Inc.",
-    "AMD":   "Advanced Micro Devices, Inc.",
-    "NFLX":  "Netflix, Inc.",
-    "DIS":   "The Walt Disney Company",
-    "SPY":   "SPDR S&P 500 ETF",
-    "QQQ":   "Invesco QQQ Trust",
+    "AMZN": "Amazon.com, Inc.",
+    "NVDA": "NVIDIA Corporation",
+    "META": "Meta Platforms, Inc.",
+    "TSLA": "Tesla, Inc.",
+    "AMD": "Advanced Micro Devices, Inc.",
+    "NFLX": "Netflix, Inc.",
+    "DIS": "The Walt Disney Company",
+    "SPY": "SPDR S&P 500 ETF",
+    "QQQ": "Invesco QQQ Trust",
 }
 
 # Trading session bounds in US Eastern time. yfinance returns the most recent
@@ -171,8 +172,7 @@ def get_tickers() -> dict[str, str]:
 
 def add_ticker(symbol: str, name: str, added_by: int | None = None) -> None:
     shared.db.execute(
-        "INSERT OR IGNORE INTO stock_tickers (ticker, name, added_by, added_at) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO stock_tickers (ticker, name, added_by, added_at) VALUES (?, ?, ?, ?)",
         (symbol, name, added_by, datetime.now(timezone.utc).isoformat()),
     )
     shared.db.commit()
@@ -186,8 +186,7 @@ def init_tickers() -> None:
     now = datetime.now(timezone.utc).isoformat()
     for sym, name in SEED_TICKERS.items():
         shared.db.execute(
-            "INSERT OR IGNORE INTO stock_tickers (ticker, name, added_by, added_at) "
-            "VALUES (?, ?, NULL, ?)",
+            "INSERT OR IGNORE INTO stock_tickers (ticker, name, added_by, added_at) VALUES (?, ?, NULL, ?)",
             (sym, name, now),
         )
     shared.db.commit()
@@ -197,20 +196,13 @@ def init_tickers() -> None:
 # PRICE STORE
 # ---------------------------------------------------------------------------
 def get_price(ticker: str) -> float | None:
-    row = shared.db.execute(
-        "SELECT price FROM stock_prices WHERE ticker = ?", (ticker,)
-    ).fetchone()
+    row = shared.db.execute("SELECT price FROM stock_prices WHERE ticker = ?", (ticker,)).fetchone()
     return float(row[0]) if row else None
 
 
 def get_all_prices() -> dict:
-    rows = shared.db.execute(
-        "SELECT ticker, price, prev_close FROM stock_prices"
-    ).fetchall()
-    return {
-        t: {"price": float(p), "prev_close": float(pc)}
-        for t, p, pc in rows
-    }
+    rows = shared.db.execute("SELECT ticker, price, prev_close FROM stock_prices").fetchall()
+    return {t: {"price": float(p), "prev_close": float(pc)} for t, p, pc in rows}
 
 
 def _upsert_quote(ticker: str, price: float, prev_close: float) -> None:
@@ -261,20 +253,15 @@ def is_market_open(now: datetime | None = None) -> bool:
 # ---------------------------------------------------------------------------
 def get_user_holdings(user_id: int) -> list[dict]:
     rows = shared.db.execute(
-        "SELECT ticker, shares, avg_cost FROM stock_holdings "
-        "WHERE user_id = ? AND shares > 0",
+        "SELECT ticker, shares, avg_cost FROM stock_holdings WHERE user_id = ? AND shares > 0",
         (user_id,),
     ).fetchall()
-    return [
-        {"ticker": t, "shares": float(s), "avg_cost": float(c)}
-        for t, s, c in rows
-    ]
+    return [{"ticker": t, "shares": float(s), "avg_cost": float(c)} for t, s, c in rows]
 
 
 def get_user_holding(user_id: int, ticker: str) -> dict | None:
     row = shared.db.execute(
-        "SELECT shares, avg_cost FROM stock_holdings "
-        "WHERE user_id = ? AND ticker = ?",
+        "SELECT shares, avg_cost FROM stock_holdings WHERE user_id = ? AND ticker = ?",
         (user_id, ticker),
     ).fetchone()
     if not row or float(row[0]) <= 0:
@@ -290,19 +277,16 @@ def buy_shares(user_id: int, ticker: str, shares: float, price: float) -> None:
         new_shares = existing["shares"] + shares
         new_avg = (existing["shares"] * existing["avg_cost"] + cost) / new_shares
         shared.db.execute(
-            "UPDATE stock_holdings SET shares = ?, avg_cost = ? "
-            "WHERE user_id = ? AND ticker = ?",
+            "UPDATE stock_holdings SET shares = ?, avg_cost = ? WHERE user_id = ? AND ticker = ?",
             (new_shares, new_avg, user_id, ticker),
         )
     else:
         shared.db.execute(
-            "INSERT INTO stock_holdings (user_id, ticker, shares, avg_cost) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO stock_holdings (user_id, ticker, shares, avg_cost) VALUES (?, ?, ?, ?)",
             (user_id, ticker, shares, price),
         )
     shared.db.execute(
-        "INSERT INTO stock_trades (user_id, ticker, action, shares, price, timestamp) "
-        "VALUES (?, ?, 'buy', ?, ?, ?)",
+        "INSERT INTO stock_trades (user_id, ticker, action, shares, price, timestamp) VALUES (?, ?, 'buy', ?, ?, ?)",
         (user_id, ticker, shares, price, datetime.now(timezone.utc).isoformat()),
     )
     shared.db.commit()
@@ -339,9 +323,7 @@ def execute_buy(user_id: int, ticker: str, shares: float, price: float, cost: in
     Returns the new balance. All writes happen in a single transaction."""
     now_iso = datetime.now(timezone.utc).isoformat()
     with shared.db:
-        row = shared.db.execute(
-            "SELECT balance FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = shared.db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
             shared.db.execute(
                 "INSERT INTO users (user_id, balance) VALUES (?, ?)",
@@ -367,27 +349,22 @@ def execute_buy(user_id: int, ticker: str, shares: float, price: float, cost: in
             new_shares = float(existing[0]) + shares
             new_avg = (float(existing[0]) * float(existing[1]) + shares * price) / new_shares
             shared.db.execute(
-                "UPDATE stock_holdings SET shares = ?, avg_cost = ? "
-                "WHERE user_id = ? AND ticker = ?",
+                "UPDATE stock_holdings SET shares = ?, avg_cost = ? WHERE user_id = ? AND ticker = ?",
                 (new_shares, new_avg, user_id, ticker),
             )
         else:
             shared.db.execute(
-                "INSERT INTO stock_holdings (user_id, ticker, shares, avg_cost) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO stock_holdings (user_id, ticker, shares, avg_cost) VALUES (?, ?, ?, ?)",
                 (user_id, ticker, shares, price),
             )
         shared.db.execute(
-            "INSERT INTO stock_trades (user_id, ticker, action, shares, price, timestamp) "
-            "VALUES (?, ?, 'buy', ?, ?, ?)",
+            "INSERT INTO stock_trades (user_id, ticker, action, shares, price, timestamp) VALUES (?, ?, 'buy', ?, ?, ?)",
             (user_id, ticker, shares, price, now_iso),
         )
     return new_bal
 
 
-def execute_sell(
-    user_id: int, ticker: str, shares: float, price: float, proceeds: int
-) -> tuple[int, float] | None:
+def execute_sell(user_id: int, ticker: str, shares: float, price: float, proceeds: int) -> tuple[int, float] | None:
     """Atomically remove shares, credit proceeds, log trade with realized P/L
     computed from the SAME `proceeds` value the command displays. Returns
     (new_balance, realized_pl) or None if the position is too small."""
@@ -412,9 +389,7 @@ def execute_sell(
                 "UPDATE stock_holdings SET shares = ? WHERE user_id = ? AND ticker = ?",
                 (new_position, user_id, ticker),
             )
-        row = shared.db.execute(
-            "SELECT balance FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = shared.db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
             shared.db.execute(
                 "INSERT INTO users (user_id, balance) VALUES (?, ?)",
@@ -443,14 +418,12 @@ def execute_sell(
 def get_realized_pl(user_id: int, ticker: str | None = None) -> float:
     if ticker is None:
         row = shared.db.execute(
-            "SELECT COALESCE(SUM(realized_pl), 0) FROM stock_trades "
-            "WHERE user_id = ? AND action = 'sell'",
+            "SELECT COALESCE(SUM(realized_pl), 0) FROM stock_trades WHERE user_id = ? AND action = 'sell'",
             (user_id,),
         ).fetchone()
     else:
         row = shared.db.execute(
-            "SELECT COALESCE(SUM(realized_pl), 0) FROM stock_trades "
-            "WHERE user_id = ? AND action = 'sell' AND ticker = ?",
+            "SELECT COALESCE(SUM(realized_pl), 0) FROM stock_trades WHERE user_id = ? AND action = 'sell' AND ticker = ?",
             (user_id, ticker),
         ).fetchone()
     return float(row[0]) if row else 0.0
@@ -475,9 +448,7 @@ def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike
     expires_iso = (datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)).isoformat()
     opt_id: int | None = None
     with shared.db:
-        row = shared.db.execute(
-            "SELECT balance FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = shared.db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
             shared.db.execute(
                 "INSERT INTO users (user_id, balance) VALUES (?, ?)",
@@ -515,17 +486,20 @@ def get_open_options(user_id: int | None = None) -> list[dict]:
         ).fetchall()
     return [
         {
-            "id": int(r[0]), "user_id": int(r[1]), "ticker": r[2],
-            "option_type": r[3], "coins_bet": int(r[4]),
-            "strike_price": float(r[5]), "opened_at": r[6], "expires_at": r[7],
+            "id": int(r[0]),
+            "user_id": int(r[1]),
+            "ticker": r[2],
+            "option_type": r[3],
+            "coins_bet": int(r[4]),
+            "strike_price": float(r[5]),
+            "opened_at": r[6],
+            "expires_at": r[7],
         }
         for r in rows
     ]
 
 
-def settle_option(
-    opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str
-) -> tuple[int, int]:
+def settle_option(opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str) -> tuple[int, int]:
     """Mark option settled, credit payout to user. Returns (pnl, payout).
     pnl is negative (−coins_bet) on a loss; positive on a win."""
     pct_change = abs(exit_price - strike) / strike if strike > 0 else 0.0
@@ -540,15 +514,17 @@ def settle_option(
 
     now_iso = datetime.now(timezone.utc).isoformat()
     with shared.db:
+        cur = shared.db.execute(
+            "UPDATE options SET settled = 1, exit_price = ?, pnl = ?, settled_at = ? WHERE id = ? AND settled = 0",
+            (exit_price, pnl, now_iso, opt_id),
+        )
+        if cur.rowcount == 0:
+            return 0, 0
         if payout > 0:
             shared.db.execute(
                 "UPDATE users SET balance = balance + ? WHERE user_id = ?",
                 (payout, user_id),
             )
-        shared.db.execute(
-            "UPDATE options SET settled = 1, exit_price = ?, pnl = ?, settled_at = ? WHERE id = ?",
-            (exit_price, pnl, now_iso, opt_id),
-        )
     return pnl, payout
 
 
@@ -591,9 +567,7 @@ def build_market_lines() -> list[str]:
     for ticker, price, pct in rows:
         arrow = "🟢" if pct >= 0 else "🔴"
         name = tickers.get(ticker, "")
-        lines.append(
-            f"`{ticker:<5}` **${price:>10,.2f}**  {arrow} `{pct:+6.2f}%`  _{name}_"
-        )
+        lines.append(f"`{ticker:<5}` **${price:>10,.2f}**  {arrow} `{pct:+6.2f}%`  _{name}_")
     return lines
 
 
@@ -687,7 +661,7 @@ class StocksCog(commands.Cog):
     # ---------------------------------------------------------------------------
     # COMMANDS
     # ---------------------------------------------------------------------------
-    @commands.command(aliases=["stox", "market", "ticker"])
+    @commands.command(aliases=["stox", "stonks", "market", "ticker"])
     async def stocks(self, ctx, *args):
         """`.stocks` lists prices; `.stocks <TICKER>` shows detail;
         `.stocks add <TICKER>` registers a new ticker; `.stocks remove <TICKER>` deletes one (admin)."""
@@ -709,11 +683,13 @@ class StocksCog(commands.Cog):
     async def _stock_overview(self, ctx):
         lines = build_market_lines()
         if not lines:
-            return await ctx.send(embed=make_embed(
-                "Market Unavailable",
-                "No prices loaded yet — try again in a minute.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Market Unavailable",
+                    "No prices loaded yet — try again in a minute.",
+                    COLOR_ERROR,
+                )
+            )
         embed = discord.Embed(
             title="📊 US Stock Market",
             description="\n".join(lines),
@@ -721,10 +697,7 @@ class StocksCog(commands.Cog):
         )
         market_state = "🟢 Open" if is_market_open() else "🔴 Closed (showing last close)"
         embed.set_footer(
-            text=(
-                f"{market_state} · {PREFIX}stocks <TICKER> for detail · "
-                f"{PREFIX}buy / {PREFIX}sell / {PREFIX}portfolio"
-            )
+            text=(f"{market_state} · {PREFIX}stocks <TICKER> for detail · {PREFIX}buy / {PREFIX}sell / {PREFIX}portfolio")
         )
         await ctx.send(embed=embed)
 
@@ -738,19 +711,23 @@ class StocksCog(commands.Cog):
 
         tickers = get_tickers()
         if ticker in tickers:
-            return await ctx.send(embed=make_embed(
-                "Already Listed",
-                f"`{ticker}` is already tradable.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Already Listed",
+                    f"`{ticker}` is already tradable.",
+                    COLOR_ERROR,
+                )
+            )
         async with ctx.typing():
             ok, name, bootstrap_price = await asyncio.to_thread(_validate_symbol, ticker)
         if not ok:
-            return await ctx.send(embed=make_embed(
-                "Unknown Symbol",
-                f"`{ticker}` doesn't look like a valid ticker on Yahoo Finance.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Unknown Symbol",
+                    f"`{ticker}` doesn't look like a valid ticker on Yahoo Finance.",
+                    COLOR_ERROR,
+                )
+            )
         add_ticker(ticker, name or ticker, added_by=ctx.author.id)
         # Bootstrap with the validation price immediately so the ticker appears
         # in .stocks right away — even after hours or if the history fetch fails.
@@ -763,64 +740,77 @@ class StocksCog(commands.Cog):
             refresh_prices(quotes)
         except Exception as e:
             logger.warning("Price history fetch failed for %s after add: %s", ticker, e)
-        await ctx.send(embed=make_embed(
-            "🟢 Ticker Added",
-            f"`{ticker}` ({name}) is now tradable.{remap_note}\nUse `{PREFIX}stocks {ticker}` to view.",
-            COLOR_SUCCESS,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "🟢 Ticker Added",
+                f"`{ticker}` ({name}) is now tradable.{remap_note}\nUse `{PREFIX}stocks {ticker}` to view.",
+                COLOR_SUCCESS,
+            )
+        )
 
     async def _stock_remove(self, ctx, ticker: str):
         if ctx.author.id != shared.ADMIN_ID:
-            return await ctx.send(embed=make_embed(
-                "Permission Denied", "Only admins can remove tickers.", COLOR_ERROR
-            ))
+            return await ctx.send(embed=make_embed("Permission Denied", "Only admins can remove tickers.", COLOR_ERROR))
         tickers = get_tickers()
         if ticker not in tickers:
-            return await ctx.send(embed=make_embed(
-                "Not Listed", f"`{ticker}` isn't in the ticker list.", COLOR_ERROR
-            ))
-        # Warn if anyone has an open position in this ticker.
-        holders = shared.db.execute(
-            "SELECT COUNT(*) FROM stock_holdings WHERE ticker = ? AND shares > 0", (ticker,)
-        ).fetchone()[0]
-        open_opts = shared.db.execute(
-            "SELECT COUNT(*) FROM options WHERE ticker = ? AND settled = 0", (ticker,)
-        ).fetchone()[0]
+            return await ctx.send(embed=make_embed("Not Listed", f"`{ticker}` isn't in the ticker list.", COLOR_ERROR))
+        # Warn if anyone still holds shares (not auto-refunded).
+        holders = shared.db.execute("SELECT COUNT(*) FROM stock_holdings WHERE ticker = ? AND shares > 0", (ticker,)).fetchone()[0]
+        # Void and refund all open options atomically with the removal.
+        open_opts_rows = shared.db.execute(
+            "SELECT id, user_id, coins_bet FROM options WHERE ticker = ? AND settled = 0", (ticker,)
+        ).fetchall()
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with shared.db:
+            for opt_id, opt_user_id, coins_bet in open_opts_rows:
+                shared.db.execute(
+                    "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+                    (coins_bet, opt_user_id),
+                )
+                shared.db.execute(
+                    "UPDATE options SET settled = 1, pnl = 0, settled_at = ? WHERE id = ?",
+                    (now_iso, opt_id),
+                )
+            shared.db.execute("DELETE FROM stock_tickers WHERE ticker = ?", (ticker,))
+            shared.db.execute("DELETE FROM stock_prices  WHERE ticker = ?", (ticker,))
+        _history_cache.pop(ticker, None)
+
         warnings = []
         if holders:
-            warnings.append(f"⚠️ {holders} user(s) still hold shares of `{ticker}`")
-        if open_opts:
-            warnings.append(f"⚠️ {open_opts} open option(s) on `{ticker}`")
-
-        shared.db.execute("DELETE FROM stock_tickers WHERE ticker = ?", (ticker,))
-        shared.db.execute("DELETE FROM stock_prices  WHERE ticker = ?", (ticker,))
-        _history_cache.pop(ticker, None)
-        shared.db.commit()
+            warnings.append(f"⚠️ {holders} user(s) still hold shares of `{ticker}` (positions not refunded)")
+        if open_opts_rows:
+            warnings.append(f"↩️ {len(open_opts_rows)} open option(s) voided and refunded")
 
         note = "\n" + "\n".join(warnings) if warnings else ""
-        await ctx.send(embed=make_embed(
-            "🗑️ Ticker Removed",
-            f"`{ticker}` has been removed from the market.{note}",
-            COLOR_WARNING,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "🗑️ Ticker Removed",
+                f"`{ticker}` has been removed from the market.{note}",
+                COLOR_WARNING,
+            )
+        )
 
     async def _stock_detail(self, ctx, ticker: str):
         tickers = get_tickers()
         if ticker not in tickers:
-            return await ctx.send(embed=make_embed(
-                "Unknown Ticker",
-                f"`{ticker}` isn't listed. Use `{PREFIX}stocks` to see tickers "
-                f"or `{PREFIX}stocks add {ticker}` to add it.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Unknown Ticker",
+                    f"`{ticker}` isn't listed. Use `{PREFIX}stocks` to see tickers or `{PREFIX}stocks add {ticker}` to add it.",
+                    COLOR_ERROR,
+                )
+            )
         prices = get_all_prices()
         data = prices.get(ticker, {})
         if not data:
-            return await ctx.send(embed=make_embed(
-                "No Price Yet",
-                f"No quote for `{ticker}` yet — try again in a minute.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "No Price Yet",
+                    f"No quote for `{ticker}` yet — try again in a minute.",
+                    COLOR_ERROR,
+                )
+            )
         price = data.get("price", 0.0)
         prev = data.get("prev_close", price) or price
         pct = (price - prev) / prev * 100 if prev else 0.0
@@ -863,9 +853,7 @@ class StocksCog(commands.Cog):
         await ctx.send(embed=embed)
 
     @staticmethod
-    def _resolve_quantity(
-        arg: str, price: float, max_shares: float | None = None
-    ) -> tuple[float | None, str | None]:
+    def _resolve_quantity(arg: str, price: float, max_shares: float | None = None) -> tuple[float | None, str | None]:
         """Parse a 'qty', 'all', or '$coins' argument into a fractional share count.
         For buy, the caller passes max_shares = max affordable share count
         given the user's balance; for sell, it's the user's position size.
@@ -903,11 +891,13 @@ class StocksCog(commands.Cog):
             return await ctx.send(f"Usage: `{PREFIX}buy <TICKER> <qty|all|$coins>`")
         ticker = ticker.upper()
         if ticker not in get_tickers():
-            return await ctx.send(embed=make_embed(
-                "Unknown Ticker",
-                f"`{ticker}` isn't listed. Use `{PREFIX}stocks add {ticker}` to add it.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Unknown Ticker",
+                    f"`{ticker}` isn't listed. Use `{PREFIX}stocks add {ticker}` to add it.",
+                    COLOR_ERROR,
+                )
+            )
         price = get_price(ticker)
         if price is None or price <= 0:
             return await ctx.send(embed=make_embed("No Price", "Price unavailable.", COLOR_ERROR))
@@ -918,18 +908,22 @@ class StocksCog(commands.Cog):
             return await ctx.send(embed=make_embed("Invalid", err, COLOR_ERROR))
         cost = max(1, int(round(price * qty)))
         if cost > bal:
-            return await ctx.send(embed=make_embed(
-                "❌ Broke",
-                f"That'd cost **{cost:,}** coins; you only have **{bal:,}**.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "❌ Broke",
+                    f"That'd cost **{cost:,}** coins; you only have **{bal:,}**.",
+                    COLOR_ERROR,
+                )
+            )
         new_bal = execute_buy(ctx.author.id, ticker, qty, price, cost)
-        await ctx.send(embed=make_embed(
-            "🟢 Buy Filled",
-            f"Bought **{_fmt_shares(qty)}** sh of `{ticker}` @ **${price:,.2f}** for **{cost:,}** coins.\n"
-            f"Balance: **{new_bal:,}**",
-            COLOR_SUCCESS,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "🟢 Buy Filled",
+                f"Bought **{_fmt_shares(qty)}** sh of `{ticker}` @ **${price:,.2f}** for **{cost:,}** coins.\n"
+                f"Balance: **{new_bal:,}**",
+                COLOR_SUCCESS,
+            )
+        )
 
     @commands.command()
     async def sell(self, ctx, ticker: str = None, shares: str = None):
@@ -938,14 +932,22 @@ class StocksCog(commands.Cog):
             return await ctx.send(f"Usage: `{PREFIX}sell <TICKER> <qty|all|$coins>`")
         ticker = ticker.upper()
         if ticker not in get_tickers():
-            return await ctx.send(embed=make_embed(
-                "Unknown Ticker", f"`{ticker}` isn't listed.", COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Unknown Ticker",
+                    f"`{ticker}` isn't listed.",
+                    COLOR_ERROR,
+                )
+            )
         existing = get_user_holding(ctx.author.id, ticker)
         if not existing:
-            return await ctx.send(embed=make_embed(
-                "No Position", f"You don't own any `{ticker}`.", COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "No Position",
+                    f"You don't own any `{ticker}`.",
+                    COLOR_ERROR,
+                )
+            )
         price = get_price(ticker)
         if price is None or price <= 0:
             return await ctx.send(embed=make_embed("No Price", "Price unavailable.", COLOR_ERROR))
@@ -953,27 +955,33 @@ class StocksCog(commands.Cog):
         if err:
             return await ctx.send(embed=make_embed("Invalid", err, COLOR_ERROR))
         if qty > existing["shares"] + 1e-9:
-            return await ctx.send(embed=make_embed(
-                "Invalid",
-                f"You only have **{_fmt_shares(existing['shares'])}** sh of `{ticker}`.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Invalid",
+                    f"You only have **{_fmt_shares(existing['shares'])}** sh of `{ticker}`.",
+                    COLOR_ERROR,
+                )
+            )
         proceeds = max(1, int(round(price * qty)))
         result = execute_sell(ctx.author.id, ticker, qty, price, proceeds)
         if result is None:
-            return await ctx.send(embed=make_embed(
-                "Position Changed",
-                "Your position changed before the order could fill — try again.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Position Changed",
+                    "Your position changed before the order could fill — try again.",
+                    COLOR_ERROR,
+                )
+            )
         new_bal, realized = result
         pl_str = f"+{realized:,.2f}" if realized >= 0 else f"{realized:,.2f}"
-        await ctx.send(embed=make_embed(
-            "🔴 Sell Filled",
-            f"Sold **{_fmt_shares(qty)}** sh of `{ticker}` @ **${price:,.2f}** for **{proceeds:,}** coins.\n"
-            f"P/L vs cost: **{pl_str}** coins\nBalance: **{new_bal:,}**",
-            COLOR_SUCCESS,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "🔴 Sell Filled",
+                f"Sold **{_fmt_shares(qty)}** sh of `{ticker}` @ **${price:,.2f}** for **{proceeds:,}** coins.\n"
+                f"P/L vs cost: **{pl_str}** coins\nBalance: **{new_bal:,}**",
+                COLOR_SUCCESS,
+            )
+        )
 
     @commands.command(aliases=["port"])
     async def portfolio(self, ctx, member: discord.Member = None):
@@ -982,9 +990,7 @@ class StocksCog(commands.Cog):
         holdings = get_user_holdings(target.id)
         if not holdings:
             who = "You have" if target.id == ctx.author.id else f"{target.display_name} has"
-            return await ctx.send(
-                f"{who} no holdings. Use `{PREFIX}buy <TICKER> <qty|all|$coins>` to start."
-            )
+            return await ctx.send(f"{who} no holdings. Use `{PREFIX}buy <TICKER> <qty|all|$coins>` to start.")
         prices = get_all_prices()
         lines = []
         total_value = 0.0
@@ -1006,18 +1012,15 @@ class StocksCog(commands.Cog):
         net_arrow = "🟢" if net >= 0 else "🔴"
         net_pct = (net / total_cost * 100) if total_cost else 0.0
         lines.append("")
-        lines.append(
-            f"**Portfolio value:** ${total_value:,.2f}  (cost ${total_cost:,.2f})"
+        lines.append(f"**Portfolio value:** ${total_value:,.2f}  (cost ${total_cost:,.2f})")
+        lines.append(f"**Unrealized P/L:** {net_arrow} `{net:+,.2f} ({net_pct:+.1f}%)`")
+        await ctx.send(
+            embed=make_embed(
+                f"📊 {target.display_name}'s Portfolio",
+                "\n".join(lines),
+                COLOR_DEFAULT,
+            )
         )
-        lines.append(
-            f"**Unrealized P/L:** {net_arrow} `{net:+,.2f} ({net_pct:+.1f}%)`"
-        )
-        await ctx.send(embed=make_embed(
-            f"📊 {target.display_name}'s Portfolio",
-            "\n".join(lines),
-            COLOR_DEFAULT,
-        ))
-
 
     # ---------------------------------------------------------------------------
     # OPTIONS COMMANDS
@@ -1039,25 +1042,27 @@ class StocksCog(commands.Cog):
             return await ctx.send(f"Usage: `{PREFIX}{cmd} <TICKER> <coins>`")
         ticker = CRYPTO_ALIASES.get(ticker.upper(), ticker.upper())
         if ticker not in get_tickers():
-            return await ctx.send(embed=make_embed(
-                "Unknown Ticker",
-                f"`{ticker}` isn't listed. Use `{PREFIX}stocks add {ticker}` to add it first.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Unknown Ticker",
+                    f"`{ticker}` isn't listed. Use `{PREFIX}stocks add {ticker}` to add it first.",
+                    COLOR_ERROR,
+                )
+            )
         if coins <= 0:
             return await ctx.send(embed=make_embed("Invalid", "Bet must be positive.", COLOR_ERROR))
         bal = get_balance(ctx.author.id)
         if coins > bal:
-            return await ctx.send(embed=make_embed(
-                "❌ Broke",
-                f"That'd cost **{coins:,}** coins; you only have **{bal:,}**.",
-                COLOR_ERROR,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "❌ Broke",
+                    f"That'd cost **{coins:,}** coins; you only have **{bal:,}**.",
+                    COLOR_ERROR,
+                )
+            )
         price = get_price(ticker)
         if price is None or price <= 0:
-            return await ctx.send(embed=make_embed(
-                "No Price", "Price unavailable right now — try again in a minute.", COLOR_ERROR
-            ))
+            return await ctx.send(embed=make_embed("No Price", "Price unavailable right now — try again in a minute.", COLOR_ERROR))
 
         expiry_dt = datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)
         open_option(ctx.author.id, ticker, opt_type, coins, price)
@@ -1065,15 +1070,17 @@ class StocksCog(commands.Cog):
         direction = "📈 **UP**" if opt_type == "call" else "📉 **DOWN**"
         type_label = "CALL" if opt_type == "call" else "PUT"
         icon = "📈" if opt_type == "call" else "📉"
-        await ctx.send(embed=make_embed(
-            f"{icon} {type_label} Opened — `{ticker}`",
-            f"You bet **{coins:,}** coins that `{ticker}` goes {direction}.\n"
-            f"Strike: **${price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
-            f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
-            f"**Lose:** forfeit entire bet\n\n"
-            f"Use `{PREFIX}options` to track your positions.",
-            COLOR_SUCCESS,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                f"{icon} {type_label} Opened — `{ticker}`",
+                f"You bet **{coins:,}** coins that `{ticker}` goes {direction}.\n"
+                f"Strike: **${price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
+                f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
+                f"**Lose:** forfeit entire bet\n\n"
+                f"Use `{PREFIX}options` to track your positions.",
+                COLOR_SUCCESS,
+            )
+        )
 
     @commands.command(name="options", aliases=["opts", "positions", "pos"])
     async def options_cmd(self, ctx, member: discord.Member = None):
@@ -1082,9 +1089,7 @@ class StocksCog(commands.Cog):
         opts = get_open_options(target.id)
         if not opts:
             who = "You have" if target.id == ctx.author.id else f"{target.display_name} has"
-            return await ctx.send(
-                f"{who} no open options. Use `{PREFIX}call` or `{PREFIX}put` to open one."
-            )
+            return await ctx.send(f"{who} no open options. Use `{PREFIX}call` or `{PREFIX}put` to open one.")
         prices = get_all_prices()
         lines = []
         for o in opts:
@@ -1112,9 +1117,7 @@ class StocksCog(commands.Cog):
             "\n\n".join(lines),
             COLOR_DEFAULT,
         )
-        embed.set_footer(
-            text=f"Auto-settles after {OPTIONS_EXPIRY_HOURS}h · {PREFIX}call / {PREFIX}put to open"
-        )
+        embed.set_footer(text=f"Auto-settles after {OPTIONS_EXPIRY_HOURS}h · {PREFIX}call / {PREFIX}put to open")
         await ctx.send(embed=embed)
 
     # ---------------------------------------------------------------------------
@@ -1126,8 +1129,7 @@ class StocksCog(commands.Cog):
         """Settle expired options and post results to the ticker channel."""
         now = datetime.now(timezone.utc)
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price "
-            "FROM options WHERE settled = 0 AND expires_at <= ?",
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price FROM options WHERE settled = 0 AND expires_at <= ?",
             (now.isoformat(),),
         ).fetchall()
         if not rows:
@@ -1147,9 +1149,7 @@ class StocksCog(commands.Cog):
             if exit_price <= 0:
                 continue  # No price yet — retry next tick
 
-            pnl, payout = settle_option(
-                int(opt_id), int(user_id), int(coins_bet), float(strike), exit_price, opt_type
-            )
+            pnl, payout = settle_option(int(opt_id), int(user_id), int(coins_bet), float(strike), exit_price, opt_type)
 
             if channel is not None:
                 type_label = "📈 CALL" if opt_type == "call" else "📉 PUT"
@@ -1160,12 +1160,13 @@ class StocksCog(commands.Cog):
                 try:
                     member = self.bot.get_user(user_id)
                     user_str = member.mention if member else f"<@{user_id}>"
-                    await channel.send(embed=make_embed(
-                        f"Options Settled — {type_label} `{ticker}`",
-                        f"{user_str} | Strike: ${float(strike):,.2f} → Exit: ${exit_price:,.2f}\n"
-                        f"{result_str}",
-                        shared.COLOR_SUCCESS if pnl >= 0 else shared.COLOR_ERROR,
-                    ))
+                    await channel.send(
+                        embed=make_embed(
+                            f"Options Settled — {type_label} `{ticker}`",
+                            f"{user_str} | Strike: ${float(strike):,.2f} → Exit: ${exit_price:,.2f}\n{result_str}",
+                            shared.COLOR_SUCCESS if pnl >= 0 else shared.COLOR_ERROR,
+                        )
+                    )
                 except discord.HTTPException:
                     pass
 

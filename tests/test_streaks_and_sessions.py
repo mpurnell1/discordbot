@@ -1,4 +1,5 @@
 """Tests for activity streaks and Gary session tracking."""
+
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
@@ -19,20 +20,25 @@ from shared import (
 _USER = 1001
 _CENTRAL = shared.CENTRAL_TZ
 
+
 def _iso(d: date, hour: int = 12) -> str:
     """Return a Central-timezone ISO string for the given date and hour."""
     return datetime(d.year, d.month, d.day, hour, 0, 0, tzinfo=_CENTRAL).isoformat()
 
+
 def _ensure_user():
     shared.get_balance(_USER)
+
 
 def _patch_today(d: date):
     """Context manager: freeze shared.datetime.now(CENTRAL_TZ) to return `d` at noon."""
     fake_now = datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=_CENTRAL)
     return patch("shared.datetime", wraps=datetime_with_fixed_now(fake_now))
 
+
 class datetime_with_fixed_now:
     """Wraps datetime but overrides now() to return a fixed value."""
+
     def __init__(self, fixed: datetime):
         self._fixed = fixed
         self._real = datetime
@@ -53,6 +59,7 @@ class datetime_with_fixed_now:
 # Activity streak: basic increment / reset
 # ---------------------------------------------------------------------------
 
+
 def test_streak_first_day_is_one():
     _ensure_user()
     with patch("shared.datetime") as mock_dt:
@@ -69,9 +76,7 @@ def test_streak_increments_on_consecutive_days():
     today = date(2026, 5, 9)
     yesterday_iso = _iso(today - timedelta(days=1))
 
-    shared.db.execute(
-        "UPDATE users SET activity_streak = 3, activity_streak_max = 3 WHERE user_id = ?", (_USER,)
-    )
+    shared.db.execute("UPDATE users SET activity_streak = 3, activity_streak_max = 3 WHERE user_id = ?", (_USER,))
     shared.db.commit()
 
     with patch("shared.datetime") as mock_dt:
@@ -88,9 +93,7 @@ def test_streak_resets_on_missed_day():
     today = date(2026, 5, 9)
     two_days_ago_iso = _iso(today - timedelta(days=2))
 
-    shared.db.execute(
-        "UPDATE users SET activity_streak = 10, activity_streak_max = 10 WHERE user_id = ?", (_USER,)
-    )
+    shared.db.execute("UPDATE users SET activity_streak = 10, activity_streak_max = 10 WHERE user_id = ?", (_USER,))
     shared.db.commit()
 
     with patch("shared.datetime") as mock_dt:
@@ -109,9 +112,7 @@ def test_streak_max_updates_when_new_high():
     today = date(2026, 5, 9)
     yesterday_iso = _iso(today - timedelta(days=1))
 
-    shared.db.execute(
-        "UPDATE users SET activity_streak = 6, activity_streak_max = 6 WHERE user_id = ?", (_USER,)
-    )
+    shared.db.execute("UPDATE users SET activity_streak = 6, activity_streak_max = 6 WHERE user_id = ?", (_USER,))
     shared.db.commit()
 
     with patch("shared.datetime") as mock_dt:
@@ -131,9 +132,7 @@ def test_streak_max_preserved_through_reset():
     today = date(2026, 5, 9)
     two_days_ago_iso = _iso(today - timedelta(days=2))
 
-    shared.db.execute(
-        "UPDATE users SET activity_streak = 29, activity_streak_max = 45 WHERE user_id = ?", (_USER,)
-    )
+    shared.db.execute("UPDATE users SET activity_streak = 29, activity_streak_max = 45 WHERE user_id = ?", (_USER,))
     shared.db.commit()
 
     with patch("shared.datetime") as mock_dt:
@@ -161,9 +160,7 @@ def test_streak_milestone_30():
     today = date(2026, 5, 9)
     yesterday_iso = _iso(today - timedelta(days=1))
 
-    shared.db.execute(
-        "UPDATE users SET activity_streak = 29, activity_streak_max = 29 WHERE user_id = ?", (_USER,)
-    )
+    shared.db.execute("UPDATE users SET activity_streak = 29, activity_streak_max = 29 WHERE user_id = ?", (_USER,))
     shared.db.commit()
 
     with patch("shared.datetime") as mock_dt:
@@ -181,9 +178,7 @@ def test_streak_no_bonus_at_non_milestone():
     today = date(2026, 5, 9)
     yesterday_iso = _iso(today - timedelta(days=1))
 
-    shared.db.execute(
-        "UPDATE users SET activity_streak = 5, activity_streak_max = 5 WHERE user_id = ?", (_USER,)
-    )
+    shared.db.execute("UPDATE users SET activity_streak = 5, activity_streak_max = 5 WHERE user_id = ?", (_USER,))
     shared.db.commit()
 
     with patch("shared.datetime") as mock_dt:
@@ -206,6 +201,7 @@ def test_get_activity_streak_returns_zero_for_new_user():
 # ---------------------------------------------------------------------------
 # Gary session tracking
 # ---------------------------------------------------------------------------
+
 
 def test_session_start_creates_ongoing_row():
     sid = log_gary_session_start(1000)
@@ -252,7 +248,7 @@ def test_multiple_sessions_aggregate_correctly():
     s1 = log_gary_session_start(1000)
     log_gary_session_end(s1, 1400, "take_profit")  # +400
     s2 = log_gary_session_start(1400)
-    log_gary_session_end(s2, 1050, "stop_loss")    # -350
+    log_gary_session_end(s2, 1050, "stop_loss")  # -350
     log_gary_session_start(1050)
     # s3 still ongoing — should be excluded
 

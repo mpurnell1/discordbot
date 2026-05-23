@@ -1,4 +1,5 @@
 """Time-dependent tests: daily-claim availability, 5am Central scratch reset."""
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -69,6 +70,7 @@ class TestScratchResetKey:
     @pytest.fixture
     def cog(self):
         from modules.ai import AICog
+
         # Construct an AICog without going through full bot setup.
         # Its __init__ touches the DB but not the bot client.
         bot = type("BotStub", (), {})()

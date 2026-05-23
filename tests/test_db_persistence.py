@@ -1,4 +1,5 @@
 """Database persistence tests — round-trip writes/reads, schema migrations."""
+
 import sqlite3
 
 
@@ -24,9 +25,7 @@ class TestBalance:
     def test_peek_balance_does_not_create_row(self):
         shared.peek_balance(9999)
         # Row should still not exist.
-        row = shared.db.execute(
-            "SELECT user_id FROM users WHERE user_id = 9999"
-        ).fetchone()
+        row = shared.db.execute("SELECT user_id FROM users WHERE user_id = 9999").fetchone()
         assert row is None
 
     def test_update_balance_is_additive(self):
@@ -101,13 +100,7 @@ class TestInitDbIdempotent:
         legacy_path = tmp_path / "legacy.db"
         legacy = sqlite3.connect(legacy_path)
         # Old schema: only the original columns.
-        legacy.execute(
-            "CREATE TABLE users ("
-            "user_id INTEGER PRIMARY KEY, "
-            "balance INTEGER DEFAULT 0, "
-            "last_daily TEXT DEFAULT ''"
-            ")"
-        )
+        legacy.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0, last_daily TEXT DEFAULT '')")
         legacy.execute("INSERT INTO users (user_id, balance) VALUES (1, 500)")
         legacy.commit()
         legacy.close()
@@ -133,8 +126,6 @@ class TestInitDbIdempotent:
             assert required in cols, f"missing column after migration: {required}"
 
         # Existing data preserved.
-        bal = migrated.execute(
-            "SELECT balance FROM users WHERE user_id = 1"
-        ).fetchone()
+        bal = migrated.execute("SELECT balance FROM users WHERE user_id = 1").fetchone()
         assert bal[0] == 500
         migrated.close()

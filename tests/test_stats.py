@@ -1,4 +1,5 @@
 """Tests for stats tracking: puzzle history, game results, balance history."""
+
 from datetime import datetime, timedelta
 
 import pytest
@@ -9,6 +10,7 @@ import shared
 # ---------------------------------------------------------------------------
 # Puzzle stats
 # ---------------------------------------------------------------------------
+
 
 class TestGetPuzzleStats:
     USER = 2001
@@ -62,6 +64,7 @@ class TestGetPuzzleStats:
 # Game stats
 # ---------------------------------------------------------------------------
 
+
 class TestGetGameStats:
     USER = 2002
     OPP = 2003
@@ -111,6 +114,7 @@ class TestGetGameStats:
 # Economy stats
 # ---------------------------------------------------------------------------
 
+
 class TestGetEconomyStats:
     USER = 2005
 
@@ -143,25 +147,23 @@ class TestGetEconomyStats:
 # log_command
 # ---------------------------------------------------------------------------
 
+
 def test_log_command_persists():
     shared.log_command(3001, "balance", 9999)
-    row = shared.db.execute(
-        "SELECT command_name, guild_id FROM command_log WHERE user_id = 3001"
-    ).fetchone()
+    row = shared.db.execute("SELECT command_name, guild_id FROM command_log WHERE user_id = 3001").fetchone()
     assert row == ("balance", 9999)
 
 
 def test_log_command_dm_guild_null():
     shared.log_command(3002, "help", None)
-    row = shared.db.execute(
-        "SELECT guild_id FROM command_log WHERE user_id = 3002"
-    ).fetchone()
+    row = shared.db.execute("SELECT guild_id FROM command_log WHERE user_id = 3002").fetchone()
     assert row[0] is None
 
 
 # ---------------------------------------------------------------------------
 # Gambling stats
 # ---------------------------------------------------------------------------
+
 
 class TestGetGamblingStats:
     USER = 2006

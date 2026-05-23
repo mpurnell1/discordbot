@@ -1,4 +1,5 @@
 """Authorization tests for the global command_gatekeeper check."""
+
 from unittest.mock import MagicMock
 
 import pytest

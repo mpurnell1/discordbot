@@ -17,9 +17,9 @@ from shared import (
     log_game_draw,
 )
 
-active_ttt = {}      # channel_id -> game state
-active_c4 = {}       # channel_id -> game state
-pending_games = {}   # message_id -> {"type": "ttt"/"c4", "host": Member, "channel_id": int, "created_at": datetime}
+active_ttt = {}  # channel_id -> game state
+active_c4 = {}  # channel_id -> game state
+pending_games = {}  # message_id -> {"type": "ttt"/"c4", "host": Member, "channel_id": int, "created_at": datetime}
 active_math_quiz = {}  # user_id -> {"answer": int, "question": str}
 active_memory_games = {}  # user_id -> {"answer": str}
 active_trivia = {}  # user_id -> {"answer": str, "explanation": str}
@@ -30,6 +30,7 @@ PENDING_GAME_TIMEOUT = 300  # seconds before a pending invite is cleaned up
 TTT_EMPTY = "⬛"
 TTT_X = "❌"
 TTT_O = "⭕"
+
 
 def ttt_render(board):
     rows = []
@@ -46,11 +47,17 @@ def ttt_render(board):
         rows.append("".join(cells))
     return "\n".join(rows)
 
+
 def ttt_check_winner(board):
     lines = [
-        (0,1,2),(3,4,5),(6,7,8),  # rows
-        (0,3,6),(1,4,7),(2,5,8),  # cols
-        (0,4,8),(2,4,6),          # diags
+        (0, 1, 2),
+        (3, 4, 5),
+        (6, 7, 8),  # rows
+        (0, 3, 6),
+        (1, 4, 7),
+        (2, 5, 8),  # cols
+        (0, 4, 8),
+        (2, 4, 6),  # diags
     ]
     for a, b, c in lines:
         if board[a] == board[b] == board[c] and board[a] in ("X", "O"):
@@ -58,6 +65,7 @@ def ttt_check_winner(board):
     if all(cell in ("X", "O") for cell in board):
         return "draw"
     return None
+
 
 def start_ttt(host, opponent):
     game = {
@@ -67,14 +75,16 @@ def start_ttt(host, opponent):
     }
     return game
 
+
 C4_ROWS = 6
 C4_COLS = 7
 C4_EMPTY = "⚫"
 C4_RED = "🔴"
 C4_YELLOW = "🟡"
 
+
 def c4_render(board):
-    header = "".join(f"{i+1}\N{COMBINING ENCLOSING KEYCAP}" for i in range(C4_COLS))
+    header = "".join(f"{i + 1}\N{COMBINING ENCLOSING KEYCAP}" for i in range(C4_COLS))
     rows = []
     for r in range(C4_ROWS):
         cells = []
@@ -89,12 +99,14 @@ def c4_render(board):
         rows.append("".join(cells))
     return header + "\n" + "\n".join(rows)
 
+
 def c4_drop(board, col, piece):
     for r in range(C4_ROWS - 1, -1, -1):
         if board[r][col] is None:
             board[r][col] = piece
             return r
     return -1
+
 
 def c4_check_winner(board):
     for r in range(C4_ROWS):
@@ -103,20 +115,21 @@ def c4_check_winner(board):
             if piece is None:
                 continue
             # horizontal
-            if c + 3 < C4_COLS and all(board[r][c+i] == piece for i in range(4)):
+            if c + 3 < C4_COLS and all(board[r][c + i] == piece for i in range(4)):
                 return piece
             # vertical
-            if r + 3 < C4_ROWS and all(board[r+i][c] == piece for i in range(4)):
+            if r + 3 < C4_ROWS and all(board[r + i][c] == piece for i in range(4)):
                 return piece
             # diagonal down-right
-            if r + 3 < C4_ROWS and c + 3 < C4_COLS and all(board[r+i][c+i] == piece for i in range(4)):
+            if r + 3 < C4_ROWS and c + 3 < C4_COLS and all(board[r + i][c + i] == piece for i in range(4)):
                 return piece
             # diagonal down-left
-            if r + 3 < C4_ROWS and c - 3 >= 0 and all(board[r+i][c-i] == piece for i in range(4)):
+            if r + 3 < C4_ROWS and c - 3 >= 0 and all(board[r + i][c - i] == piece for i in range(4)):
                 return piece
     if all(board[0][c] is not None for c in range(C4_COLS)):
         return "draw"
     return None
+
 
 def start_c4(host, opponent):
     board = [[None] * C4_COLS for _ in range(C4_ROWS)]
@@ -127,18 +140,63 @@ def start_c4(host, opponent):
     }
     return game
 
+
 active_hangman = {}  # channel_id -> game state
-hangman_msg = {}     # channel_id -> Message to edit in place
+hangman_msg = {}  # channel_id -> Message to edit in place
 
 HANGMAN_WORDS = [
-    "python", "discord", "hangman", "keyboard", "monitor", "algorithm", "function",
-    "variable", "database", "network", "browser", "terminal", "computer", "program",
-    "internet", "software", "hardware", "graphics", "security", "download",
-    "elephant", "giraffe", "penguin", "dolphin", "octopus", "butterfly", "squirrel",
-    "mushroom", "sandwich", "umbrella", "airplane", "mountain", "treasure", "volcano",
-    "dinosaur", "astronaut", "chocolate", "pineapple", "strawberry", "watermelon",
-    "adventure", "birthday", "carnival", "dominoes", "firework", "galaxies",
-    "harmonica", "illusion", "jukebox", "kangaroo", "labyrinth", "macaroni",
+    "python",
+    "discord",
+    "hangman",
+    "keyboard",
+    "monitor",
+    "algorithm",
+    "function",
+    "variable",
+    "database",
+    "network",
+    "browser",
+    "terminal",
+    "computer",
+    "program",
+    "internet",
+    "software",
+    "hardware",
+    "graphics",
+    "security",
+    "download",
+    "elephant",
+    "giraffe",
+    "penguin",
+    "dolphin",
+    "octopus",
+    "butterfly",
+    "squirrel",
+    "mushroom",
+    "sandwich",
+    "umbrella",
+    "airplane",
+    "mountain",
+    "treasure",
+    "volcano",
+    "dinosaur",
+    "astronaut",
+    "chocolate",
+    "pineapple",
+    "strawberry",
+    "watermelon",
+    "adventure",
+    "birthday",
+    "carnival",
+    "dominoes",
+    "firework",
+    "galaxies",
+    "harmonica",
+    "illusion",
+    "jukebox",
+    "kangaroo",
+    "labyrinth",
+    "macaroni",
 ]
 
 HANGMAN_STAGES = [
@@ -156,10 +214,36 @@ LETTER_PRIORITY = "etaoinshrdlucmfwypvbgkjqxz"
 MEMORY_SYMBOLS = ["cat", "dog", "sun", "moon", "star", "tree", "fish", "book", "ball", "kite"]
 
 SCRAMBLE_WORDS = [
-    "apple", "banana", "basket", "butter", "castle", "circle", "dragon", "flower",
-    "forest", "garden", "guitar", "island", "jacket", "kitten", "ladder", "magnet",
-    "monkey", "orange", "pencil", "planet", "pocket", "rabbit", "rocket", "school",
-    "silver", "soccer", "summer", "turtle", "window", "yellow",
+    "apple",
+    "banana",
+    "basket",
+    "butter",
+    "castle",
+    "circle",
+    "dragon",
+    "flower",
+    "forest",
+    "garden",
+    "guitar",
+    "island",
+    "jacket",
+    "kitten",
+    "ladder",
+    "magnet",
+    "monkey",
+    "orange",
+    "pencil",
+    "planet",
+    "pocket",
+    "rabbit",
+    "rocket",
+    "school",
+    "silver",
+    "soccer",
+    "summer",
+    "turtle",
+    "window",
+    "yellow",
 ]
 
 TRIVIA_QUESTIONS = [
@@ -213,10 +297,9 @@ TRIVIA_QUESTIONS = [
     },
 ]
 
+
 def hangman_render(game):
-    word_display = " ".join(
-        letter if letter in game["guessed"] else "\\_" for letter in game["word"]
-    )
+    word_display = " ".join(letter if letter in game["guessed"] else "\\_" for letter in game["word"])
     wrong = sorted(game["wrong"])
     wrong_str = ", ".join(wrong) if wrong else "None"
     return (
@@ -225,6 +308,7 @@ def hangman_render(game):
         f"Wrong guesses: {wrong_str}\n"
         f"Guesses left: **{6 - len(game['wrong'])}**"
     )
+
 
 def hangman_candidates(game):
     target_len = len(game["word"])
@@ -250,6 +334,7 @@ def hangman_candidates(game):
         if ok:
             candidates.append(word)
     return candidates
+
 
 def best_hangman_letter(game):
     candidates = hangman_candidates(game)
@@ -292,8 +377,7 @@ class GamesCog(commands.Cog):
         """Remove stale game invites that nobody accepted."""
         now = datetime.now(timezone.utc)
         stale = [
-            mid for mid, info in pending_games.items()
-            if (now - info.get("created_at", now)).total_seconds() > PENDING_GAME_TIMEOUT
+            mid for mid, info in pending_games.items() if (now - info.get("created_at", now)).total_seconds() > PENDING_GAME_TIMEOUT
         ]
         for mid in stale:
             del pending_games[mid]
@@ -322,22 +406,27 @@ class GamesCog(commands.Cog):
                 return
             game = start_ttt(pending["host"], joiner)
             active_ttt[channel.id] = game
-            await channel.send(embed=make_embed(
-                "Tic-Tac-Toe",
-                f"{pending['host'].mention} ({TTT_X}) vs {joiner.mention} ({TTT_O})\n\n"
-                f"{ttt_render(game['board'])}\n\n"
-                f"{pending['host'].mention}'s turn — use `{PREFIX}m <1-9>`"))
+            await channel.send(
+                embed=make_embed(
+                    "Tic-Tac-Toe",
+                    f"{pending['host'].mention} ({TTT_X}) vs {joiner.mention} ({TTT_O})\n\n"
+                    f"{ttt_render(game['board'])}\n\n"
+                    f"{pending['host'].mention}'s turn — use `{PREFIX}m <1-9>`",
+                )
+            )
         elif pending["type"] == "c4":
             if channel.id in active_c4:
                 return
             game = start_c4(pending["host"], joiner)
             active_c4[channel.id] = game
-            await channel.send(embed=make_embed(
-                "Connect 4",
-                f"{pending['host'].mention} ({C4_RED}) vs {joiner.mention} ({C4_YELLOW})\n\n"
-                f"{c4_render(game['board'])}\n\n"
-                f"{pending['host'].mention}'s turn — use `{PREFIX}drop <1-7>`"))
-
+            await channel.send(
+                embed=make_embed(
+                    "Connect 4",
+                    f"{pending['host'].mention} ({C4_RED}) vs {joiner.mention} ({C4_YELLOW})\n\n"
+                    f"{c4_render(game['board'])}\n\n"
+                    f"{pending['host'].mention}'s turn — use `{PREFIX}drop <1-7>`",
+                )
+            )
 
     # QUICK GAMES
     # ---------------------------------------------------------------------------
@@ -374,11 +463,13 @@ class GamesCog(commands.Cog):
             result = "Gary wins."
             color = COLOR_ERROR
 
-        await ctx.send(embed=make_embed(
-            "Rock Paper Scissors",
-            f"You picked **{player}**.\nGary picked **{gary}**.\n\n{result}",
-            color,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "Rock Paper Scissors",
+                f"You picked **{player}**.\nGary picked **{gary}**.\n\n{result}",
+                color,
+            )
+        )
 
     @commands.command()
     async def roll(self, ctx, sides: int = 6):
@@ -406,11 +497,13 @@ class GamesCog(commands.Cog):
         """Start a quick arithmetic question."""
         question, answer = self._new_math_question()
         active_math_quiz[ctx.author.id] = {"question": question, "answer": answer}
-        await ctx.send(embed=make_embed(
-            "Math Game",
-            f"{ctx.author.mention}, what is **{question}**?\nUse `{PREFIX}mathanswer <answer>`.",
-            COLOR_DEFAULT,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "Math Game",
+                f"{ctx.author.mention}, what is **{question}**?\nUse `{PREFIX}mathanswer <answer>`.",
+                COLOR_DEFAULT,
+            )
+        )
 
     @commands.command(aliases=["mathans"])
     async def mathanswer(self, ctx, answer: int):
@@ -420,16 +513,20 @@ class GamesCog(commands.Cog):
             return await ctx.send(f"No math question active. Start one with `{PREFIX}mathgame`.")
         if answer == quiz["answer"]:
             del active_math_quiz[ctx.author.id]
-            return await ctx.send(embed=make_embed(
-                "Correct",
-                f"Nice. **{quiz['question']} = {quiz['answer']}**",
-                COLOR_SUCCESS,
-            ))
-        await ctx.send(embed=make_embed(
-            "Try Again",
-            f"Not quite. Try another answer or start over with `{PREFIX}mathgame`.",
-            COLOR_WARNING,
-        ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Correct",
+                    f"Nice. **{quiz['question']} = {quiz['answer']}**",
+                    COLOR_SUCCESS,
+                )
+            )
+        await ctx.send(
+            embed=make_embed(
+                "Try Again",
+                f"Not quite. Try another answer or start over with `{PREFIX}mathgame`.",
+                COLOR_WARNING,
+            )
+        )
 
     @commands.command()
     async def memory(self, ctx, level: int = 1):
@@ -441,20 +538,24 @@ class GamesCog(commands.Cog):
         sequence = [random.choice(MEMORY_SYMBOLS) for _ in range(length)]
         answer = " ".join(sequence)
         active_memory_games[ctx.channel.id] = {"answer": answer}
-        msg = await ctx.send(embed=make_embed(
-            "Memory Game",
-            f"Memorize this sequence:\n\n**{answer}**\n\nHiding in 8 seconds — first to `{PREFIX}memoryanswer <sequence>` wins!",
-            COLOR_DEFAULT,
-        ))
+        msg = await ctx.send(
+            embed=make_embed(
+                "Memory Game",
+                f"Memorize this sequence:\n\n**{answer}**\n\nHiding in 8 seconds — first to `{PREFIX}memoryanswer <sequence>` wins!",
+                COLOR_DEFAULT,
+            )
+        )
         await asyncio.sleep(8)
         if ctx.channel.id not in active_memory_games:
             return
         try:
-            await msg.edit(embed=make_embed(
-                "Memory Game",
-                f"Sequence hidden! Use `{PREFIX}memoryanswer <sequence>` to answer.",
-                COLOR_DEFAULT,
-            ))
+            await msg.edit(
+                embed=make_embed(
+                    "Memory Game",
+                    f"Sequence hidden! Use `{PREFIX}memoryanswer <sequence>` to answer.",
+                    COLOR_DEFAULT,
+                )
+            )
         except discord.HTTPException:
             pass
 
@@ -467,16 +568,20 @@ class GamesCog(commands.Cog):
         normalized = " ".join(answer.lower().strip().split())
         if normalized == game["answer"]:
             del active_memory_games[ctx.channel.id]
-            return await ctx.send(embed=make_embed(
-                "Correct!",
-                f"{ctx.author.mention} got it!",
-                COLOR_SUCCESS,
-            ))
-        await ctx.send(embed=make_embed(
-            "Not Quite",
-            f"{ctx.author.mention} got it wrong — others can still try!",
-            COLOR_WARNING,
-        ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Correct!",
+                    f"{ctx.author.mention} got it!",
+                    COLOR_SUCCESS,
+                )
+            )
+        await ctx.send(
+            embed=make_embed(
+                "Not Quite",
+                f"{ctx.author.mention} got it wrong — others can still try!",
+                COLOR_WARNING,
+            )
+        )
 
     @commands.command()
     async def trivia(self, ctx):
@@ -485,22 +590,19 @@ class GamesCog(commands.Cog):
             return await ctx.send("There's already a trivia question active in this channel.")
         item = random.choice(TRIVIA_QUESTIONS)
         letters = ["A", "B", "C", "D"]
-        lines = [
-            f"**{letter}.** {choice}"
-            for letter, choice in zip(letters, item["choices"])
-        ]
+        lines = [f"**{letter}.** {choice}" for letter, choice in zip(letters, item["choices"])]
         active_trivia[ctx.channel.id] = {
             "answer": item["answer"],
             "explanation": item["explanation"],
             "wrong_users": set(),
         }
-        await ctx.send(embed=make_embed(
-            "Trivia",
-            item["question"] + "\n\n"
-            + "\n".join(lines)
-            + f"\n\nFirst to `{PREFIX}triviaanswer <A|B|C|D>` wins!",
-            COLOR_DEFAULT,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "Trivia",
+                item["question"] + "\n\n" + "\n".join(lines) + f"\n\nFirst to `{PREFIX}triviaanswer <A|B|C|D>` wins!",
+                COLOR_DEFAULT,
+            )
+        )
 
     @commands.command(aliases=["ta"])
     async def triviaanswer(self, ctx, answer: str):
@@ -515,17 +617,21 @@ class GamesCog(commands.Cog):
             return await ctx.send(f"Usage: `{PREFIX}triviaanswer <A|B|C|D>`")
         if choice == game["answer"]:
             del active_trivia[ctx.channel.id]
-            return await ctx.send(embed=make_embed(
-                "Correct!",
-                f"{ctx.author.mention} got it!\n{game['explanation']}",
-                COLOR_SUCCESS,
-            ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Correct!",
+                    f"{ctx.author.mention} got it!\n{game['explanation']}",
+                    COLOR_SUCCESS,
+                )
+            )
         game["wrong_users"].add(ctx.author.id)
-        await ctx.send(embed=make_embed(
-            "Not Quite",
-            f"{ctx.author.mention} got it wrong — others can still try!",
-            COLOR_WARNING,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "Not Quite",
+                f"{ctx.author.mention} got it wrong — others can still try!",
+                COLOR_WARNING,
+            )
+        )
 
     @commands.command()
     async def scramble(self, ctx):
@@ -540,11 +646,13 @@ class GamesCog(commands.Cog):
             if scrambled != word:
                 break
         active_scrambles[ctx.channel.id] = {"answer": word}
-        await ctx.send(embed=make_embed(
-            "Word Scramble",
-            f"Unscramble this word: **{scrambled}**\nFirst to `{PREFIX}unscramble <word>` wins!",
-            COLOR_DEFAULT,
-        ))
+        await ctx.send(
+            embed=make_embed(
+                "Word Scramble",
+                f"Unscramble this word: **{scrambled}**\nFirst to `{PREFIX}unscramble <word>` wins!",
+                COLOR_DEFAULT,
+            )
+        )
 
     @commands.command()
     async def unscramble(self, ctx, *, answer: str):
@@ -555,16 +663,20 @@ class GamesCog(commands.Cog):
         guess = answer.lower().strip()
         if guess == game["answer"]:
             del active_scrambles[ctx.channel.id]
-            return await ctx.send(embed=make_embed(
-                "Correct!",
-                f"{ctx.author.mention} got it! The word was **{game['answer']}**.",
-                COLOR_SUCCESS,
-            ))
-        await ctx.send(embed=make_embed(
-            "Try Again",
-            f"Not quite, {ctx.author.mention} — others can still try!",
-            COLOR_WARNING,
-        ))
+            return await ctx.send(
+                embed=make_embed(
+                    "Correct!",
+                    f"{ctx.author.mention} got it! The word was **{game['answer']}**.",
+                    COLOR_SUCCESS,
+                )
+            )
+        await ctx.send(
+            embed=make_embed(
+                "Try Again",
+                f"Not quite, {ctx.author.mention} — others can still try!",
+                COLOR_WARNING,
+            )
+        )
 
     @commands.command(aliases=["time"])
     async def timer(self, ctx, seconds: int):
@@ -594,21 +706,23 @@ class GamesCog(commands.Cog):
                 return await ctx.send("You can't play against yourself or a bot.")
             game = start_ttt(ctx.author, opponent)
             active_ttt[ctx.channel.id] = game
-            await ctx.send(embed=make_embed(
-                "Tic-Tac-Toe",
-                f"{ctx.author.mention} ({TTT_X}) vs {opponent.mention} ({TTT_O})\n\n"
-                f"{ttt_render(game['board'])}\n\n"
-                f"{ctx.author.mention}'s turn — use `{PREFIX}m <1-9>`"))
+            await ctx.send(
+                embed=make_embed(
+                    "Tic-Tac-Toe",
+                    f"{ctx.author.mention} ({TTT_X}) vs {opponent.mention} ({TTT_O})\n\n"
+                    f"{ttt_render(game['board'])}\n\n"
+                    f"{ctx.author.mention}'s turn — use `{PREFIX}m <1-9>`",
+                )
+            )
         else:
-            msg = await ctx.send(embed=make_embed(
-                "Tic-Tac-Toe",
-                f"{ctx.author.mention} wants to play! React with ✅ to join."))
+            msg = await ctx.send(embed=make_embed("Tic-Tac-Toe", f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
             pending_games[msg.id] = {
-                "type": "ttt", "host": ctx.author,
-                "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc),
+                "type": "ttt",
+                "host": ctx.author,
+                "channel_id": ctx.channel.id,
+                "created_at": datetime.now(timezone.utc),
             }
-
 
     @commands.command()
     async def m(self, ctx, pos: int):
@@ -627,23 +741,21 @@ class GamesCog(commands.Cog):
                 x, o = ttt_game["players"]["X"], ttt_game["players"]["O"]
                 del active_ttt[ctx.channel.id]
                 log_game_draw(x.id, o.id, "ttt")
-                return await ctx.send(embed=make_embed(
-                    "Tic-Tac-Toe — Draw!",
-                    ttt_render(ttt_game["board"]), COLOR_WARNING))
+                return await ctx.send(embed=make_embed("Tic-Tac-Toe — Draw!", ttt_render(ttt_game["board"]), COLOR_WARNING))
             if winner:
                 loser_piece = "O" if winner == "X" else "X"
                 w = ttt_game["players"][winner]
                 loser = ttt_game["players"][loser_piece]
                 del active_ttt[ctx.channel.id]
                 log_game_win(w.id, loser.id, "ttt")
-                return await ctx.send(embed=make_embed(
-                    f"Tic-Tac-Toe — {w.display_name} Wins!",
-                    ttt_render(ttt_game["board"]), COLOR_SUCCESS))
+                return await ctx.send(
+                    embed=make_embed(f"Tic-Tac-Toe — {w.display_name} Wins!", ttt_render(ttt_game["board"]), COLOR_SUCCESS)
+                )
             ttt_game["turn"] = "O" if ttt_game["turn"] == "X" else "X"
             nxt = ttt_game["players"][ttt_game["turn"]]
-            return await ctx.send(embed=make_embed(
-                "Tic-Tac-Toe",
-                f"{ttt_render(ttt_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-9>`"))
+            return await ctx.send(
+                embed=make_embed("Tic-Tac-Toe", f"{ttt_render(ttt_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-9>`")
+            )
 
         # Try connect 4
         c4_game = active_c4.get(ctx.channel.id)
@@ -661,24 +773,21 @@ class GamesCog(commands.Cog):
                 r_p, y_p = c4_game["players"]["R"], c4_game["players"]["Y"]
                 del active_c4[ctx.channel.id]
                 log_game_draw(r_p.id, y_p.id, "c4")
-                return await ctx.send(embed=make_embed(
-                    "Connect 4 — Draw!",
-                    c4_render(c4_game["board"]), COLOR_WARNING))
+                return await ctx.send(embed=make_embed("Connect 4 — Draw!", c4_render(c4_game["board"]), COLOR_WARNING))
             if winner:
                 loser_piece = "Y" if winner == "R" else "R"
                 w = c4_game["players"][winner]
                 loser = c4_game["players"][loser_piece]
                 del active_c4[ctx.channel.id]
                 log_game_win(w.id, loser.id, "c4")
-                return await ctx.send(embed=make_embed(
-                    f"Connect 4 — {w.display_name} Wins!",
-                    c4_render(c4_game["board"]), COLOR_SUCCESS))
+                return await ctx.send(
+                    embed=make_embed(f"Connect 4 — {w.display_name} Wins!", c4_render(c4_game["board"]), COLOR_SUCCESS)
+                )
             c4_game["turn"] = "Y" if c4_game["turn"] == "R" else "R"
             nxt = c4_game["players"][c4_game["turn"]]
-            return await ctx.send(embed=make_embed(
-                "Connect 4",
-                f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
-
+            return await ctx.send(
+                embed=make_embed("Connect 4", f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`")
+            )
 
     @commands.command(aliases=["ff", "quit", "stop"])
     async def forfeit(self, ctx):
@@ -727,21 +836,23 @@ class GamesCog(commands.Cog):
                 return await ctx.send("You can't play against yourself or a bot.")
             game = start_c4(ctx.author, opponent)
             active_c4[ctx.channel.id] = game
-            await ctx.send(embed=make_embed(
-                "Connect 4",
-                f"{ctx.author.mention} ({C4_RED}) vs {opponent.mention} ({C4_YELLOW})\n\n"
-                f"{c4_render(game['board'])}\n\n"
-                f"{ctx.author.mention}'s turn — use `{PREFIX}drop <1-7>`"))
+            await ctx.send(
+                embed=make_embed(
+                    "Connect 4",
+                    f"{ctx.author.mention} ({C4_RED}) vs {opponent.mention} ({C4_YELLOW})\n\n"
+                    f"{c4_render(game['board'])}\n\n"
+                    f"{ctx.author.mention}'s turn — use `{PREFIX}drop <1-7>`",
+                )
+            )
         else:
-            msg = await ctx.send(embed=make_embed(
-                "Connect 4",
-                f"{ctx.author.mention} wants to play! React with ✅ to join."))
+            msg = await ctx.send(embed=make_embed("Connect 4", f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
             pending_games[msg.id] = {
-                "type": "c4", "host": ctx.author,
-                "channel_id": ctx.channel.id, "created_at": datetime.now(timezone.utc),
+                "type": "c4",
+                "host": ctx.author,
+                "channel_id": ctx.channel.id,
+                "created_at": datetime.now(timezone.utc),
             }
-
 
     @commands.command()
     async def drop(self, ctx, col: int):
@@ -762,23 +873,19 @@ class GamesCog(commands.Cog):
             r_p, y_p = game["players"]["R"], game["players"]["Y"]
             del active_c4[ctx.channel.id]
             log_game_draw(r_p.id, y_p.id, "c4")
-            return await ctx.send(embed=make_embed(
-                "Connect 4 — Draw!",
-                c4_render(game["board"]), COLOR_WARNING))
+            return await ctx.send(embed=make_embed("Connect 4 — Draw!", c4_render(game["board"]), COLOR_WARNING))
         if winner:
             loser_piece = "Y" if winner == "R" else "R"
             w = game["players"][winner]
             loser = game["players"][loser_piece]
             del active_c4[ctx.channel.id]
             log_game_win(w.id, loser.id, "c4")
-            return await ctx.send(embed=make_embed(
-                f"Connect 4 — {w.display_name} Wins!",
-                c4_render(game["board"]), COLOR_SUCCESS))
+            return await ctx.send(embed=make_embed(f"Connect 4 — {w.display_name} Wins!", c4_render(game["board"]), COLOR_SUCCESS))
         game["turn"] = "Y" if game["turn"] == "R" else "R"
         nxt = game["players"][game["turn"]]
-        await ctx.send(embed=make_embed(
-            "Connect 4",
-            f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`"))
+        await ctx.send(
+            embed=make_embed("Connect 4", f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`")
+        )
 
     # ---------------------------------------------------------------------------
     # GAMES: HANGMAN
@@ -813,18 +920,22 @@ class GamesCog(commands.Cog):
         if len(guess) > 1:
             if guess == game["word"]:
                 del active_hangman[channel.id]
-                await self._hangman_end(channel, make_embed(
-                    "Hangman - You Win!",
-                    f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
-                    COLOR_SUCCESS))
+                await self._hangman_end(
+                    channel,
+                    make_embed(
+                        "Hangman - You Win!",
+                        f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
+                        COLOR_SUCCESS,
+                    ),
+                )
                 return True
             game["wrong"].append(guess)
             if len(game["wrong"]) >= 6:
                 del active_hangman[channel.id]
-                await self._hangman_end(channel, make_embed(
-                    "Hangman - Game Over",
-                    f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
-                    COLOR_ERROR))
+                await self._hangman_end(
+                    channel,
+                    make_embed("Hangman - Game Over", f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}", COLOR_ERROR),
+                )
                 return True
             await self._hangman_update(channel, make_embed("Hangman", hangman_render(game)))
             return True
@@ -832,26 +943,31 @@ class GamesCog(commands.Cog):
         # Single-letter guess path
         letter = guess
         if letter in game["guessed"] or letter in game["wrong"]:
-            await self._hangman_update(channel, make_embed("Hangman",
-                f"{hangman_render(game)}\n\n**{letter}** was already guessed."))
+            await self._hangman_update(
+                channel, make_embed("Hangman", f"{hangman_render(game)}\n\n**{letter}** was already guessed.")
+            )
             return True
         if letter in game["word"]:
             game["guessed"].add(letter)
             if all(ch in game["guessed"] for ch in game["word"]):
                 del active_hangman[channel.id]
-                await self._hangman_end(channel, make_embed(
-                    "Hangman - You Win!",
-                    f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
-                    COLOR_SUCCESS))
+                await self._hangman_end(
+                    channel,
+                    make_embed(
+                        "Hangman - You Win!",
+                        f"The word was **{game['word']}**!\n{HANGMAN_STAGES[len(game['wrong'])]}",
+                        COLOR_SUCCESS,
+                    ),
+                )
                 return True
         else:
             game["wrong"].append(letter)
             if len(game["wrong"]) >= 6:
                 del active_hangman[channel.id]
-                await self._hangman_end(channel, make_embed(
-                    "Hangman - Game Over",
-                    f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}",
-                    COLOR_ERROR))
+                await self._hangman_end(
+                    channel,
+                    make_embed("Hangman - Game Over", f"The word was **{game['word']}**.\n{HANGMAN_STAGES[6]}", COLOR_ERROR),
+                )
                 return True
         await self._hangman_update(channel, make_embed("Hangman", hangman_render(game)))
         return True
@@ -913,6 +1029,7 @@ class GamesCog(commands.Cog):
         except discord.HTTPException:
             pass
         await self._guess_hangman(ctx.channel, guess)
+
 
 async def setup(bot):
     await bot.add_cog(GamesCog(bot))

@@ -30,8 +30,10 @@ from shared import (
 
 active_puzzles = {}  # (scope, user_id) -> {"answer": str, "type": str, "display": str}
 
+
 def _puzzle_key(user_id: int, kids_mode: bool):
     return ("kids" if kids_mode else "regular", user_id)
+
 
 def load_active_puzzle(user_id: int):
     row = shared.db.execute(
@@ -59,6 +61,7 @@ def load_active_puzzle(user_id: int):
         puzzle["guesses"] = [str(g).lower().strip() for g in guesses if isinstance(g, str)]
     return puzzle
 
+
 def save_active_puzzle(user_id: int, puzzle):
     get_balance(user_id)
     if puzzle is None:
@@ -82,79 +85,553 @@ def save_active_puzzle(user_id: int, puzzle):
         ),
     )
     shared.db.commit()
+
+
 WORDLE_WORDS = [
     # Original set
-    "crane", "slate", "audio", "raise", "stare", "glyph", "dwarf", "knobs",
-    "plumb", "frost", "shrug", "traps", "blaze", "chunk", "crimp", "dough",
-    "flame", "gripe", "hoist", "joust", "knelt", "lurch", "mirth", "notch",
-    "pouch", "quilt", "roast", "swirl", "thump", "vexed", "whirl", "yacht",
-    "blunt", "chase", "drift", "forge", "gleam", "hover", "jelly", "knack",
+    "crane",
+    "slate",
+    "audio",
+    "raise",
+    "stare",
+    "glyph",
+    "dwarf",
+    "knobs",
+    "plumb",
+    "frost",
+    "shrug",
+    "traps",
+    "blaze",
+    "chunk",
+    "crimp",
+    "dough",
+    "flame",
+    "gripe",
+    "hoist",
+    "joust",
+    "knelt",
+    "lurch",
+    "mirth",
+    "notch",
+    "pouch",
+    "quilt",
+    "roast",
+    "swirl",
+    "thump",
+    "vexed",
+    "whirl",
+    "yacht",
+    "blunt",
+    "chase",
+    "drift",
+    "forge",
+    "gleam",
+    "hover",
+    "jelly",
+    "knack",
     # Expanded set
-    "abide", "abuse", "acute", "after", "agony", "ahead", "alarm", "alert",
-    "allow", "alter", "angel", "anger", "angle", "ankle", "apply", "argue",
-    "arise", "armor", "aroma", "aside", "awake", "award", "aware", "awful",
-    "bagel", "badge", "basil", "basis", "batch", "beach", "beard", "beast",
-    "bench", "black", "blade", "bland", "blank", "blink", "block", "blond",
-    "bloom", "blues", "bluff", "board", "boost", "booth", "brace", "braid",
-    "brand", "brave", "break", "bride", "bring", "brisk", "broad", "broke",
-    "brook", "brown", "build", "bulge", "built", "burst", "buyer", "cabin",
-    "candy", "carry", "catch", "chaos", "charm", "cheap", "check", "chess",
-    "chest", "chief", "child", "chill", "civic", "civil", "claim", "clasp",
-    "cliff", "cling", "cloak", "clone", "clump", "coach", "coral", "cover",
-    "craft", "cramp", "craze", "creek", "creep", "crest", "crisp", "cross",
-    "crowd", "crown", "cruel", "crush", "cycle", "daunt", "death", "decay",
-    "delta", "depth", "derby", "disco", "dodge", "dowel", "draft", "drain",
-    "drape", "drawl", "dread", "drink", "droop", "drove", "drown", "eagle",
-    "early", "elbow", "elite", "ember", "empty", "enjoy", "ethic", "evade",
-    "evoke", "exact", "exert", "exist", "exude", "exult", "fable", "false",
-    "fancy", "ferry", "fetch", "fever", "finch", "fizzy", "flake", "flare",
-    "flask", "flair", "fling", "flint", "floss", "fluid", "foggy", "found",
-    "frail", "fraud", "freak", "fresh", "froze", "fruit", "funny", "ghost",
-    "giddy", "glare", "glaze", "glean", "gloat", "gloom", "gloss", "glove",
-    "gnash", "grace", "grain", "grant", "grate", "grave", "graze", "greet",
-    "grief", "grime", "grind", "groan", "grope", "group", "growl", "gruff",
-    "guile", "gusto", "habit", "heist", "hinge", "hippo", "homer", "horde",
-    "husky", "hyper", "icing", "image", "imply", "infer", "inlet", "ivory",
-    "jaunt", "jumpy", "knoll", "lapse", "laser", "latch", "legal", "libel",
-    "lodge", "loose", "lowly", "lunar", "lyric", "manor", "marsh", "match",
-    "merit", "miser", "moist", "morph", "mount", "mourn", "mulch", "naive",
-    "nasal", "niche", "night", "noble", "novel", "nudge", "nymph", "optic",
-    "orbit", "order", "oxide", "ozone", "panic", "parse", "patch", "patty",
-    "penny", "perch", "petty", "pilot", "pinch", "pitch", "pivot", "pixie",
-    "plaid", "plank", "plaza", "plead", "pluck", "plump", "plunk", "poach",
-    "poise", "polar", "pound", "prank", "prawn", "press", "pride", "prize",
-    "prude", "prune", "psalm", "puffy", "punch", "purse", "quest", "quick",
-    "quirk", "radar", "rally", "ranch", "range", "rebel", "reign", "relax",
-    "relic", "renew", "repay", "repel", "resin", "ripen", "risky", "rivet",
-    "rogue", "rouge", "ruddy", "ruler", "rural", "rusty", "salad", "savor",
-    "scant", "scene", "scone", "scoop", "score", "scorn", "scout", "scrub",
-    "seize", "sense", "share", "shard", "shift", "shout", "shrub", "sigma",
-    "siren", "skull", "skunk", "slant", "sloth", "slump", "smack", "smash",
-    "smear", "smell", "smirk", "snare", "snarl", "sniff", "snore", "snout",
-    "soggy", "solve", "sorry", "south", "spare", "spark", "spawn", "speck",
-    "spend", "spill", "spine", "spite", "splat", "split", "spook", "spray",
-    "spree", "spunk", "squad", "squat", "stain", "stale", "stall", "stand",
-    "start", "stash", "state", "steam", "steel", "steep", "steer", "stern",
-    "stock", "stomp", "stone", "store", "story", "stout", "stove", "strap",
-    "straw", "strip", "strut", "stump", "stunt", "style", "sugar", "suite",
-    "sulky", "surge", "swamp", "swarm", "swear", "sweat", "sweep", "swell",
-    "swept", "swoon", "swoop", "sword", "tangy", "taper", "taunt", "tawny",
-    "tease", "tempo", "tepid", "terse", "theft", "theta", "thorn", "three",
-    "throe", "thrum", "thumb", "tidal", "tinge", "tipsy", "titan", "topaz",
-    "torso", "touch", "tough", "trace", "track", "trade", "trail", "train",
-    "tramp", "trawl", "tread", "treat", "trend", "trial", "tribe", "trick",
-    "trill", "tromp", "trove", "truce", "trump", "trunk", "truss", "truth",
-    "tulip", "tunic", "twang", "tweak", "twirl", "ultra", "umber", "under",
-    "unity", "upset", "usher", "vague", "value", "valve", "vault", "vigor",
-    "villa", "visor", "vista", "vital", "vocal", "vouch", "wager", "whelp",
-    "whiff", "white", "wider", "wield", "windy", "witch", "world", "worry",
-    "worth", "wreck", "wring", "wrist", "wrong", "yearn", "yield", "zippy",
+    "abide",
+    "abuse",
+    "acute",
+    "after",
+    "agony",
+    "ahead",
+    "alarm",
+    "alert",
+    "allow",
+    "alter",
+    "angel",
+    "anger",
+    "angle",
+    "ankle",
+    "apply",
+    "argue",
+    "arise",
+    "armor",
+    "aroma",
+    "aside",
+    "awake",
+    "award",
+    "aware",
+    "awful",
+    "bagel",
+    "badge",
+    "basil",
+    "basis",
+    "batch",
+    "beach",
+    "beard",
+    "beast",
+    "bench",
+    "black",
+    "blade",
+    "bland",
+    "blank",
+    "blink",
+    "block",
+    "blond",
+    "bloom",
+    "blues",
+    "bluff",
+    "board",
+    "boost",
+    "booth",
+    "brace",
+    "braid",
+    "brand",
+    "brave",
+    "break",
+    "bride",
+    "bring",
+    "brisk",
+    "broad",
+    "broke",
+    "brook",
+    "brown",
+    "build",
+    "bulge",
+    "built",
+    "burst",
+    "buyer",
+    "cabin",
+    "candy",
+    "carry",
+    "catch",
+    "chaos",
+    "charm",
+    "cheap",
+    "check",
+    "chess",
+    "chest",
+    "chief",
+    "child",
+    "chill",
+    "civic",
+    "civil",
+    "claim",
+    "clasp",
+    "cliff",
+    "cling",
+    "cloak",
+    "clone",
+    "clump",
+    "coach",
+    "coral",
+    "cover",
+    "craft",
+    "cramp",
+    "craze",
+    "creek",
+    "creep",
+    "crest",
+    "crisp",
+    "cross",
+    "crowd",
+    "crown",
+    "cruel",
+    "crush",
+    "cycle",
+    "daunt",
+    "death",
+    "decay",
+    "delta",
+    "depth",
+    "derby",
+    "disco",
+    "dodge",
+    "dowel",
+    "draft",
+    "drain",
+    "drape",
+    "drawl",
+    "dread",
+    "drink",
+    "droop",
+    "drove",
+    "drown",
+    "eagle",
+    "early",
+    "elbow",
+    "elite",
+    "ember",
+    "empty",
+    "enjoy",
+    "ethic",
+    "evade",
+    "evoke",
+    "exact",
+    "exert",
+    "exist",
+    "exude",
+    "exult",
+    "fable",
+    "false",
+    "fancy",
+    "ferry",
+    "fetch",
+    "fever",
+    "finch",
+    "fizzy",
+    "flake",
+    "flare",
+    "flask",
+    "flair",
+    "fling",
+    "flint",
+    "floss",
+    "fluid",
+    "foggy",
+    "found",
+    "frail",
+    "fraud",
+    "freak",
+    "fresh",
+    "froze",
+    "fruit",
+    "funny",
+    "ghost",
+    "giddy",
+    "glare",
+    "glaze",
+    "glean",
+    "gloat",
+    "gloom",
+    "gloss",
+    "glove",
+    "gnash",
+    "grace",
+    "grain",
+    "grant",
+    "grate",
+    "grave",
+    "graze",
+    "greet",
+    "grief",
+    "grime",
+    "grind",
+    "groan",
+    "grope",
+    "group",
+    "growl",
+    "gruff",
+    "guile",
+    "gusto",
+    "habit",
+    "heist",
+    "hinge",
+    "hippo",
+    "homer",
+    "horde",
+    "husky",
+    "hyper",
+    "icing",
+    "image",
+    "imply",
+    "infer",
+    "inlet",
+    "ivory",
+    "jaunt",
+    "jumpy",
+    "knoll",
+    "lapse",
+    "laser",
+    "latch",
+    "legal",
+    "libel",
+    "lodge",
+    "loose",
+    "lowly",
+    "lunar",
+    "lyric",
+    "manor",
+    "marsh",
+    "match",
+    "merit",
+    "miser",
+    "moist",
+    "morph",
+    "mount",
+    "mourn",
+    "mulch",
+    "naive",
+    "nasal",
+    "niche",
+    "night",
+    "noble",
+    "novel",
+    "nudge",
+    "nymph",
+    "optic",
+    "orbit",
+    "order",
+    "oxide",
+    "ozone",
+    "panic",
+    "parse",
+    "patch",
+    "patty",
+    "penny",
+    "perch",
+    "petty",
+    "pilot",
+    "pinch",
+    "pitch",
+    "pivot",
+    "pixie",
+    "plaid",
+    "plank",
+    "plaza",
+    "plead",
+    "pluck",
+    "plump",
+    "plunk",
+    "poach",
+    "poise",
+    "polar",
+    "pound",
+    "prank",
+    "prawn",
+    "press",
+    "pride",
+    "prize",
+    "prude",
+    "prune",
+    "psalm",
+    "puffy",
+    "punch",
+    "purse",
+    "quest",
+    "quick",
+    "quirk",
+    "radar",
+    "rally",
+    "ranch",
+    "range",
+    "rebel",
+    "reign",
+    "relax",
+    "relic",
+    "renew",
+    "repay",
+    "repel",
+    "resin",
+    "ripen",
+    "risky",
+    "rivet",
+    "rogue",
+    "rouge",
+    "ruddy",
+    "ruler",
+    "rural",
+    "rusty",
+    "salad",
+    "savor",
+    "scant",
+    "scene",
+    "scone",
+    "scoop",
+    "score",
+    "scorn",
+    "scout",
+    "scrub",
+    "seize",
+    "sense",
+    "share",
+    "shard",
+    "shift",
+    "shout",
+    "shrub",
+    "sigma",
+    "siren",
+    "skull",
+    "skunk",
+    "slant",
+    "sloth",
+    "slump",
+    "smack",
+    "smash",
+    "smear",
+    "smell",
+    "smirk",
+    "snare",
+    "snarl",
+    "sniff",
+    "snore",
+    "snout",
+    "soggy",
+    "solve",
+    "sorry",
+    "south",
+    "spare",
+    "spark",
+    "spawn",
+    "speck",
+    "spend",
+    "spill",
+    "spine",
+    "spite",
+    "splat",
+    "split",
+    "spook",
+    "spray",
+    "spree",
+    "spunk",
+    "squad",
+    "squat",
+    "stain",
+    "stale",
+    "stall",
+    "stand",
+    "start",
+    "stash",
+    "state",
+    "steam",
+    "steel",
+    "steep",
+    "steer",
+    "stern",
+    "stock",
+    "stomp",
+    "stone",
+    "store",
+    "story",
+    "stout",
+    "stove",
+    "strap",
+    "straw",
+    "strip",
+    "strut",
+    "stump",
+    "stunt",
+    "style",
+    "sugar",
+    "suite",
+    "sulky",
+    "surge",
+    "swamp",
+    "swarm",
+    "swear",
+    "sweat",
+    "sweep",
+    "swell",
+    "swept",
+    "swoon",
+    "swoop",
+    "sword",
+    "tangy",
+    "taper",
+    "taunt",
+    "tawny",
+    "tease",
+    "tempo",
+    "tepid",
+    "terse",
+    "theft",
+    "theta",
+    "thorn",
+    "three",
+    "throe",
+    "thrum",
+    "thumb",
+    "tidal",
+    "tinge",
+    "tipsy",
+    "titan",
+    "topaz",
+    "torso",
+    "touch",
+    "tough",
+    "trace",
+    "track",
+    "trade",
+    "trail",
+    "train",
+    "tramp",
+    "trawl",
+    "tread",
+    "treat",
+    "trend",
+    "trial",
+    "tribe",
+    "trick",
+    "trill",
+    "tromp",
+    "trove",
+    "truce",
+    "trump",
+    "trunk",
+    "truss",
+    "truth",
+    "tulip",
+    "tunic",
+    "twang",
+    "tweak",
+    "twirl",
+    "ultra",
+    "umber",
+    "under",
+    "unity",
+    "upset",
+    "usher",
+    "vague",
+    "value",
+    "valve",
+    "vault",
+    "vigor",
+    "villa",
+    "visor",
+    "vista",
+    "vital",
+    "vocal",
+    "vouch",
+    "wager",
+    "whelp",
+    "whiff",
+    "white",
+    "wider",
+    "wield",
+    "windy",
+    "witch",
+    "world",
+    "worry",
+    "worth",
+    "wreck",
+    "wring",
+    "wrist",
+    "wrong",
+    "yearn",
+    "yield",
+    "zippy",
 ]
 UNSCRAMBLE_WORDS = [
-    "python", "server", "cursor", "syntax", "binary", "plugin", "socket",
-    "kernel", "thread", "buffer", "matrix", "cipher", "router", "branch",
-    "module", "render", "signal", "toggle", "vector", "widget", "bridge",
-    "portal", "anchor", "beacon", "cipher", "faucet", "gadget", "jumble",
+    "python",
+    "server",
+    "cursor",
+    "syntax",
+    "binary",
+    "plugin",
+    "socket",
+    "kernel",
+    "thread",
+    "buffer",
+    "matrix",
+    "cipher",
+    "router",
+    "branch",
+    "module",
+    "render",
+    "signal",
+    "toggle",
+    "vector",
+    "widget",
+    "bridge",
+    "portal",
+    "anchor",
+    "beacon",
+    "cipher",
+    "faucet",
+    "gadget",
+    "jumble",
 ]
 TRIVIA = [
     ("What planet is known as the Red Planet?", "mars"),
@@ -185,6 +662,8 @@ CODE_PUZZLES = [
     ("What does this print?\n```python\nprint(sum(range(5)))```", "10"),
     ("What does this print?\n```python\nprint(list(zip([1,2],[3,4])))```", "[(1, 3), (2, 4)]"),
 ]
+
+
 def generate_math_puzzle():
     """Generate a math puzzle with multiple operations."""
     kind = random.choice(["solve_x", "evaluate", "remainder", "sequence"])
@@ -219,7 +698,11 @@ def generate_math_puzzle():
         display = ", ".join(str(n) for n in seq)
         question = f"What comes next? **{display}, ?**"
         return question, str(answer)
+
+
 WORDLE_MAX_GUESSES = 6
+
+
 def wordle_feedback(guess, answer):
     """Return colored tile feedback for a wordle guess."""
     result = ["⬛"] * 5
@@ -239,6 +722,8 @@ def wordle_feedback(guess, answer):
     tiles = "".join(result)
     letters = " ".join(f"**{c}**" for c in guess)
     return f"{tiles}\n{letters}"
+
+
 def wordle_display(puzzle):
     """Render the full wordle board."""
     lines = []
@@ -247,11 +732,15 @@ def wordle_display(puzzle):
     remaining = WORDLE_MAX_GUESSES - len(puzzle.get("guesses", []))
     lines.append(f"\nGuesses left: **{remaining}**")
     return "\n".join(lines)
+
+
 def generate_wordle_puzzle():
     """Generate a wordle puzzle."""
     word = random.choice(WORDLE_WORDS)
     question = f"Guess a 5-letter word! You have **{WORDLE_MAX_GUESSES}** tries."
     return question, word
+
+
 def generate_unscramble_puzzle():
     word = random.choice(UNSCRAMBLE_WORDS)
     letters = list(word)
@@ -262,6 +751,8 @@ def generate_unscramble_puzzle():
             break
     question = f"Unscramble this word: **{scrambled}**"
     return question, word
+
+
 def generate_puzzle():
     """Pick a random puzzle type and generate it."""
     kind = random.choice(["math", "wordle", "unscramble", "trivia", "code"])
@@ -280,6 +771,8 @@ def generate_puzzle():
     else:
         q, a = random.choice(CODE_PUZZLES)
         return kind, q, a
+
+
 PUZZLE_TITLES = {
     "math": "🧮 Math Puzzle",
     "wordle": "📝 Word Puzzle",
@@ -449,15 +942,12 @@ def hand_done(hand):
 def available_actions(game, hand):
     actions = ["stand", "hit"]
     if len(hand["cards"]) == 2:
-        if (
-            (BLACKJACK_RULES["double_any_two"] or hand_value(hand["cards"]) in (9, 10, 11))
-            and (BLACKJACK_RULES["double_after_split"] or not hand["from_split"])
+        if (BLACKJACK_RULES["double_any_two"] or hand_value(hand["cards"]) in (9, 10, 11)) and (
+            BLACKJACK_RULES["double_after_split"] or not hand["from_split"]
         ):
             actions.append("double")
         can_split = (
-            BLACKJACK_RULES["allow_split"]
-            and can_split_cards(hand["cards"])
-            and len(game["hands"]) < BLACKJACK_RULES["max_hands"]
+            BLACKJACK_RULES["allow_split"] and can_split_cards(hand["cards"]) and len(game["hands"]) < BLACKJACK_RULES["max_hands"]
         )
         if can_split:
             if split_rank_key(hand["cards"][0]) != "A" or BLACKJACK_RULES["resplit_aces"]:
@@ -567,6 +1057,7 @@ def best_legal_blackjack_recommendation(game, hand, dealer_up_card):
 
 apply_blackjack_ruleset(get_blackjack_ruleset_name())
 
+
 class EconomyCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -594,30 +1085,31 @@ class EconomyCog(commands.Cog):
         bal = get_balance(user_id)
 
         if bal > 0:
-            await ctx.send(embed=make_embed(
-                "🚫 Not Broke Enough",
-                f"You still have **{bal}** coins! Guess is only for when you're at **0**.",
-                COLOR_ERROR))
+            await ctx.send(
+                embed=make_embed(
+                    "🚫 Not Broke Enough", f"You still have **{bal}** coins! Guess is only for when you're at **0**.", COLOR_ERROR
+                )
+            )
             return
 
         if number < 1 or number > LUCKY_GUESS_RANGE:
-            await ctx.send(embed=make_embed(
-                "❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", COLOR_ERROR))
+            await ctx.send(embed=make_embed("❌ Invalid", f"Pick a number between **1** and **{LUCKY_GUESS_RANGE}**.", COLOR_ERROR))
             return
 
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
-        row = shared.db.execute(
-            "SELECT guess_date, guess_count FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = shared.db.execute("SELECT guess_date, guess_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         guess_date = row[0] if row else ""
         guess_count = row[1] if row else 0
 
         if guess_date == today and guess_count >= LUCKY_GUESS_MAX_DAILY:
-            await ctx.send(embed=make_embed(
-                "🚫 No Guesses Left",
-                f"You've used all **{LUCKY_GUESS_MAX_DAILY}** guesses today. Try again tomorrow!",
-                COLOR_ERROR))
+            await ctx.send(
+                embed=make_embed(
+                    "🚫 No Guesses Left",
+                    f"You've used all **{LUCKY_GUESS_MAX_DAILY}** guesses today. Try again tomorrow!",
+                    COLOR_ERROR,
+                )
+            )
             return
 
         # Reset count if it's a new day
@@ -625,9 +1117,7 @@ class EconomyCog(commands.Cog):
             guess_count = 0
 
         guess_count += 1
-        shared.db.execute(
-            "UPDATE users SET guess_date = ?, guess_count = ? WHERE user_id = ?",
-            (today, guess_count, user_id))
+        shared.db.execute("UPDATE users SET guess_date = ?, guess_count = ? WHERE user_id = ?", (today, guess_count, user_id))
         shared.db.commit()
 
         answer = random.randint(1, LUCKY_GUESS_RANGE)
@@ -636,18 +1126,22 @@ class EconomyCog(commands.Cog):
         if number == answer:
             update_balance(user_id, LUCKY_GUESS_REWARD)
             bal = get_balance(user_id)
-            await ctx.send(embed=make_embed(
-                f"🎯 Correct! The number was **{answer}**!",
-                f"You won **{LUCKY_GUESS_REWARD}** coin!\n"
-                f"Balance: **{bal}** | Guesses left today: **{remaining}**",
-                COLOR_SUCCESS))
+            await ctx.send(
+                embed=make_embed(
+                    f"🎯 Correct! The number was **{answer}**!",
+                    f"You won **{LUCKY_GUESS_REWARD}** coin!\nBalance: **{bal}** | Guesses left today: **{remaining}**",
+                    COLOR_SUCCESS,
+                )
+            )
         else:
             bal = get_balance(user_id)
-            await ctx.send(embed=make_embed(
-                f"❌ Nope! The number was **{answer}**.",
-                f"Better luck next time!\n"
-                f"Balance: **{bal}** | Guesses left today: **{remaining}**",
-                COLOR_ERROR))
+            await ctx.send(
+                embed=make_embed(
+                    f"❌ Nope! The number was **{answer}**.",
+                    f"Better luck next time!\nBalance: **{bal}** | Guesses left today: **{remaining}**",
+                    COLOR_ERROR,
+                )
+            )
 
     # ---------------------------------------------------------------------------
     # ECONOMY: DAILY PUZZLE
@@ -671,10 +1165,13 @@ class EconomyCog(commands.Cog):
             limit = WORDLE_MAX_GUESSES if p["type"] == "wordle" else PUZZLE_MAX_ATTEMPTS
             attempts = len(p.get("guesses", [])) if p["type"] == "wordle" else p.get("attempts", 0)
             remaining = limit - attempts
-            return await ctx.send(embed=make_embed(
-                PUZZLE_TITLES[p["type"]],
-                f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
-                f"Practice puzzle. No coin reward | Attempts left: **{remaining}**"))
+            return await ctx.send(
+                embed=make_embed(
+                    PUZZLE_TITLES[p["type"]],
+                    f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
+                    f"Practice puzzle. No coin reward | Attempts left: **{remaining}**",
+                )
+            )
 
         get_balance(user_id)
 
@@ -690,23 +1187,25 @@ class EconomyCog(commands.Cog):
         if puzzle_date == today and puzzle_solved:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            return await ctx.send(embed=make_embed(
-                "Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS))
+            return await ctx.send(
+                embed=make_embed("Already Solved", "You already solved today's puzzle! Come back tomorrow.", COLOR_SUCCESS)
+            )
         if puzzle_date == today and puzzle_attempts >= PUZZLE_MAX_ATTEMPTS:
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
-            return await ctx.send(embed=make_embed(
-                "Out of Attempts",
-                f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!",
-                COLOR_ERROR))
+            return await ctx.send(
+                embed=make_embed(
+                    "Out of Attempts", f"You've used all **{PUZZLE_MAX_ATTEMPTS}** attempts today. Try again tomorrow!", COLOR_ERROR
+                )
+            )
 
         if puzzle_date != today:
             puzzle_attempts = 0
             active_puzzles.pop(key, None)
             save_active_puzzle(user_id, None)
             shared.db.execute(
-                "UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?",
-                (today, user_id))
+                "UPDATE users SET puzzle_date = ?, puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (today, user_id)
+            )
             shared.db.commit()
 
         if key not in active_puzzles:
@@ -724,20 +1223,15 @@ class EconomyCog(commands.Cog):
 
         p = active_puzzles[key]
         remaining = (
-            WORDLE_MAX_GUESSES - len(p.get("guesses", []))
-            if p["type"] == "wordle"
-            else PUZZLE_MAX_ATTEMPTS - puzzle_attempts
+            WORDLE_MAX_GUESSES - len(p.get("guesses", [])) if p["type"] == "wordle" else PUZZLE_MAX_ATTEMPTS - puzzle_attempts
         )
-        reward_line = (
-            "No coin reward in kids mode"
-            if kids_mode
-            else f"Reward: **{PUZZLE_REWARD}** coins"
+        reward_line = "No coin reward in kids mode" if kids_mode else f"Reward: **{PUZZLE_REWARD}** coins"
+        await ctx.send(
+            embed=make_embed(
+                PUZZLE_TITLES[p["type"]],
+                f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n{reward_line} | Attempts left: **{remaining}**",
+            )
         )
-        await ctx.send(embed=make_embed(
-            PUZZLE_TITLES[p["type"]],
-            f"{p['display']}\n\nAnswer with `{PREFIX}solve <answer>`\n"
-            f"{reward_line} | Attempts left: **{remaining}**"))
-
 
     @commands.command()
     async def solve(self, ctx, *, answer: str):
@@ -765,39 +1259,36 @@ class EconomyCog(commands.Cog):
                 p["guesses"].append(guess)
                 if guess == p["answer"]:
                     active_puzzles.pop(key, None)
-                    return await ctx.send(embed=make_embed(
-                        f"Wordle Solved in {len(p['guesses'])}!",
-                        f"{wordle_display(p)}\n\nSolved. No coin reward in kids mode.",
-                        COLOR_SUCCESS))
+                    return await ctx.send(
+                        embed=make_embed(
+                            f"Wordle Solved in {len(p['guesses'])}!",
+                            f"{wordle_display(p)}\n\nSolved. No coin reward in kids mode.",
+                            COLOR_SUCCESS,
+                        )
+                    )
                 if len(p["guesses"]) >= WORDLE_MAX_GUESSES:
                     active_puzzles.pop(key, None)
-                    return await ctx.send(embed=make_embed(
-                        "Wordle Failed",
-                        f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.",
-                        COLOR_ERROR))
-                return await ctx.send(embed=make_embed(
-                    "Wordle",
-                    f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
+                    return await ctx.send(
+                        embed=make_embed("Wordle Failed", f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.", COLOR_ERROR)
+                    )
+                return await ctx.send(embed=make_embed("Wordle", f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
 
             p["attempts"] = p.get("attempts", 0) + 1
             if guess == p["answer"]:
                 active_puzzles.pop(key, None)
-                return await ctx.send(embed=make_embed(
-                    "Correct!",
-                    "Solved. No coin reward in kids mode.",
-                    COLOR_SUCCESS))
+                return await ctx.send(embed=make_embed("Correct!", "Solved. No coin reward in kids mode.", COLOR_SUCCESS))
             remaining = PUZZLE_MAX_ATTEMPTS - p["attempts"]
             if remaining <= 0:
                 correct = p["answer"]
                 active_puzzles.pop(key, None)
-                return await ctx.send(embed=make_embed(
-                    "Out of Attempts",
-                    f"The answer was **{correct}**. Start another practice puzzle with `{PREFIX}puzzle`.",
-                    COLOR_ERROR))
-            return await ctx.send(embed=make_embed(
-                "Wrong",
-                f"That's not it. Attempts left: **{remaining}**",
-                COLOR_ERROR))
+                return await ctx.send(
+                    embed=make_embed(
+                        "Out of Attempts",
+                        f"The answer was **{correct}**. Start another practice puzzle with `{PREFIX}puzzle`.",
+                        COLOR_ERROR,
+                    )
+                )
+            return await ctx.send(embed=make_embed("Wrong", f"That's not it. Attempts left: **{remaining}**", COLOR_ERROR))
 
         now = datetime.now(CENTRAL_TZ)
         today = now.strftime("%Y-%m-%d")
@@ -835,25 +1326,23 @@ class EconomyCog(commands.Cog):
                     update_balance(user_id, PUZZLE_REWARD)
                     bal = get_balance(user_id)
                     reward_text = f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**"
-                return await ctx.send(embed=make_embed(
-                    f"Wordle Solved in {len(p['guesses'])}!",
-                    f"{wordle_display(p)}\n\n{reward_text}",
-                    COLOR_SUCCESS))
+                return await ctx.send(
+                    embed=make_embed(
+                        f"Wordle Solved in {len(p['guesses'])}!", f"{wordle_display(p)}\n\n{reward_text}", COLOR_SUCCESS
+                    )
+                )
             if len(p["guesses"]) >= WORDLE_MAX_GUESSES:
                 active_puzzles.pop(key, None)
                 save_active_puzzle(user_id, None)
-                return await ctx.send(embed=make_embed(
-                    "Wordle Failed",
-                    f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.",
-                    COLOR_ERROR))
-            return await ctx.send(embed=make_embed(
-                "Wordle",
-                f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
+                return await ctx.send(
+                    embed=make_embed("Wordle Failed", f"{wordle_display(p)}\n\nThe word was **{p['answer']}**.", COLOR_ERROR)
+                )
+            return await ctx.send(embed=make_embed("Wordle", f"{wordle_display(p)}\n\nGuess again with `{PREFIX}solve <word>`"))
 
         puzzle_attempts += 1
         shared.db.execute(
-            "UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?",
-            (today, puzzle_attempts, user_id))
+            "UPDATE users SET puzzle_date = ?, puzzle_attempts = ? WHERE user_id = ?", (today, puzzle_attempts, user_id)
+        )
         shared.db.commit()
 
         if guess == p["answer"]:
@@ -867,26 +1356,18 @@ class EconomyCog(commands.Cog):
                 update_balance(user_id, PUZZLE_REWARD)
                 bal = get_balance(user_id)
                 reward_text = f"You earned **{PUZZLE_REWARD}** coins!\nBalance: **{bal}**"
-            await ctx.send(embed=make_embed(
-                "Correct!",
-                reward_text,
-                COLOR_SUCCESS))
+            await ctx.send(embed=make_embed("Correct!", reward_text, COLOR_SUCCESS))
         else:
             remaining = PUZZLE_MAX_ATTEMPTS - puzzle_attempts
             if remaining <= 0:
                 correct = p["answer"]
                 active_puzzles.pop(key, None)
                 save_active_puzzle(user_id, None)
-                await ctx.send(embed=make_embed(
-                    "Out of Attempts",
-                    f"The answer was **{correct}**.\nBetter luck tomorrow!",
-                    COLOR_ERROR))
+                await ctx.send(
+                    embed=make_embed("Out of Attempts", f"The answer was **{correct}**.\nBetter luck tomorrow!", COLOR_ERROR)
+                )
             else:
-                await ctx.send(embed=make_embed(
-                    "Wrong",
-                    f"That's not it. Attempts left: **{remaining}**",
-                    COLOR_ERROR))
-
+                await ctx.send(embed=make_embed("Wrong", f"That's not it. Attempts left: **{remaining}**", COLOR_ERROR))
 
     @commands.command()
     async def repuzzle(self, ctx, member: discord.Member = None):
@@ -900,7 +1381,6 @@ class EconomyCog(commands.Cog):
         shared.db.execute("UPDATE users SET puzzle_solved = 0, puzzle_attempts = 0 WHERE user_id = ?", (target.id,))
         shared.db.commit()
         await ctx.send(f"Puzzle reset for {target.display_name}.")
-
 
     # ---------------------------------------------------------------------------
     # ECONOMY: BALANCE
@@ -930,16 +1410,20 @@ class EconomyCog(commands.Cog):
             update_balance(ctx.author.id, amount)
             log_gambling(ctx.author.id, "coinflip", amount, amount)
             new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed(
-                f"🪙 {result.title()}! You win!",
-                f"You won **{amount}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS))
+            await ctx.send(
+                embed=make_embed(
+                    f"🪙 {result.title()}! You win!", f"You won **{amount}** coins!\nBalance: **{new_bal}**", COLOR_SUCCESS
+                )
+            )
         else:
             update_balance(ctx.author.id, -amount)
             log_gambling(ctx.author.id, "coinflip", amount, -amount)
             new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed(
-                f"🪙 {result.title()}! You lose!",
-                f"You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
+            await ctx.send(
+                embed=make_embed(
+                    f"🪙 {result.title()}! You lose!", f"You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR
+                )
+            )
 
     # ---------------------------------------------------------------------------
     # GAMBLING: SLOTS
@@ -965,24 +1449,31 @@ class EconomyCog(commands.Cog):
             update_balance(ctx.author.id, winnings)
             log_gambling(ctx.author.id, "slots", amount, winnings)
             new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed(
-                f"🎰 {display}",
-                f"**JACKPOT!** You won **{winnings}** coins! (x{multiplier})\nBalance: **{new_bal}**", COLOR_SUCCESS))
+            await ctx.send(
+                embed=make_embed(
+                    f"🎰 {display}",
+                    f"**JACKPOT!** You won **{winnings}** coins! (x{multiplier})\nBalance: **{new_bal}**",
+                    COLOR_SUCCESS,
+                )
+            )
         elif reels[0] == reels[1] or reels[1] == reels[2]:
             winnings = amount
             update_balance(ctx.author.id, winnings)
             log_gambling(ctx.author.id, "slots", amount, winnings)
             new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed(
-                f"🎰 {display}",
-                f"Two in a row! You won **{winnings}** coins!\nBalance: **{new_bal}**", COLOR_WARNING))
+            await ctx.send(
+                embed=make_embed(
+                    f"🎰 {display}", f"Two in a row! You won **{winnings}** coins!\nBalance: **{new_bal}**", COLOR_WARNING
+                )
+            )
         else:
             update_balance(ctx.author.id, -amount)
             log_gambling(ctx.author.id, "slots", amount, -amount)
             new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed(
-                f"🎰 {display}",
-                f"No match. You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR))
+            await ctx.send(
+                embed=make_embed(f"🎰 {display}", f"No match. You lost **{amount}** coins.\nBalance: **{new_bal}**", COLOR_ERROR)
+            )
+
     # ---------------------------------------------------------------------------
     # GAMBLING: BLACKJACK
     # ---------------------------------------------------------------------------
@@ -1035,10 +1526,7 @@ class EconomyCog(commands.Cog):
         return make_embed("Blackjack", "\n".join(lines))
 
     async def _finish_blackjack_round(self, ctx, game):
-        live_hands = [
-            hand for hand in game["hands"]
-            if not hand["bust"] and not hand["surrendered"]
-        ]
+        live_hands = [hand for hand in game["hands"] if not hand["bust"] and not hand["surrendered"]]
         if live_hands:
             while dealer_should_hit(game["dealer"]):
                 game["dealer"].append(draw_from_shoe())
@@ -1201,13 +1689,15 @@ class EconomyCog(commands.Cog):
             if total_delta:
                 update_balance(ctx.author.id, total_delta)
             new_bal = get_balance(ctx.author.id)
-            await ctx.send(embed=make_embed(
-                "Blackjack",
-                f"Dealer: {display_hand(dealer)} -> **{hand_value(dealer)}**\n"
-                f"Hand 1: {display_hand(player)} -> **{hand_value(player)}** | Bet: **{amount}**\n\n"
-                f"{note}\nBalance: **{new_bal}**",
-                color,
-            ))
+            await ctx.send(
+                embed=make_embed(
+                    "Blackjack",
+                    f"Dealer: {display_hand(dealer)} -> **{hand_value(dealer)}**\n"
+                    f"Hand 1: {display_hand(player)} -> **{hand_value(player)}** | Bet: **{amount}**\n\n"
+                    f"{note}\nBalance: **{new_bal}**",
+                    color,
+                )
+            )
             return
 
         active_blackjack[ctx.author.id] = game
@@ -1218,9 +1708,7 @@ class EconomyCog(commands.Cog):
         """Draw another card in blackjack."""
         game = active_blackjack.get(ctx.author.id)
         if not game:
-            return await ctx.send(
-                f"You don't have an active blackjack hand. Start one with `{PREFIX}blackjack <amount>`."
-            )
+            return await ctx.send(f"You don't have an active blackjack hand. Start one with `{PREFIX}blackjack <amount>`.")
 
         hand = self._current_blackjack_hand(game)
         if hand is None:
@@ -1342,6 +1830,7 @@ class EconomyCog(commands.Cog):
         hand["surrendered"] = True
         hand["action_count"] += 1
         await self._advance_or_finish_blackjack(ctx, game)
+
 
 async def setup(bot):
     await bot.add_cog(EconomyCog(bot))

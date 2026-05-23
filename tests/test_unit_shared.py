@@ -1,4 +1,5 @@
 """Pure unit tests for helpers in shared.py — DB-free where possible."""
+
 import pytest
 
 import shared

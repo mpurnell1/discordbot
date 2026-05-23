@@ -1,4 +1,5 @@
 """Tests for the .clear admin command."""
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,6 +11,7 @@ from tests.conftest import FakeAuthor, FakeContext, FakeGuild
 
 class FakeClearMessage:
     """Fake Discord message for history."""
+
     def __init__(self, message_id, author_id, author_name, content="test", is_bot=False):
         self.id = message_id
         self.content = content
@@ -20,6 +22,7 @@ class FakeClearMessage:
 
 class FakeClearChannel:
     """Fake channel with message history support."""
+
     def __init__(self, channel_id=100, name="test"):
         self.id = channel_id
         self.name = name
@@ -29,6 +32,7 @@ class FakeClearChannel:
 
     def history(self, limit=None):
         """Return an async iterator of messages in reverse order."""
+
         async def _iter_messages():
             messages = list(self.history_messages)
             if limit is not None:
@@ -58,6 +62,7 @@ def _misc_cog():
     """Create a MiscCog instance with a fake bot."""
     bot = FakeClearBot()
     from modules.misc import MiscCog
+
     return MiscCog(bot)
 
 
@@ -71,6 +76,7 @@ def _ctx_with_deletable_message(**kwargs):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_clear_requires_admin():
