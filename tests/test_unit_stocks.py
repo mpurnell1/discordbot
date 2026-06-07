@@ -594,6 +594,68 @@ class TestSettleOption:
         assert _get_balance(20030) == bal_after_first  # no second credit
 
 
+class TestShortOptions:
+    def test_short_call_wins_when_price_falls(self):
+        _set_balance(20040, 500)
+        opt_id = open_option(20040, "AAPL", "call", 200, 100.0, side="short")
+        pnl, payout = settle_option(opt_id, 20040, 200, 100.0, 90.0, "call", side="short")
+        assert pnl > 0
+        assert payout > 200
+
+    def test_short_call_loses_when_price_rises(self):
+        _set_balance(20041, 500)
+        opt_id = open_option(20041, "AAPL", "call", 200, 100.0, side="short")
+        pnl, payout = settle_option(opt_id, 20041, 200, 100.0, 110.0, "call", side="short")
+        assert pnl == -200
+        assert payout == 0
+
+    def test_short_put_wins_when_price_rises(self):
+        _set_balance(20042, 500)
+        opt_id = open_option(20042, "TSLA", "put", 150, 200.0, side="short")
+        pnl, payout = settle_option(opt_id, 20042, 150, 200.0, 220.0, "put", side="short")
+        assert pnl > 0
+        assert payout > 150
+
+    def test_short_put_loses_when_price_falls(self):
+        _set_balance(20043, 500)
+        opt_id = open_option(20043, "TSLA", "put", 150, 200.0, side="short")
+        pnl, payout = settle_option(opt_id, 20043, 150, 200.0, 180.0, "put", side="short")
+        assert pnl == -150
+        assert payout == 0
+
+    def test_short_deducts_coins_at_open(self):
+        _set_balance(20044, 500)
+        open_option(20044, "MSFT", "call", 200, 400.0, side="short")
+        assert _get_balance(20044) == 300
+
+    def test_short_stored_with_correct_side(self):
+        _set_balance(20045, 500)
+        open_option(20045, "NVDA", "put", 100, 800.0, side="short")
+        opts = get_open_options(20045)
+        assert len(opts) == 1
+        assert opts[0]["side"] == "short"
+
+    def test_long_default_side_is_long(self):
+        _set_balance(20046, 500)
+        open_option(20046, "SPY", "call", 100, 500.0)
+        opts = get_open_options(20046)
+        assert opts[0]["side"] == "long"
+
+    def test_short_flat_price_loses(self):
+        _set_balance(20047, 500)
+        opt_id = open_option(20047, "AAPL", "call", 100, 150.0, side="short")
+        pnl, _ = settle_option(opt_id, 20047, 100, 150.0, 150.0, "call", side="short")
+        assert pnl == -100
+
+    def test_short_10pct_move_gives_2x_payout(self):
+        _set_balance(20048, 1000)
+        opt_id = open_option(20048, "BTC-USD", "call", 100, 50000.0, side="short")
+        # Price falls 10% below strike → short call wins
+        pnl, payout = settle_option(opt_id, 20048, 100, 50000.0, 45000.0, "call", side="short")
+        expected = int(round(100 * (1.0 + 0.10 * OPTIONS_LEVERAGE)))
+        assert abs(payout - expected) <= 1
+
+
 # ---------------------------------------------------------------------------
 # _stock_remove — ticker deletion + option voiding
 # ---------------------------------------------------------------------------
@@ -1300,14 +1362,14 @@ class TestSellEdgeCases:
 
 
 class TestCallPutEdgeCases:
-    async def test_call_negative_bet_rejected(self):
+    async def test_call_negative_bet_opens_short(self):
         _set_balance(96020, 1000)
         _seed_price("AAPL", 100.0)
         ctx = FakeContext(author=FakeAuthor(user_id=96020))
         cog = _make_stocks_cog()
         await cog.call_option.callback(cog, ctx, "AAPL", -100)
         embed = ctx.sent[0]["embed"]
-        assert "Invalid" in embed.title
+        assert "SHORT" in embed.title
 
     async def test_call_no_price_rejected(self):
         _set_balance(96021, 1000)

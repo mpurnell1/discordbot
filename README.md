@@ -98,9 +98,9 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares (fractional allowed) — accepts a share count (`5` / `0.25`), `all` (spend full balance), or coin budget (`$500`) |
 | `.sell <TICKER> <qty\|all\|$coins>` | | Sell shares (fractional allowed) — accepts a count, `all`, or `$<coins>` worth |
 | `.portfolio [@user]` | `.port` | Show holdings + unrealized P/L |
-| `.call <TICKER> <coins>` | `.callopt` | Open a call — win coins if price goes UP in 24h (10× leverage paper trade) |
-| `.put <TICKER> <coins>` | `.putopt` | Open a put — win coins if price goes DOWN in 24h (10× leverage paper trade) |
-| `.options [@user]` | `.opts`, `.positions`, `.pos` | Show open call/put positions with live estimated P/L |
+| `.call <TICKER> <coins> [strike]` | `.callopt` | Long call (positive coins) — wins if price goes UP past strike. Short call (negative coins) — wins if price stays BELOW strike. Strike defaults to current price. 10× leverage paper trade, 24h expiry. |
+| `.put <TICKER> <coins> [strike]` | `.putopt` | Long put (positive coins) — wins if price goes DOWN past strike. Short put (negative coins) — wins if price stays ABOVE strike. Strike defaults to current price. |
+| `.options [@user]` | `.opts`, `.positions`, `.pos` | Show open long/short call/put positions with live estimated P/L |
 | `.ttt @user` | | Tic-tac-toe (use `.m <1-9>`) |
 | `.c4 @user` | | Connect 4 (use `.drop <1-7>` or `.m <1-7>`) |
 | `.hangman [@user]` | `.hang`, `.hm` | Start hangman solo or invite someone |

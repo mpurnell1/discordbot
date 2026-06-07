@@ -291,9 +291,14 @@ def init_db():
             settled INTEGER DEFAULT 0,
             exit_price REAL,
             pnl INTEGER,
-            settled_at TEXT
+            settled_at TEXT,
+            side TEXT DEFAULT 'long'
         )
     """)
+    try:
+        db.execute("ALTER TABLE options ADD COLUMN side TEXT DEFAULT 'long'")
+    except sqlite3.OperationalError:
+        pass
     # The old per-day sparkline snapshot table is gone — we now pull history
     # straight from yfinance during the hourly tick and cache it in memory.
     db.execute("DROP TABLE IF EXISTS stock_price_history")

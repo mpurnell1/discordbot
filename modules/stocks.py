@@ -442,7 +442,7 @@ def get_portfolio_value(user_id: int) -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 # OPTIONS
 # ---------------------------------------------------------------------------
-def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike: float) -> int:
+def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike: float, side: str = "long") -> int:
     """Deduct coins_bet, insert an unsettled option row. Returns the new option id."""
     now_iso = datetime.now(timezone.utc).isoformat()
     expires_iso = (datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)).isoformat()
@@ -463,9 +463,9 @@ def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike
         )
         cursor = shared.db.execute(
             "INSERT INTO options "
-            "(user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, ticker, opt_type, coins_bet, strike, now_iso, expires_iso),
+            "(user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, ticker, opt_type, coins_bet, strike, now_iso, expires_iso, side),
         )
         opt_id = cursor.lastrowid
     return opt_id
@@ -475,13 +475,13 @@ def get_open_options(user_id: int | None = None) -> list[dict]:
     """Return all unsettled options, optionally filtered to a single user."""
     if user_id is not None:
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at "
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side "
             "FROM options WHERE settled = 0 AND user_id = ? ORDER BY expires_at",
             (user_id,),
         ).fetchall()
     else:
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at "
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side "
             "FROM options WHERE settled = 0 ORDER BY expires_at",
         ).fetchall()
     return [
@@ -494,16 +494,20 @@ def get_open_options(user_id: int | None = None) -> list[dict]:
             "strike_price": float(r[5]),
             "opened_at": r[6],
             "expires_at": r[7],
+            "side": r[8] or "long",
         }
         for r in rows
     ]
 
 
-def settle_option(opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str) -> tuple[int, int]:
+def settle_option(opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str, side: str = "long") -> tuple[int, int]:
     """Mark option settled, credit payout to user. Returns (pnl, payout).
     pnl is negative (−coins_bet) on a loss; positive on a win."""
     pct_change = abs(exit_price - strike) / strike if strike > 0 else 0.0
-    won = (exit_price > strike) if opt_type == "call" else (exit_price < strike)
+    if side == "short":
+        won = (exit_price < strike) if opt_type == "call" else (exit_price > strike)
+    else:
+        won = (exit_price > strike) if opt_type == "call" else (exit_price < strike)
     if won:
         multiplier = max(1.1, 1.0 + pct_change * OPTIONS_LEVERAGE)
         payout = int(round(coins_bet * multiplier))
@@ -1027,19 +1031,19 @@ class StocksCog(commands.Cog):
     # ---------------------------------------------------------------------------
 
     @commands.command(name="call", aliases=["callopt"])
-    async def call_option(self, ctx, ticker: str = None, coins: int = None):
-        """Buy a call — win coins if the price goes UP in 24h (10× leverage paper trade)."""
-        await self._open_option(ctx, "call", ticker, coins)
+    async def call_option(self, ctx, ticker: str = None, coins: int = None, strike: float = None):
+        """Buy/sell a call — long (positive) wins if price goes UP, short (negative) wins if price stays DOWN."""
+        await self._open_option(ctx, "call", ticker, coins, strike)
 
     @commands.command(name="put", aliases=["putopt"])
-    async def put_option(self, ctx, ticker: str = None, coins: int = None):
-        """Buy a put — win coins if the price goes DOWN in 24h (10× leverage paper trade)."""
-        await self._open_option(ctx, "put", ticker, coins)
+    async def put_option(self, ctx, ticker: str = None, coins: int = None, strike: float = None):
+        """Buy/sell a put — long (positive) wins if price goes DOWN, short (negative) wins if price stays UP."""
+        await self._open_option(ctx, "put", ticker, coins, strike)
 
-    async def _open_option(self, ctx, opt_type: str, ticker: str | None, coins: int | None):
+    async def _open_option(self, ctx, opt_type: str, ticker: str | None, coins: int | None, strike: float | None = None):
         cmd = "call" if opt_type == "call" else "put"
         if ticker is None or coins is None:
-            return await ctx.send(f"Usage: `{PREFIX}{cmd} <TICKER> <coins>`")
+            return await ctx.send(f"Usage: `{PREFIX}{cmd} <TICKER> <coins> [strike]`\nNegative coins = short (sell) position.")
         ticker = CRYPTO_ALIASES.get(ticker.upper(), ticker.upper())
         if ticker not in get_tickers():
             return await ctx.send(
@@ -1049,14 +1053,16 @@ class StocksCog(commands.Cog):
                     COLOR_ERROR,
                 )
             )
-        if coins <= 0:
-            return await ctx.send(embed=make_embed("Invalid", "Bet must be positive.", COLOR_ERROR))
+        if coins == 0:
+            return await ctx.send(embed=make_embed("Invalid", "Amount cannot be zero.", COLOR_ERROR))
+        side = "short" if coins < 0 else "long"
+        coins_bet = abs(coins)
         bal = get_balance(ctx.author.id)
-        if coins > bal:
+        if coins_bet > bal:
             return await ctx.send(
                 embed=make_embed(
                     "❌ Broke",
-                    f"That'd cost **{coins:,}** coins; you only have **{bal:,}**.",
+                    f"That'd cost **{coins_bet:,}** coins; you only have **{bal:,}**.",
                     COLOR_ERROR,
                 )
             )
@@ -1064,20 +1070,35 @@ class StocksCog(commands.Cog):
         if price is None or price <= 0:
             return await ctx.send(embed=make_embed("No Price", "Price unavailable right now — try again in a minute.", COLOR_ERROR))
 
+        strike_price = strike if strike is not None else price
         expiry_dt = datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)
-        open_option(ctx.author.id, ticker, opt_type, coins, price)
+        open_option(ctx.author.id, ticker, opt_type, coins_bet, strike_price, side=side)
 
-        direction = "📈 **UP**" if opt_type == "call" else "📉 **DOWN**"
         type_label = "CALL" if opt_type == "call" else "PUT"
-        icon = "📈" if opt_type == "call" else "📉"
-        await ctx.send(
-            embed=make_embed(
-                f"{icon} {type_label} Opened — `{ticker}`",
-                f"You bet **{coins:,}** coins that `{ticker}` goes {direction}.\n"
-                f"Strike: **${price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
+        if side == "long":
+            icon = "📈" if opt_type == "call" else "📉"
+            direction = "📈 **UP**" if opt_type == "call" else "📉 **DOWN**"
+            description = (
+                f"You bet **{coins_bet:,}** coins that `{ticker}` goes {direction}.\n"
+                f"Strike: **${strike_price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
                 f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
                 f"**Lose:** forfeit entire bet\n\n"
-                f"Use `{PREFIX}options` to track your positions.",
+                f"Use `{PREFIX}options` to track your positions."
+            )
+        else:
+            icon = "📉" if opt_type == "call" else "📈"
+            stay_dir = "**BELOW**" if opt_type == "call" else "**ABOVE**"
+            description = (
+                f"You sold **{coins_bet:,}** coins of {type_label} — win if `{ticker}` stays {stay_dir} **${strike_price:,.2f}**.\n"
+                f"Strike: **${strike_price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
+                f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
+                f"**Lose:** forfeit entire bet\n\n"
+                f"Use `{PREFIX}options` to track your positions."
+            )
+        await ctx.send(
+            embed=make_embed(
+                f"{icon} SHORT {type_label} Opened — `{ticker}`" if side == "short" else f"{icon} {type_label} Opened — `{ticker}`",
+                description,
                 COLOR_SUCCESS,
             )
         )
@@ -1094,9 +1115,17 @@ class StocksCog(commands.Cog):
         lines = []
         for o in opts:
             current = prices.get(o["ticker"], {}).get("price", 0.0)
-            type_label = "📈 CALL" if o["option_type"] == "call" else "📉 PUT"
+            side = o.get("side", "long")
+            opt_type = o["option_type"]
+            if side == "short":
+                type_label = f"📉 SHORT {'CALL' if opt_type == 'call' else 'PUT'}"
+            else:
+                type_label = f"{'📈 CALL' if opt_type == 'call' else '📉 PUT'}"
             pct = (current - o["strike_price"]) / o["strike_price"] * 100 if o["strike_price"] else 0.0
-            in_money = (current > o["strike_price"]) if o["option_type"] == "call" else (current < o["strike_price"])
+            if side == "short":
+                in_money = (current < o["strike_price"]) if opt_type == "call" else (current > o["strike_price"])
+            else:
+                in_money = (current > o["strike_price"]) if opt_type == "call" else (current < o["strike_price"])
             if in_money:
                 multiplier = max(1.1, 1.0 + abs(pct) / 100 * OPTIONS_LEVERAGE)
                 est_payout = int(round(o["coins_bet"] * multiplier))
@@ -1129,7 +1158,7 @@ class StocksCog(commands.Cog):
         """Settle expired options and post results to the ticker channel."""
         now = datetime.now(timezone.utc)
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price FROM options WHERE settled = 0 AND expires_at <= ?",
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, side FROM options WHERE settled = 0 AND expires_at <= ?",
             (now.isoformat(),),
         ).fetchall()
         if not rows:
@@ -1144,15 +1173,17 @@ class StocksCog(commands.Cog):
             except discord.HTTPException:
                 pass
 
-        for opt_id, user_id, ticker, opt_type, coins_bet, strike in rows:
+        for opt_id, user_id, ticker, opt_type, coins_bet, strike, side in rows:
+            side = side or "long"
             exit_price = prices.get(ticker, {}).get("price", 0.0)
             if exit_price <= 0:
                 continue  # No price yet — retry next tick
 
-            pnl, payout = settle_option(int(opt_id), int(user_id), int(coins_bet), float(strike), exit_price, opt_type)
+            pnl, payout = settle_option(int(opt_id), int(user_id), int(coins_bet), float(strike), exit_price, opt_type, side)
 
             if channel is not None:
-                type_label = "📈 CALL" if opt_type == "call" else "📉 PUT"
+                side_label = "SHORT " if side == "short" else ""
+                type_label = f"{'📈' if opt_type == 'call' else '📉'} {side_label}{'CALL' if opt_type == 'call' else 'PUT'}"
                 if pnl >= 0:
                     result_str = f"🟢 Won **+{pnl:,}** coins (paid out {payout:,})"
                 else:

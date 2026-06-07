@@ -1712,9 +1712,9 @@ class MiscCog(commands.Cog):
                     f"`{p}buy <TICKER> <qty|all|$coins>` - Buy shares (fractional allowed)\n"
                     f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares (fractional allowed)\n"
                     f"`{p}portfolio [@user]` - Holdings + unrealized P/L\n"
-                    f"`{p}call <TICKER> <coins>` - Bet price goes **UP** in 24h (10× leverage)\n"
-                    f"`{p}put <TICKER> <coins>` - Bet price goes **DOWN** in 24h (10× leverage)\n"
-                    f"`{p}options [@user]` - Your open call/put positions"
+                    f"`{p}call <TICKER> <coins> [strike]` - Long call (+ coins) wins if UP; Short call (- coins) wins if stays DOWN\n"
+                    f"`{p}put <TICKER> <coins> [strike]` - Long put (+ coins) wins if DOWN; Short put (- coins) wins if stays UP\n"
+                    f"`{p}options [@user]` - Your open long/short call/put positions"
                 ),
                 inline=False,
             )
