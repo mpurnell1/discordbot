@@ -10,9 +10,10 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,6 +29,76 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 import shared  # noqa: E402  (must come after env-var setup)
+
+
+# --------------------------------------------------------------------------
+# aiohttp mock helpers
+# --------------------------------------------------------------------------
+
+
+class _Resp:
+    def __init__(self, status, payload):
+        self.status = status
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _RaisesCtx:
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def __aenter__(self):
+        raise self._exc
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _MockSession:
+    """Returns mock aiohttp responses in FIFO order."""
+
+    def __init__(self, *specs):
+        self._queue = list(specs)
+
+    def _next(self):
+        spec = self._queue.pop(0)
+        if "exception" in spec:
+            return _RaisesCtx(spec["exception"])
+        return _Resp(spec.get("status", 200), spec.get("payload", {}))
+
+    def get(self, url, **kwargs):
+        return self._next()
+
+    def post(self, url, **kwargs):
+        return self._next()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+@contextmanager
+def mock_http(*specs):
+    """Patch aiohttp.ClientSession with queued mock responses.
+
+    Each spec is a dict with optional keys:
+      - status (int, default 200)
+      - payload (dict/list, default {})
+      - exception (Exception instance) — raises in __aenter__, skips status/payload
+    """
+    session = _MockSession(*specs)
+    with patch("aiohttp.ClientSession", return_value=session):
+        yield
 
 
 # --------------------------------------------------------------------------

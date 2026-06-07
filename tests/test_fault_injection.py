@@ -6,10 +6,10 @@ gets a sensible message.
 
 from unittest.mock import AsyncMock, patch
 
-from aioresponses import aioresponses
+import aiohttp
 
 import shared
-from tests.conftest import FakeContext
+from tests.conftest import FakeContext, mock_http
 
 
 # ---------------------------------------------------------------------------
@@ -40,13 +40,7 @@ async def test_ask_command_handles_aiohttp_failure_inside_query():
     cog = AICog(bot=AsyncMock())
     ctx = FakeContext()
 
-    with aioresponses() as m:
-        import aiohttp
-
-        m.post(
-            f"{shared.OLLAMA_URL}/api/chat",
-            exception=aiohttp.ClientConnectionError("desktop sleeping"),
-        )
+    with mock_http({"exception": aiohttp.ClientConnectionError("desktop sleeping")}):
         await cog.ask.callback(cog, ctx, question="anything")
 
     assert len(ctx.sent) == 1

@@ -4,20 +4,19 @@ Tests assert behavior at the function boundary — never hit a real network.
 """
 
 import asyncio
-import re
 from datetime import datetime
 
+import aiohttp
 import pytest
-from aioresponses import aioresponses
 
 import shared
 from shared import CENTRAL_TZ
+from tests.conftest import mock_http
 
 
-# Match either URL with or without a trailing query string.
-_GEO_RE = re.compile(r"https://api\.openweathermap\.org/geo/1\.0/direct.*")
-_WEATHER_RE = re.compile(r"https://api\.openweathermap\.org/data/2\.5/weather.*")
-_FORECAST_RE = re.compile(r"https://api\.openweathermap\.org/data/2\.5/forecast.*")
+# ---------------------------------------------------------------------------
+# Shared payloads
+# ---------------------------------------------------------------------------
 
 _GEO_US = [{"name": "Champaign", "lat": 40.12, "lon": -88.24, "country": "US", "state": "Illinois"}]
 _GEO_GB = [{"name": "London", "lat": 51.51, "lon": -0.13, "country": "GB", "state": "England"}]
@@ -38,52 +37,34 @@ def _current_payload(name="Champaign"):
 # Ollama: query_ollama / query_ollama_chat
 # ---------------------------------------------------------------------------
 class TestQueryOllama:
-    URL = f"{shared.OLLAMA_URL}/api/chat"
-
     async def test_returns_content_on_200(self):
-        with aioresponses() as m:
-            m.post(
-                self.URL,
-                status=200,
-                payload={"message": {"content": "hello world"}},
-            )
+        with mock_http({"status": 200, "payload": {"message": {"content": "hello world"}}}):
             result = await shared.query_ollama("system", "prompt")
         assert result == "hello world"
 
     async def test_returns_none_on_500(self):
-        with aioresponses() as m:
-            m.post(self.URL, status=500, payload={})
+        with mock_http({"status": 500, "payload": {}}):
             result = await shared.query_ollama("system", "prompt")
         assert result is None
 
     async def test_returns_none_on_connection_error(self):
-        import aiohttp
-
-        with aioresponses() as m:
-            m.post(self.URL, exception=aiohttp.ClientConnectionError("offline"))
+        with mock_http({"exception": aiohttp.ClientConnectionError("offline")}):
             result = await shared.query_ollama("system", "prompt")
         assert result is None
 
     async def test_returns_none_on_timeout(self):
-        with aioresponses() as m:
-            m.post(self.URL, exception=asyncio.TimeoutError())
+        with mock_http({"exception": asyncio.TimeoutError()}):
             result = await shared.query_ollama("system", "prompt")
         assert result is None
 
     async def test_returns_none_when_message_field_missing(self):
-        with aioresponses() as m:
-            m.post(self.URL, status=200, payload={"unrelated": "data"})
+        with mock_http({"status": 200, "payload": {"unrelated": "data"}}):
             result = await shared.query_ollama("system", "prompt")
         assert result is None
 
     async def test_chat_passes_history_through(self):
         history = [{"role": "user", "content": "hi"}]
-        with aioresponses() as m:
-            m.post(
-                self.URL,
-                status=200,
-                payload={"message": {"content": "ok"}},
-            )
+        with mock_http({"status": 200, "payload": {"message": {"content": "ok"}}}):
             result = await shared.query_ollama_chat(history)
         assert result == "ok"
 
@@ -99,9 +80,10 @@ class TestWeatherFetch:
         return MiscCog(bot=None)
 
     async def test_returns_embed_on_200_payload(self, cog):
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_US)
-            m.get(_WEATHER_RE, status=200, payload=_current_payload())
+        with mock_http(
+            {"status": 200, "payload": _GEO_US},
+            {"status": 200, "payload": _current_payload()},
+        ):
             embed = await cog._fetch_weather_embed("Champaign")
 
         assert embed is not None
@@ -110,60 +92,60 @@ class TestWeatherFetch:
         assert {"Condition", "Temp", "Feels Like", "Humidity", "Wind"} <= names
 
     async def test_returns_none_on_geo_500(self, cog):
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=500, payload={})
+        with mock_http({"status": 500, "payload": {}}):
             result = await cog._fetch_weather_embed("Champaign")
         assert result is None
 
     async def test_returns_none_on_empty_geo_result(self, cog):
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=[])
+        with mock_http({"status": 200, "payload": []}):
             result = await cog._fetch_weather_embed("notacity")
         assert result is None
 
     async def test_returns_none_on_weather_500(self, cog):
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_US)
-            m.get(_WEATHER_RE, status=500, payload={})
+        with mock_http(
+            {"status": 200, "payload": _GEO_US},
+            {"status": 500, "payload": {}},
+        ):
             result = await cog._fetch_weather_embed("Champaign")
         assert result is None
 
     async def test_returns_none_on_connection_error(self, cog):
-        import aiohttp
-
-        with aioresponses() as m:
-            m.get(_GEO_RE, exception=aiohttp.ClientConnectionError())
+        with mock_http({"exception": aiohttp.ClientConnectionError()}):
             result = await cog._fetch_weather_embed("Champaign")
         assert result is None
 
     async def test_us_city_shows_state_abbreviation(self, cog):
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_US)
-            m.get(_WEATHER_RE, status=200, payload=_current_payload())
+        with mock_http(
+            {"status": 200, "payload": _GEO_US},
+            {"status": 200, "payload": _current_payload()},
+        ):
             embed = await cog._fetch_weather_embed("Champaign")
         assert embed.title == "Weather in Champaign, IL"
 
     async def test_us_city_without_state_shows_no_suffix(self, cog):
         geo_no_state = [{"name": "Springfield", "lat": 39.8, "lon": -89.6, "country": "US"}]
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=geo_no_state)
-            m.get(_WEATHER_RE, status=200, payload=_current_payload("Springfield"))
+        with mock_http(
+            {"status": 200, "payload": geo_no_state},
+            {"status": 200, "payload": _current_payload("Springfield")},
+        ):
             embed = await cog._fetch_weather_embed("Springfield")
         assert embed.title == "Weather in Springfield"
 
     async def test_non_us_city_with_state_shows_state_and_country(self, cog):
         payload = _current_payload("London")
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_GB)
-            m.get(_WEATHER_RE, status=200, payload=payload)
+        with mock_http(
+            {"status": 200, "payload": _GEO_GB},
+            {"status": 200, "payload": payload},
+        ):
             embed = await cog._fetch_weather_embed("London")
         assert embed.title == "Weather in London, England, GB"
 
     async def test_non_us_city_without_state_shows_country_only(self, cog):
         payload = _current_payload("Tokyo")
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_JP)
-            m.get(_WEATHER_RE, status=200, payload=payload)
+        with mock_http(
+            {"status": 200, "payload": _GEO_JP},
+            {"status": 200, "payload": payload},
+        ):
             embed = await cog._fetch_weather_embed("Tokyo")
         assert embed.title == "Weather in Tokyo, JP"
 
@@ -182,10 +164,11 @@ class TestWeatherFetch:
                 },
             ]
         }
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_US)
-            m.get(_WEATHER_RE, status=200, payload=_current_payload())
-            m.get(_FORECAST_RE, status=200, payload=forecast)
+        with mock_http(
+            {"status": 200, "payload": _GEO_US},
+            {"status": 200, "payload": _current_payload()},
+            {"status": 200, "payload": forecast},
+        ):
             embed = await cog._fetch_weather_embed("Champaign", forecast_mode="multi_day")
 
         assert embed is not None
@@ -211,10 +194,11 @@ class TestWeatherFetch:
                 },
             ]
         }
-        with aioresponses() as m:
-            m.get(_GEO_RE, status=200, payload=_GEO_US)
-            m.get(_WEATHER_RE, status=200, payload=_current_payload())
-            m.get(_FORECAST_RE, status=200, payload=forecast)
+        with mock_http(
+            {"status": 200, "payload": _GEO_US},
+            {"status": 200, "payload": _current_payload()},
+            {"status": 200, "payload": forecast},
+        ):
             embed = await cog._fetch_weather_embed("Champaign", forecast_mode="today")
 
         fields = {f.name: f.value for f in embed.fields}
