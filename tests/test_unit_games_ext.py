@@ -23,7 +23,7 @@ from modules.games import (
     start_c4,
     start_ttt,
 )
-from tests.conftest import FakeAuthor, FakeChannel, FakeContext, FakeGuild
+from tests.conftest import FakeAuthor, FakeChannel, FakeContext
 
 
 @pytest.fixture()
@@ -346,9 +346,7 @@ class TestHangmanCommand:
     async def test_rejects_duplicate_hangman(self, games_cog):
         host = FakeAuthor(user_id=6002)
         ctx = FakeContext(author=host)
-        active_hangman[ctx.channel.id] = {
-            "word": "test", "guessed": set(), "wrong": [], "started_by": host, "players": {host.id}
-        }
+        active_hangman[ctx.channel.id] = {"word": "test", "guessed": set(), "wrong": [], "started_by": host, "players": {host.id}}
         await games_cog.hangman.callback(games_cog, ctx, None)
         assert "already" in (ctx.sent[0].get("content") or "").lower()
 
@@ -457,6 +455,7 @@ class TestGuessHangmanViaG:
 class TestTimerDuplicate:
     async def test_rejects_active_timer(self, games_cog):
         from modules.games import active_timers
+
         uid = 8001
         active_timers[uid] = 60
         ctx = FakeContext(author=FakeAuthor(user_id=uid))
@@ -519,6 +518,7 @@ class TestMCommandC4WinDraw:
                 game["board"][r][c] = "R" if (r + (c // 2)) % 2 == 0 else "Y"
         # Leave one cell empty in a no-four-in-a-row position
         from modules.games import c4_check_winner
+
         result = c4_check_winner(game["board"])
         # Only run the draw test if the fixture has no winner
         if result == "draw":
@@ -655,10 +655,7 @@ class TestHangmanLetterListener:
     async def test_multi_letter_message_ignored(self, games_cog):
         host = FakeAuthor(user_id=9042)
         channel = FakeChannel(channel_id=9902)
-        game = {
-            "word": "cat", "guessed": set(), "wrong": [],
-            "started_by": host, "players": {host.id}
-        }
+        game = {"word": "cat", "guessed": set(), "wrong": [], "started_by": host, "players": {host.id}}
         active_hangman[channel.id] = game
         message = MagicMock()
         message.author = host
@@ -804,6 +801,7 @@ class TestBestHangmanLetter:
 
     def test_all_letters_tried_returns_none(self):
         from modules.games import LETTER_PRIORITY
+
         game = {
             "word": "zzzzzz",
             "guessed": set(LETTER_PRIORITY),  # all letters guessed
@@ -836,6 +834,7 @@ class TestStartGamesTasks:
 class TestCleanupPendingGames:
     async def test_removes_stale_game_invites(self, games_cog):
         from datetime import datetime, timezone, timedelta
+
         old = datetime.now(timezone.utc) - timedelta(seconds=999999)
         recent = datetime.now(timezone.utc)
         pending_games[5001] = {"created_at": old, "host": FakeAuthor(1), "type": "ttt"}
@@ -933,11 +932,14 @@ class TestOnRawReactionAdd:
 
     async def test_ttt_join_starts_game(self, games_cog):
         from datetime import datetime, timezone
+
         mid = 9007
         host = FakeAuthor(user_id=1)
         channel = FakeChannel(channel_id=9800)
         pending_games[mid] = {
-            "host": host, "type": "ttt", "channel_id": channel.id,
+            "host": host,
+            "type": "ttt",
+            "channel_id": channel.id,
             "created_at": datetime.now(timezone.utc),
         }
         games_cog.bot.user.id = 99
@@ -953,11 +955,14 @@ class TestOnRawReactionAdd:
 
     async def test_c4_join_starts_game(self, games_cog):
         from datetime import datetime, timezone
+
         mid = 9008
         host = FakeAuthor(user_id=1)
         channel = FakeChannel(channel_id=9801)
         pending_games[mid] = {
-            "host": host, "type": "c4", "channel_id": channel.id,
+            "host": host,
+            "type": "c4",
+            "channel_id": channel.id,
             "created_at": datetime.now(timezone.utc),
         }
         games_cog.bot.user.id = 99
@@ -973,11 +978,14 @@ class TestOnRawReactionAdd:
 
     async def test_ttt_already_active_ignored(self, games_cog):
         from datetime import datetime, timezone
+
         mid = 9009
         host = FakeAuthor(user_id=1)
         channel = FakeChannel(channel_id=9802)
         pending_games[mid] = {
-            "host": host, "type": "ttt", "channel_id": channel.id,
+            "host": host,
+            "type": "ttt",
+            "channel_id": channel.id,
             "created_at": datetime.now(timezone.utc),
         }
         active_ttt[channel.id] = {"existing": True}  # game already running
@@ -1010,6 +1018,7 @@ class TestMCommandC4Branches:
 
     async def test_c4_full_column(self, games_cog):
         from modules.games import c4_drop
+
         host = FakeAuthor(user_id=9082)
         ctx = FakeContext(author=host)
         game = start_c4(host, FakeAuthor(user_id=9083))

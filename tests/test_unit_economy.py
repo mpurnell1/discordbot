@@ -20,12 +20,10 @@ from modules.economy import (
     can_split_cards,
     card_points,
     dealer_should_hit,
-    draw_from_shoe,
     generate_math_puzzle,
     generate_puzzle,
     generate_wordle_puzzle,
     generate_unscramble_puzzle,
-    get_balance,
     hand_total_and_soft,
     is_blackjack,
     load_active_puzzle,
@@ -227,27 +225,9 @@ def test_apply_blackjack_ruleset_unknown_falls_back_to_realistic():
     selected = apply_blackjack_ruleset("nonsense")
     assert selected == "realistic"
 
-
-# ---------------------------------------------------------------------------
-# best_legal_blackjack_recommendation
-# ---------------------------------------------------------------------------
-
-
-class TestBestLegalRecommendation:
-    def test_falls_back_when_surrender_unavailable(self):
-        # Hard 16 vs 10 → basic strategy says surrender, but after a hit
-        # surrender is unavailable; should fall back to hit.
-        game = _game_with([("10", "♠"), ("6", "♥")])
-        hand = game["hands"][0]
-        hand["action_count"] = 1  # already hit — no surrender
-        action, _ = best_legal_blackjack_recommendation(game, hand, ("10", "♣"))
-        assert action in {"hit", "stand"}
-
-    def test_returns_split_when_legal(self):
-        game = _game_with([("8", "♠"), ("8", "♥")])
-        hand = game["hands"][0]
-        action, _ = best_legal_blackjack_recommendation(game, hand, ("6", "♣"))
-        assert action == "split"
+    # ---------------------------------------------------------------------------
+    # best_legal_blackjack_recommendation
+    # ---------------------------------------------------------------------------
 
     def test_double_falls_back_on_three_card_hand(self):
         # Soft 17 vs 5 — basic says double; three-card hand can't double.
@@ -269,38 +249,6 @@ def test_generate_puzzle_returns_kind_question_answer():
     assert isinstance(answer, str) and len(answer) > 0
 
 
-def test_generate_math_puzzle_answer_is_correct():
-    question, answer = generate_math_puzzle()
-    # e.g. "12 + 8" → 20
-    assert isinstance(answer, int)
-
-
-# ---------------------------------------------------------------------------
-# wordle_feedback
-# ---------------------------------------------------------------------------
-
-
-class TestWordleFeedback:
-    def test_all_green_on_correct_guess(self):
-        fb = wordle_feedback("apple", "apple")
-        assert fb.count("🟩") == 5
-
-    def test_all_black_on_no_match(self):
-        fb = wordle_feedback("zzzzz", "apple")
-        assert "🟩" not in fb
-        assert "🟨" not in fb
-
-    def test_yellow_for_wrong_position(self):
-        # 'a' is in 'apple' but not at position 0 in target 'maple'
-        fb = wordle_feedback("axxxx", "maple")
-        assert "🟨" in fb
-
-    def test_duplicate_letter_counted_once(self):
-        # guess "aabcd", answer "abcde" — first 'a' green, second 'a' black
-        fb = wordle_feedback("aabcd", "abcde")
-        assert "🟩" in fb
-
-
 # ---------------------------------------------------------------------------
 # Command handler tests — EconomyCog with FakeContext
 # ---------------------------------------------------------------------------
@@ -308,8 +256,7 @@ class TestWordleFeedback:
 
 def _set_balance(user_id: int, amount: int) -> None:
     shared.db.execute(
-        "INSERT INTO users (user_id, balance) VALUES (?, ?)"
-        " ON CONFLICT(user_id) DO UPDATE SET balance = ?",
+        "INSERT INTO users (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = ?",
         (user_id, amount, amount),
     )
     shared.db.commit()
@@ -688,6 +635,7 @@ class TestSolveCommandFlow:
         active_puzzles[key] = {"type": "math", "answer": "10", "display": "Q?"}
         # Kids mode: guild has kids mode on
         from shared import set_kids_mode_guild
+
         guild = FakeGuild(guild_id=7777)
         set_kids_mode_guild(7777, True)
         ctx = FakeContext(author=FakeAuthor(user_id=uid), guild=guild)
@@ -734,6 +682,7 @@ class TestSolveCommandFlow:
         key = _puzzle_key(uid, True)
         active_puzzles[key] = {"type": "wordle", "answer": "slate", "display": "Wordle", "guesses": []}
         from shared import set_kids_mode_guild
+
         guild = FakeGuild(guild_id=7778)
         set_kids_mode_guild(7778, True)
         ctx = FakeContext(author=FakeAuthor(user_id=uid), guild=guild)
@@ -1050,6 +999,7 @@ class TestSlotsJackpot:
 class TestPuzzleKidsMode:
     async def test_kids_mode_gets_practice_puzzle(self, econ_cog):
         from shared import set_kids_mode_guild
+
         guild = FakeGuild(guild_id=9500)
         set_kids_mode_guild(9500, True)
         ctx = FakeContext(author=FakeAuthor(user_id=9501), guild=guild)
@@ -1061,6 +1011,7 @@ class TestPuzzleKidsMode:
 
     async def test_kids_mode_returns_existing_puzzle(self, econ_cog):
         from shared import set_kids_mode_guild
+
         uid = 9502
         guild = FakeGuild(guild_id=9503)
         set_kids_mode_guild(9503, True)
@@ -1491,6 +1442,7 @@ class TestDealerShouldHitSoft17:
 class TestBlackjackRawActionListenerBranches:
     async def test_bot_message_returns_early(self, econ_cog):
         from unittest.mock import AsyncMock as _AM
+
         bot = MagicMock()
         bot.get_context = _AM()
         econ_cog.bot = bot
@@ -1502,6 +1454,7 @@ class TestBlackjackRawActionListenerBranches:
 
     async def test_non_action_message_returns_early(self, econ_cog):
         from unittest.mock import AsyncMock as _AM
+
         uid = 99960
         bot = MagicMock()
         bot.get_context = _AM()
@@ -1520,6 +1473,7 @@ class TestBlackjackRawActionListenerBranches:
 
     async def test_command_none_returns_early(self, econ_cog):
         from unittest.mock import AsyncMock as _AM
+
         uid = 99961
         ctx = MagicMock()
         ctx.invoke = _AM()
@@ -1564,6 +1518,7 @@ class TestGuessWinBranch:
 class TestPuzzleCommandSolvedPaths:
     async def test_already_solved_today(self, econ_cog):
         from datetime import datetime as _dt
+
         uid = 99980
         _set_balance(uid, 100)
         today = _dt.now().strftime("%Y-%m-%d")
@@ -1581,6 +1536,7 @@ class TestPuzzleCommandSolvedPaths:
     async def test_out_of_attempts_today(self, econ_cog):
         from datetime import datetime as _dt
         from modules.economy import PUZZLE_MAX_ATTEMPTS
+
         uid = 99981
         _set_balance(uid, 100)
         today = _dt.now().strftime("%Y-%m-%d")

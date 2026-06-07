@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.misc import MiscCog, _truncate_text, format_quote
-from tests.conftest import FakeAuthor, FakeContext, FakeGuild
+from tests.conftest import FakeContext
 
 
 @pytest.fixture()

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import discord
@@ -27,7 +27,6 @@ from modules.stocks import (
     _fmt_shares,
     _validate_symbol,
     add_ticker,
-    build_market_lines,
     buy_shares,
     execute_buy,
     execute_sell,
@@ -439,7 +438,7 @@ class TestCryptoAliases:
 # Options helpers — open / settle
 # ---------------------------------------------------------------------------
 
-from modules.stocks import open_option, get_open_options, settle_option, OPTIONS_LEVERAGE  # noqa: E402
+from modules.stocks import settle_option, OPTIONS_LEVERAGE  # noqa: E402
 
 
 def _set_balance(user_id: int, amount: int) -> None:
@@ -586,7 +585,6 @@ class TestSettleOption:
         # Second call on an already-settled option must not double-credit the balance.
         _set_balance(20030, 1000)
         opt_id = open_option(20030, "AAPL", "call", 200, 100.0)
-        bal_after_open = _get_balance(20030)
         pnl1, payout1 = settle_option(opt_id, 20030, 200, 100.0, 120.0, "call")
         bal_after_first = _get_balance(20030)
         pnl2, payout2 = settle_option(opt_id, 20030, 200, 100.0, 120.0, "call")
@@ -660,8 +658,6 @@ class TestShortOptions:
 # _stock_remove — ticker deletion + option voiding
 # ---------------------------------------------------------------------------
 
-from modules.stocks import add_ticker, get_tickers  # noqa: E402 (already imported above)
-
 
 class TestStockRemove:
     """DB-level tests for the _stock_remove admin command."""
@@ -704,7 +700,7 @@ class TestStockRemove:
     async def test_refunds_open_options_on_removal(self):
         add_ticker("ZZB", "ZZB Corp")
         _set_balance(30001, 1000)
-        opt_id = open_option(30001, "ZZB", "call", 300, 50.0)
+        open_option(30001, "ZZB", "call", 300, 50.0)
         bal_after_open = _get_balance(30001)
 
         from tests.conftest import FakeContext, FakeAuthor, FakeGuild
@@ -1422,9 +1418,7 @@ class TestOptionsCommandMore:
         _set_balance(96032, 500)
         _seed_price("AAPL", 90.0)
         open_option(96032, "AAPL", "put", 100, 100.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2030-01-01T00:00:00' WHERE user_id = ?", (96032,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2030-01-01T00:00:00' WHERE user_id = ?", (96032,))
         shared.db.commit()
         ctx = FakeContext(author=FakeAuthor(user_id=96032))
         cog = _make_stocks_cog()
@@ -1781,9 +1775,7 @@ class TestOptionsSettleCheck:
         _set_balance(98001, 1000)
         _seed_price("AAPL", 120.0)
         opt_id = open_option(98001, "AAPL", "call", 200, 100.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
         cog = _make_stocks_cog()
         await cog.options_settle_check.coro(cog)
@@ -1793,9 +1785,7 @@ class TestOptionsSettleCheck:
         _set_balance(98002, 1000)
         _seed_price("AAPL", 80.0)  # below strike → call loses
         opt_id = open_option(98002, "AAPL", "call", 200, 100.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
         cog = _make_stocks_cog()
         await cog.options_settle_check.coro(cog)
@@ -1805,9 +1795,7 @@ class TestOptionsSettleCheck:
         _set_balance(98003, 1000)
         _seed_price("MSFT", 250.0)
         opt_id = open_option(98003, "MSFT", "put", 150, 300.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
 
         fake_channel = MagicMock()
@@ -1827,9 +1815,7 @@ class TestOptionsSettleCheck:
         _set_balance(98004, 1000)
         _seed_price("NVDA", 600.0)
         opt_id = open_option(98004, "NVDA", "call", 100, 500.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
 
         fake_user = MagicMock()
@@ -1850,9 +1836,7 @@ class TestOptionsSettleCheck:
         _set_balance(98010, 1000)
         _seed_price("AAPL", 80.0)  # below strike → call loses
         opt_id = open_option(98010, "AAPL", "call", 150, 100.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
 
         fake_channel = MagicMock()
@@ -1876,9 +1860,7 @@ class TestOptionsSettleCheck:
         shared.db.execute("DELETE FROM stock_prices WHERE ticker = 'AAPL'")
         stocks._history_cache.clear()
         shared.db.commit()
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
         cog = _make_stocks_cog()
         await cog.options_settle_check.coro(cog)
@@ -1889,9 +1871,7 @@ class TestOptionsSettleCheck:
         _set_balance(98006, 1000)
         _seed_price("AAPL", 150.0)
         opt_id = open_option(98006, "AAPL", "call", 100, 100.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
 
         fake_channel = MagicMock()
@@ -1909,9 +1889,7 @@ class TestOptionsSettleCheck:
         _set_balance(98007, 1000)
         _seed_price("AAPL", 150.0)
         opt_id = open_option(98007, "AAPL", "call", 100, 100.0)
-        shared.db.execute(
-            "UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,)
-        )
+        shared.db.execute("UPDATE options SET expires_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (opt_id,))
         shared.db.commit()
 
         bot = MagicMock()

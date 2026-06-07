@@ -21,7 +21,7 @@ from modules.games import (
     ttt_check_winner,
     ttt_render,
 )
-from tests.conftest import FakeAuthor, FakeContext, FakeGuild
+from tests.conftest import FakeAuthor, FakeContext
 
 
 # ---------------------------------------------------------------------------

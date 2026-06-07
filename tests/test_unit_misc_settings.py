@@ -164,6 +164,7 @@ class TestSettingsGamble:
     async def test_gamble_on_blocked_in_kids_mode(self, misc_cog):
         guild = FakeGuild(guild_id=3001)
         from shared import set_kids_mode_guild
+
         set_kids_mode_guild(3001, True)
         ctx = _admin_ctx(guild=guild)
         await misc_cog.settings.callback(misc_cog, ctx, "gamble", "on")
@@ -405,18 +406,14 @@ class TestSettingsFeatures:
         assert ctx.sent
 
     async def test_list_shows_existing_rules(self, misc_cog):
-        shared.runtime_settings["feature_channel_rules"] = {
-            "gambling": {"mode": "whitelist", "channels": [123]}
-        }
+        shared.runtime_settings["feature_channel_rules"] = {"gambling": {"mode": "whitelist", "channels": [123]}}
         ctx = _admin_ctx()
         await misc_cog.settings.callback(misc_cog, ctx, "features")
         assert ctx.sent
         assert "gambling" in (ctx.sent[0].get("content") or "")
 
     async def test_check_feature_with_existing_rule(self, misc_cog):
-        shared.runtime_settings["feature_channel_rules"] = {
-            "gambling": {"mode": "whitelist", "channels": [456]}
-        }
+        shared.runtime_settings["feature_channel_rules"] = {"gambling": {"mode": "whitelist", "channels": [456]}}
         ctx = _admin_ctx()
         await misc_cog.settings.callback(misc_cog, ctx, "features", "gambling")
         assert ctx.sent
@@ -603,6 +600,7 @@ class TestGiveCommand:
 
     async def test_admin_gives_coins(self, misc_cog):
         from shared import get_balance, STARTING_BALANCE
+
         member = FakeAuthor(user_id=600)
         ctx = _admin_ctx()
         await misc_cog.give.callback(misc_cog, ctx, member, 250)
@@ -711,6 +709,7 @@ class TestBotstatCommand:
 
     async def test_shows_uptime_when_start_time_set(self, misc_cog):
         from datetime import datetime, timezone, timedelta
+
         shared.bot_start_time = datetime.now(timezone.utc) - timedelta(hours=2)
         ctx = _admin_ctx()
         await misc_cog.botstat.callback(misc_cog, ctx)
@@ -751,6 +750,7 @@ class TestStatsCommand:
 
     async def test_own_stats_kids_mode_no_economy(self, misc_cog):
         from shared import set_kids_mode_guild
+
         guild = FakeGuild(guild_id=6100)
         set_kids_mode_guild(6100, True)
         ctx = FakeContext(author=FakeAuthor(user_id=6004), guild=guild)
@@ -842,6 +842,7 @@ class TestSettingsChannelsWithMention:
 class TestBotstatWithGuilds:
     async def test_botstat_with_guild_channels(self, misc_cog):
         import discord
+
         fake_text_ch = MagicMock(spec=discord.TextChannel)
         fake_voice_ch = MagicMock(spec=discord.VoiceChannel)
         fake_guild = MagicMock()
@@ -870,10 +871,10 @@ class TestLeaderboardCommand:
     async def test_with_users_sends_embed(self, misc_cog):
         # Insert a user with balance
         shared.db.execute(
-            "INSERT INTO users (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance=?",
-            (7002, 1000, 1000)
+            "INSERT INTO users (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance=?", (7002, 1000, 1000)
         )
         shared.db.commit()
+
         # Create a guild where get_member returns something
         class _MockGuild(FakeGuild):
             def get_member(self, user_id):
@@ -882,11 +883,10 @@ class TestLeaderboardCommand:
                     m.display_name = "TestPlayer"
                     return m
                 return None
+
         ctx = FakeContext(guild=_MockGuild(guild_id=7003))
         await misc_cog.leaderboard.callback(misc_cog, ctx)
         assert ctx.sent
         embed = ctx.sent[0].get("embed")
         if embed:
             assert "TestPlayer" in embed.description
-
-

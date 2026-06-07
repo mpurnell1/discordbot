@@ -541,7 +541,8 @@ class GamesCog(commands.Cog):
         msg = await ctx.send(
             embed=make_embed(
                 "Memory Game",
-                f"Memorize this sequence:\n\n**{answer}**\n\nHiding in 8 seconds — first to `{PREFIX}memoryanswer <sequence>` wins!",
+                f"Memorize this sequence:\n\n**{answer}**\n\nHiding in 8 seconds"
+                f" — first to `{PREFIX}memoryanswer <sequence>` wins!",
                 COLOR_DEFAULT,
             )
         )

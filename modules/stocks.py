@@ -500,7 +500,9 @@ def get_open_options(user_id: int | None = None) -> list[dict]:
     ]
 
 
-def settle_option(opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str, side: str = "long") -> tuple[int, int]:
+def settle_option(
+    opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str, side: str = "long"
+) -> tuple[int, int]:
     """Mark option settled, credit payout to user. Returns (pnl, payout).
     pnl is negative (−coins_bet) on a loss; positive on a win."""
     pct_change = abs(exit_price - strike) / strike if strike > 0 else 0.0
@@ -1158,7 +1160,8 @@ class StocksCog(commands.Cog):
         """Settle expired options and post results to the ticker channel."""
         now = datetime.now(timezone.utc)
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, side FROM options WHERE settled = 0 AND expires_at <= ?",
+            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, side"
+            " FROM options WHERE settled = 0 AND expires_at <= ?",
             (now.isoformat(),),
         ).fetchall()
         if not rows:
