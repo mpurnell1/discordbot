@@ -577,7 +577,7 @@ class AICog(commands.Cog):
             return f"BJ stop-loss at {balance}; started hangman."
 
         if take_profit_hit:
-            await channel.send(f"Take-profit hit at **{balance}**! Resetting anchor and riding again.")
+            await self._send_gamble_report(f"Take-profit hit at **{balance}**! Resetting anchor and riding again.", force=True)
             sid = self.gamble_state.get("session_id")
             if sid is not None:
                 log_gary_session_end(sid, balance, "take_profit")
