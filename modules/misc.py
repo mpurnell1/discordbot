@@ -923,6 +923,7 @@ class MiscCog(commands.Cog):
                         f"Silas banter: **{shared.runtime_settings.get('silas_banter_chance_pct', 0)}%**",
                         f"Silas react: **{shared.runtime_settings.get('silas_react_chance_pct', 0)}%**",
                         f"Late night: **{shared.runtime_settings.get('late_night_chance_pct', 0)}%**",
+                        f"Set: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>`",
                     ]
                     return await ctx.send("\n".join(lines))
                 target = args[0].strip().lower()
@@ -950,7 +951,10 @@ class MiscCog(commands.Cog):
                     channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                     report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
                     state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}")
+                    return await ctx.send(
+                        f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}\n"
+                        f"Set: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`"
+                    )
 
                 action = args[0].strip().lower()
                 if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
@@ -1001,7 +1005,10 @@ class MiscCog(commands.Cog):
                 channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
                 if not args:
                     state = "ON" if channel_id else "OFF"
-                    return await ctx.send(f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)")
+                    return await ctx.send(
+                        f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)\n"
+                        f"Set: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
+                    )
                 action = args[0].strip().lower()
                 if action == "on":
                     target = ctx.channel
@@ -1034,7 +1041,8 @@ class MiscCog(commands.Cog):
                     return await ctx.send(
                         f"Daily ticker: **{state}** in {channel_text} "
                         "(prices refresh hourly during NYSE hours; "
-                        "morning post on first weekday tick)"
+                        "morning post on first weekday tick)\n"
+                        f"Set: `{PREFIX}settings ticker <on [#channel]|off|status|now>`"
                     )
                 action = args[0].strip().lower()
                 if action == "on":
@@ -1068,7 +1076,7 @@ class MiscCog(commands.Cog):
             if sec == "deadchat":
                 if not args:
                     state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
-                    return await ctx.send(f"Dead chat is **{state}**.")
+                    return await ctx.send(f"Dead chat is **{state}**. Set: `{PREFIX}settings deadchat <on|off|status>`")
                 action = args[0].strip().lower()
                 if action == "status":
                     state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
@@ -1087,7 +1095,7 @@ class MiscCog(commands.Cog):
                     toggles = shared.runtime_settings.get("command_toggles", {})
                     disabled = sorted(name for name, en in toggles.items() if not en)
                     disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
-                    return await ctx.send(f"Disabled commands: {disabled_str}")
+                    return await ctx.send(f"Disabled commands: {disabled_str}\nSet: `{PREFIX}settings commands <command> <on|off>`")
                 command_input = args[0].strip().lower()
                 if len(args) < 2:
                     target = self.bot.get_command(command_input)
@@ -1115,13 +1123,17 @@ class MiscCog(commands.Cog):
             if sec in {"features", "feature"}:
                 rules = shared.runtime_settings.get("feature_channel_rules", {})
                 if not args:
+                    set_hint = (
+                        f"Set: `{PREFIX}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>`"
+                    )
                     if not rules:
-                        return await ctx.send("No feature channel rules set.")
+                        return await ctx.send(f"No feature channel rules set.\n{set_hint}")
                     lines = []
                     for feat, rule in sorted(rules.items()):
                         mode = rule.get("mode", "all")
                         ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
                         lines.append(f"`{feat}`: **{mode}** {ch_str}")
+                    lines.append(set_hint)
                     return await ctx.send("\n".join(lines))
                 feat = normalize_feature_name(args[0])
                 if len(args) < 2:
@@ -1170,7 +1182,9 @@ class MiscCog(commands.Cog):
                 if not args:
                     ruleset = str(shared.runtime_settings.get("bj_ruleset", "realistic")).upper()
                     hint = "ON" if shared.runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
-                    return await ctx.send(f"BJ Ruleset: **{ruleset}** | Hints: **{hint}**")
+                    return await ctx.send(
+                        f"BJ Ruleset: **{ruleset}** | Hints: **{hint}**\nSet: `{PREFIX}settings blackjack <ruleset|hint> [value]`"
+                    )
                 sub = args[0].strip().lower()
                 rest = args[1].strip().lower() if len(args) > 1 else "status"
                 if sub in {"ruleset", "rules"}:
@@ -1192,6 +1206,7 @@ class MiscCog(commands.Cog):
                     for name, key in _CHANNEL_KEYS.items():
                         val = shared.runtime_settings.get(key)
                         lines.append(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
+                    lines.append(f"Set: `{PREFIX}settings channels <name> [#channel|off]`")
                     return await ctx.send("\n".join(lines))
                 name = args[0].strip().lower()
                 if name not in _CHANNEL_KEYS:
@@ -1218,7 +1233,10 @@ class MiscCog(commands.Cog):
                 react = shared.runtime_settings.get("silas_react_chance_pct", 0)
                 if not args:
                     id_text = f"`{silas_id}`" if silas_id else "(not set)"
-                    return await ctx.send(f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**")
+                    return await ctx.send(
+                        f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**\n"
+                        f"Set: `{PREFIX}settings silas <id|banter|react> [value]`"
+                    )
                 sub = args[0].strip().lower()
                 if sub == "id":
                     if len(args) < 2:
@@ -1245,7 +1263,62 @@ class MiscCog(commands.Cog):
                     return await ctx.send(f"Silas {sub} is now **{value}%**.")
                 return await ctx.send(f"Usage: `{PREFIX}settings silas <id|banter|react> [value]`")
 
-            return await ctx.send(f"Unknown settings section: `{sec}`")
+            if sec in {"options", "opts"}:
+                # Premium-pricing knobs for the .call/.put options game.
+                # (key, type, low, high, formatter)
+                _OPT_KNOBS = {
+                    "vol": ("options_vol", float, 0.005, 1.0),
+                    "floor": ("options_premium_floor", float, 0.0005, 0.5),
+                    "expiry": ("options_expiry_hours", int, 1, 720),
+                }
+
+                def _fmt_opt(name: str) -> str:
+                    key = _OPT_KNOBS[name][0]
+                    val = shared.runtime_settings.get(key, shared.SETTINGS_DEFAULTS[key])
+                    return f"`{val}h`" if name == "expiry" else f"`{val}`"
+
+                if not args:
+                    return await ctx.send(
+                        f"Options pricing — vol: {_fmt_opt('vol')} (ATM premium) | "
+                        f"floor: {_fmt_opt('floor')} (max far-OTM leverage) | "
+                        f"expiry: {_fmt_opt('expiry')}\n"
+                        f"Set with `{PREFIX}settings options <vol|floor|expiry> <value>`."
+                    )
+                target = args[0].strip().lower()
+                if target not in _OPT_KNOBS:
+                    return await ctx.send(f"Usage: `{PREFIX}settings options <vol|floor|expiry> <value>`")
+                key, caster, lo, hi = _OPT_KNOBS[target]
+                if len(args) < 2:
+                    return await ctx.send(f"`{target}` is {_fmt_opt(target)}.")
+                try:
+                    value = caster(args[1])
+                except (TypeError, ValueError):
+                    kind = "an integer" if caster is int else "a number"
+                    return await ctx.send(f"Value must be {kind} between {lo} and {hi}.")
+                if not lo <= value <= hi:
+                    return await ctx.send(f"`{target}` must be between {lo} and {hi}.")
+                shared.runtime_settings[key] = value
+                shared._save_json_setting(key, value)
+                return await ctx.send(f"`{target}` is now {_fmt_opt(target)}.")
+
+            _SECTIONS = (
+                "kids",
+                "deadchat",
+                "gamble",
+                "weather",
+                "ticker",
+                "passive",
+                "blackjack",
+                "commands",
+                "features",
+                "channels",
+                "silas",
+                "options",
+            )
+            section_list = ", ".join(f"`{s}`" for s in _SECTIONS)
+            return await ctx.send(
+                f"Unknown settings section: `{sec}`.\nSections: {section_list}\nSee `{PREFIX}adminhelp` for full syntax."
+            )
 
         dead_chat_state = "ON" if shared.runtime_settings.get("dead_chat_enabled", True) else "OFF"
         kids_mode_state = "ON" if ctx.guild and is_kids_mode_guild(ctx.guild.id) else "OFF"
@@ -1282,7 +1355,7 @@ class MiscCog(commands.Cog):
         embed = discord.Embed(title="Runtime Settings", color=COLOR_DEFAULT)
         embed.add_field(name="Kids Mode", value=kids_mode_state, inline=True)
         embed.add_field(name="Dead Chat", value=dead_chat_state, inline=True)
-        embed.add_field(name="Gary Gamble", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
+        embed.add_field(name="Gary Gamble (gamble)", value=f"{gary_gamble_state}\n{gary_gamble_channel_text}", inline=True)
         weather_channel_id = shared.runtime_settings.get("weather_alert_channel_id")
         weather_state = "ON" if weather_channel_id else "OFF"
         weather_text = f"<#{int(weather_channel_id)}>" if weather_channel_id else "(not set)"
@@ -1291,7 +1364,7 @@ class MiscCog(commands.Cog):
         ticker_channel_id = shared.runtime_settings.get("ticker_channel_id")
         ticker_state = "ON" if ticker_channel_id else "OFF"
         ticker_text = f"<#{int(ticker_channel_id)}>" if ticker_channel_id else "(not set)"
-        embed.add_field(name="Stock Ticker", value=f"{ticker_state}\n{ticker_text}", inline=True)
+        embed.add_field(name="Stock Ticker (ticker)", value=f"{ticker_state}\n{ticker_text}", inline=True)
         _channel_keys = (
             "guild_join_report_channel_id",
             "kids_interaction_log_channel_id",
@@ -1301,10 +1374,14 @@ class MiscCog(commands.Cog):
         )
         channels_set = sum(1 for k in _channel_keys if shared.runtime_settings.get(k))
         silas_id = shared.runtime_settings.get("silas_bot_id")
-        embed.add_field(name="BJ Ruleset", value=bj_ruleset, inline=True)
-        embed.add_field(name="BJ Hint", value=bj_hint_state, inline=True)
+        embed.add_field(name="BJ Ruleset (blackjack)", value=bj_ruleset, inline=True)
+        embed.add_field(name="BJ Hint (blackjack)", value=bj_hint_state, inline=True)
         embed.add_field(name="Channels", value=f"{channels_set}/5 set (`.settings channels`)", inline=True)
         embed.add_field(name="Silas ID", value=f"`{silas_id}`" if silas_id else "(not set)", inline=True)
+        opt_vol = shared.runtime_settings.get("options_vol", shared.SETTINGS_DEFAULTS["options_vol"])
+        opt_floor = shared.runtime_settings.get("options_premium_floor", shared.SETTINGS_DEFAULTS["options_premium_floor"])
+        opt_expiry = shared.runtime_settings.get("options_expiry_hours", shared.SETTINGS_DEFAULTS["options_expiry_hours"])
+        embed.add_field(name="Options", value=f"vol `{opt_vol}`\nfloor `{opt_floor}`\nexpiry `{opt_expiry}h`", inline=True)
         embed.add_field(name="Passive AI", value=passive_value, inline=False)
         embed.add_field(name="Disabled Commands", value=disabled_str, inline=False)
         embed.add_field(
@@ -1312,7 +1389,10 @@ class MiscCog(commands.Cog):
             value=rules_str[:1024],
             inline=False,
         )
-        embed.set_footer(text="Command features use cmd:<command> (example: cmd:ask)")
+        embed.set_footer(
+            text=f"Change any of these with {PREFIX}settings <section> — see {PREFIX}adminhelp for syntax. "
+            "Command features use cmd:<command> (example: cmd:ask)"
+        )
         await ctx.send(embed=embed)
 
     @commands.command()
@@ -1713,9 +1793,10 @@ class MiscCog(commands.Cog):
                     f"`{p}sell <TICKER> <qty|all|$coins>` - Sell shares (fractional allowed)\n"
                     f"`{p}portfolio [@user]` - Holdings + unrealized P/L\n"
                     f"`{p}call <TICKER> <coins> [strike]`"
-                    f" - Long call (+ coins) wins if UP; Short call (- coins) wins if stays DOWN\n"
-                    f"`{p}put <TICKER> <coins> [strike]` - Long put (+ coins) wins if DOWN; Short put (- coins) wins if stays UP\n"
-                    f"`{p}options [@user]` - Your open long/short call/put positions"
+                    f" - Buy a call (+coins premium) — pays more the higher it ends; sell (-coins) to collect premium\n"
+                    f"`{p}put <TICKER> <coins> [strike]`"
+                    f" - Buy a put (+coins premium) — pays more the lower it ends; sell (-coins) to collect premium\n"
+                    f"`{p}options [@user]` - Your open call/put positions with live P/L"
                 ),
                 inline=False,
             )
@@ -1820,7 +1901,8 @@ class MiscCog(commands.Cog):
                 f"`{p}settings commands <command> <on|off>` - Toggle command globally\n"
                 f"`{p}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#ch]>` - Feature gates\n"
                 f"`{p}settings channels <name> [#channel|off]` - Configure channel IDs\n"
-                f"`{p}settings silas <id|banter|react> [value]` - Silas bot config"
+                f"`{p}settings silas <id|banter|react> [value]` - Silas bot config\n"
+                f"`{p}settings options <vol|floor|expiry> <value>` - Options pricing knobs"
             ),
             inline=False,
         )

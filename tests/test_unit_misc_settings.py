@@ -51,6 +51,20 @@ class TestSettingsAdminGuard:
         assert ctx.sent
         assert "unknown" in (ctx.sent[0].get("content") or "").lower()
 
+    async def test_unknown_section_lists_valid_sections_and_adminhelp(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "gambel")  # typo
+        content = ctx.sent[0].get("content") or ""
+        # Recovers from a typo by naming real sections + pointing to adminhelp.
+        assert "gamble" in content and "options" in content
+        assert "adminhelp" in content
+
+    async def test_summary_footer_points_to_adminhelp(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx)  # no section → summary embed
+        footer = ctx.sent[0]["embed"].footer.text or ""
+        assert "adminhelp" in footer
+
 
 # ---------------------------------------------------------------------------
 # kids / kidsmode
@@ -93,6 +107,12 @@ class TestSettingsPassive:
         content = ctx.sent[0].get("content") or ""
         assert "Unsolicited" in content or "unsolicited" in content.lower()
 
+    async def test_status_shows_set_syntax(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "passive")
+        # No-args output is self-documenting (shows how to change the values).
+        assert "Set:" in (ctx.sent[0].get("content") or "")
+
     async def test_set_unsolicited(self, misc_cog):
         ctx = _admin_ctx()
         await misc_cog.settings.callback(misc_cog, ctx, "passive", "unsolicited", "15")
@@ -122,6 +142,63 @@ class TestSettingsPassive:
         ctx = _admin_ctx()
         await misc_cog.settings.callback(misc_cog, ctx, "passive", "latenight", "200")
         assert shared.runtime_settings.get("late_night_chance_pct") == 100
+
+
+# ---------------------------------------------------------------------------
+# options (premium-pricing knobs)
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsOptions:
+    async def test_status_shows_all_knobs(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options")
+        assert ctx.sent
+        content = (ctx.sent[0].get("content") or "").lower()
+        assert "vol" in content and "floor" in content and "expiry" in content
+
+    async def test_opts_alias_works(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "opts")
+        assert ctx.sent
+
+    async def test_set_vol(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "vol", "0.1")
+        assert shared.runtime_settings.get("options_vol") == 0.1
+
+    async def test_set_floor(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "floor", "0.01")
+        assert shared.runtime_settings.get("options_premium_floor") == 0.01
+
+    async def test_set_expiry_is_int(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "expiry", "48")
+        assert shared.runtime_settings.get("options_expiry_hours") == 48
+
+    async def test_invalid_target_sends_usage(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "notaknob")
+        assert "Usage" in (ctx.sent[0].get("content") or "")
+
+    async def test_missing_value_shows_current(self, misc_cog):
+        shared.runtime_settings["options_vol"] = 0.06
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "vol")
+        assert "0.06" in (ctx.sent[0].get("content") or "")
+
+    async def test_invalid_value_sends_error(self, misc_cog):
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "vol", "abc")
+        assert "number" in (ctx.sent[0].get("content") or "").lower()
+
+    async def test_out_of_range_rejected(self, misc_cog):
+        shared.runtime_settings["options_vol"] = 0.06
+        ctx = _admin_ctx()
+        await misc_cog.settings.callback(misc_cog, ctx, "options", "vol", "5")
+        assert "between" in (ctx.sent[0].get("content") or "").lower()
+        assert shared.runtime_settings.get("options_vol") == 0.06  # unchanged
 
 
 # ---------------------------------------------------------------------------
