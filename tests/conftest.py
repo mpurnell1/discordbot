@@ -121,6 +121,7 @@ _TABLES = (
     "stock_trades",
     "stock_tickers",
     "options",
+    "reminders",
 )
 
 

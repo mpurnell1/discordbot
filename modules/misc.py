@@ -1831,6 +1831,14 @@ class MiscCog(commands.Cog):
             ),
             inline=False,
         )
+        embed.add_field(
+            name="Reminders",
+            value=(
+                f'`{p}remindme "text"` - Schedule a reminder card (one-off or repeating, here or via DM)\n'
+                f"`{p}reminders` - List yours · `{p}reminders cancel <id>` to remove one"
+            ),
+            inline=False,
+        )
         embed.add_field(name="Animals", value=f"`{p}cat` / `{p}dog` - Random pics", inline=False)
         fun_lines = [
             f"`{p}wyr` - Would You Rather",

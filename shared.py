@@ -309,6 +309,23 @@ def init_db():
             db.execute(f"ALTER TABLE options ADD COLUMN {_col} {_decl}")
         except sqlite3.OperationalError:
             pass
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            channel_id INTEGER,
+            guild_id INTEGER,
+            text TEXT NOT NULL,
+            next_fire_at TEXT NOT NULL,
+            repeat_kind TEXT NOT NULL DEFAULT 'none',
+            repeat_interval INTEGER,
+            repeat_unit TEXT,
+            destination TEXT NOT NULL DEFAULT 'channel',
+            created_at TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (active, next_fire_at)")
     # The old per-day sparkline snapshot table is gone — we now pull history
     # straight from yfinance during the hourly tick and cache it in memory.
     db.execute("DROP TABLE IF EXISTS stock_price_history")

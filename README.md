@@ -115,6 +115,8 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.timer <seconds>` | `.time` | Simple timer, capped at one hour |
 | `.forfeit` | `.ff`, `.quit`, `.stop` | Quit current game |
 | `.weather [city] [forecast]` | `.w` | Current weather (defaults to Champaign); append `forecast` for a multi-day outlook |
+| `.remindme "<text>"` | `.remind`, `.reminder` | Open a card to schedule a reminder — pick when (presets or custom), optional repeat (daily/weekly/monthly/weekdays/interval), and delivery here or via DM. Times are Central. |
+| `.reminders [cancel <id>]` | `.myreminders`, `.remindlist` | List your active reminders, or cancel one by id |
 | `.cat` / `.dog` | | Random animal pics |
 | `.wyr` | | Would You Rather |
 | `.onthisday` | | Historical event today |
@@ -159,7 +161,7 @@ Kids mode disables:
 Kids mode keeps:
 
 - Games: tic-tac-toe, Connect 4, Hangman, Rock Paper Scissors, dice rolls, quick math quiz, memory, trivia, scramble, practice puzzle with no coin reward, timer
-- Learning/utility: weather, kid-safe Would You Rather, clean jokes, `.stats`
+- Learning/utility: weather, reminders (`.remindme` / `.reminders`), kid-safe Would You Rather, clean jokes, `.stats`
 - Animal pics: `.cat`, `.dog`
 - Operational command: `.help`
 

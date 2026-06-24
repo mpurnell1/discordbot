@@ -27,7 +27,7 @@ from shared import (
     set_kids_mode_guild,
     update_activity_streak,
 )
-from modules import ai, economy, games, misc, stocks
+from modules import ai, economy, games, misc, reminders, stocks
 
 
 def configure_logging() -> logging.Logger:
@@ -77,6 +77,8 @@ class GaryBot(commands.Bot):
         logger.info("Loaded MiscCog")
         await stocks.setup(self)
         logger.info("Loaded StocksCog")
+        await reminders.setup(self)
+        logger.info("Loaded RemindersCog")
 
 
 intents = discord.Intents.default()
@@ -324,6 +326,8 @@ COMMAND_USAGE = {
     "call": "<TICKER> <coins>",
     "put": "<TICKER> <coins>",
     "options": "[@user]",
+    "remindme": '"what to be reminded about"',
+    "reminders": "[cancel <id>]",
     "settings": (
         "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]>"
         " | passive <unsolicited|silasbanter|silasreact> <0-100>"

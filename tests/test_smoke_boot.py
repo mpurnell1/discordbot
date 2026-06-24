@@ -18,9 +18,9 @@ async def loaded_bot():
     yield bot_module.bot
 
 
-async def test_all_four_cogs_load(loaded_bot):
+async def test_all_cogs_load(loaded_bot):
     cog_names = set(loaded_bot.cogs.keys())
-    assert cog_names == {"GamesCog", "EconomyCog", "AICog", "MiscCog", "StocksCog"}
+    assert cog_names == {"GamesCog", "EconomyCog", "AICog", "MiscCog", "StocksCog", "RemindersCog"}
 
 
 async def test_every_documented_command_is_registered(loaded_bot):
