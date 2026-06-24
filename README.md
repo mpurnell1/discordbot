@@ -98,9 +98,9 @@ Daily coins are awarded automatically the first time a user runs any command aft
 | `.buy <TICKER> <qty\|all\|$coins>` | | Buy shares (fractional allowed) — accepts a share count (`5` / `0.25`), `all` (spend full balance), or coin budget (`$500`) |
 | `.sell <TICKER> <qty\|all\|$coins>` | | Sell shares (fractional allowed) — accepts a count, `all`, or `$<coins>` worth |
 | `.portfolio [@user]` | `.port` | Show holdings + unrealized P/L |
-| `.call <TICKER> <coins> [strike]` | `.callopt` | Long call (positive coins) — wins if price goes UP past strike. Short call (negative coins) — wins if price stays BELOW strike. Strike defaults to current price. 10× leverage paper trade, 24h expiry. |
-| `.put <TICKER> <coins> [strike]` | `.putopt` | Long put (positive coins) — wins if price goes DOWN past strike. Short put (negative coins) — wins if price stays ABOVE strike. Strike defaults to current price. |
-| `.options [@user]` | `.opts`, `.positions`, `.pos` | Show open long/short call/put positions with live estimated P/L |
+| `.call <TICKER> <coins> [strike]` | `.callopt` | Buy a call (positive coins = premium paid) — payout scales with how far price ends ABOVE strike; lose only the premium if it expires below. Sell a call (negative coins = collateral) — collect a premium, pay scaled intrinsic if it ends above strike (capped at collateral). Premium is priced by moneyness, so far-OTM strikes are cheap. Strike defaults to current price; 24h expiry by default (configurable via `.settings options`). |
+| `.put <TICKER> <coins> [strike]` | `.putopt` | Buy a put (positive coins = premium paid) — payout scales with how far price ends BELOW strike; lose only the premium otherwise. Sell a put (negative coins = collateral) — collect a premium, pay scaled intrinsic if it ends below strike (capped at collateral). Strike defaults to current price. |
+| `.options [@user]` | `.opts`, `.positions`, `.pos` | Show open call/put positions (premium paid / collateral) with live estimated P/L |
 | `.ttt @user` | | Tic-tac-toe (use `.m <1-9>`) |
 | `.c4 @user` | | Connect 4 (use `.drop <1-7>` or `.m <1-7>`) |
 | `.hangman [@user]` | `.hang`, `.hm` | Start hangman solo or invite someone |
@@ -202,13 +202,17 @@ Fractional shares are supported (minimum trade size 0.0001 shares). Coin balance
 - `.settings passive unsolicited <0-100>` -> unsolicited AI commentary chance (%)
 - `.settings passive silasbanter <0-100>` -> Silas banter chance (%)
 - `.settings passive silasreact <0-100>` -> Silas reaction chance (%)
+- `.settings passive latenight <0-100>` -> late-night AI commentary chance (%)
 
 ### Other admin controls
 
+- `.settings deadchat <on|off|status>` -> dead-chat callout messages
+- `.settings blackjack <ruleset|hint> [value]` -> blackjack table rules and basic-strategy hints
 - `.settings commands <command> <on|off>` -> toggle a command globally
 - `.settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>` -> configure feature gates
 - `.settings channels <name> [#channel|off]` -> configure report/log channels
 - `.settings silas <id|banter|react> [value]` -> configure Silas bot integration
+- `.settings options <vol|floor|expiry> <value>` -> options pricing knobs (`vol` sets the ATM premium, `floor` caps far-OTM leverage, `expiry` is contract life in hours)
 - `.botstat` -> runtime bot stats
 - `.garystats` -> Gary autonomous gambling stats
 - `.restart`
