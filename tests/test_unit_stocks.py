@@ -438,7 +438,7 @@ class TestCryptoAliases:
 # Options helpers — open / settle
 # ---------------------------------------------------------------------------
 
-from modules.stocks import settle_option, OPTIONS_LEVERAGE  # noqa: E402
+from modules.stocks import settle_option, _premium_frac  # noqa: E402
 
 
 def _set_balance(user_id: int, amount: int) -> None:
@@ -538,20 +538,25 @@ class TestSettleOption:
         assert pnl == -150
         assert payout == 0
 
-    def test_minimum_win_is_1_1x(self):
-        # Tiny move still guarantees at least 1.1× on a win.
+    def test_barely_itm_pays_near_zero(self):
+        # Premium-priced: a barely-ITM long has almost no intrinsic value, so it
+        # pays out next to nothing — there is no artificial minimum payout.
         _set_balance(20024, 500)
         opt_id = open_option(20024, "SPY", "call", 100, 500.0)
         pnl, payout = settle_option(opt_id, 20024, 100, 500.0, 500.005, "call")
-        assert payout >= 110
+        assert payout < 100
+        assert pnl < 0
 
-    def test_10pct_move_gives_2x_payout(self):
-        # 10% move × OPTIONS_LEVERAGE(10) → multiplier = 2.0
+    def test_itm_payout_scales_with_intrinsic(self):
+        # Long payout = contracts × intrinsic fraction at expiry. Opened ATM, so the
+        # premium is OPTIONS_VOL and a 10% move lands 10% ITM.
         _set_balance(20025, 1000)
         opt_id = open_option(20025, "BTC-USD", "call", 100, 50000.0)
         pnl, payout = settle_option(opt_id, 20025, 100, 50000.0, 55000.0, "call")
-        expected = int(round(100 * (1.0 + 0.10 * OPTIONS_LEVERAGE)))
-        assert abs(payout - expected) <= 1
+        contracts = 100 / _premium_frac("call", 50000.0, 50000.0)
+        expected = int(round(contracts * 0.10))
+        assert payout == expected
+        assert pnl == expected - 100
 
     def test_win_credits_balance(self):
         _set_balance(20026, 1000)
@@ -601,11 +606,14 @@ class TestShortOptions:
         assert payout > 200
 
     def test_short_call_loses_when_price_rises(self):
+        # Short pays intrinsic value when ITM, but the loss is capped at the
+        # collateral — it is not an all-or-nothing forfeit.
         _set_balance(20041, 500)
         opt_id = open_option(20041, "AAPL", "call", 200, 100.0, side="short")
         pnl, payout = settle_option(opt_id, 20041, 200, 100.0, 110.0, "call", side="short")
-        assert pnl == -200
-        assert payout == 0
+        assert pnl < 0
+        assert abs(pnl) < 200  # capped at collateral, minus premium collected
+        assert payout > 0  # most of the collateral comes back
 
     def test_short_put_wins_when_price_rises(self):
         _set_balance(20042, 500)
@@ -618,8 +626,9 @@ class TestShortOptions:
         _set_balance(20043, 500)
         opt_id = open_option(20043, "TSLA", "put", 150, 200.0, side="short")
         pnl, payout = settle_option(opt_id, 20043, 150, 200.0, 180.0, "put", side="short")
-        assert pnl == -150
-        assert payout == 0
+        assert pnl < 0
+        assert abs(pnl) < 150  # loss capped at collateral
+        assert payout > 0
 
     def test_short_deducts_coins_at_open(self):
         _set_balance(20044, 500)
@@ -639,19 +648,41 @@ class TestShortOptions:
         opts = get_open_options(20046)
         assert opts[0]["side"] == "long"
 
-    def test_short_flat_price_loses(self):
+    def test_short_flat_price_collects_premium(self):
+        # An option that expires exactly at the strike is worthless, so the seller
+        # keeps the full premium (a small profit) rather than losing the stake.
         _set_balance(20047, 500)
         opt_id = open_option(20047, "AAPL", "call", 100, 150.0, side="short")
         pnl, _ = settle_option(opt_id, 20047, 100, 150.0, 150.0, "call", side="short")
-        assert pnl == -100
+        assert pnl > 0
 
-    def test_short_10pct_move_gives_2x_payout(self):
+    def test_short_wins_premium_when_otm(self):
+        # Price falls below the strike → short call expires worthless → seller keeps
+        # the premium they collected at open (collateral × premium fraction).
         _set_balance(20048, 1000)
         opt_id = open_option(20048, "BTC-USD", "call", 100, 50000.0, side="short")
-        # Price falls 10% below strike → short call wins
         pnl, payout = settle_option(opt_id, 20048, 100, 50000.0, 45000.0, "call", side="short")
-        expected = int(round(100 * (1.0 + 0.10 * OPTIONS_LEVERAGE)))
-        assert abs(payout - expected) <= 1
+        expected_premium = int(round(100 * _premium_frac("call", 50000.0, 50000.0)))
+        assert pnl == expected_premium
+        assert payout == 100 + expected_premium
+
+
+class TestOptionsRuntimeKnobs:
+    def test_vol_setting_drives_atm_premium(self):
+        # The ATM premium fraction equals the configured options_vol. The autouse
+        # fixture restores the default after this test.
+        shared.runtime_settings["options_vol"] = 0.06
+        assert abs(_premium_frac("call", 100.0, 100.0) - 0.06) < 1e-9
+        shared.runtime_settings["options_vol"] = 0.20
+        assert abs(_premium_frac("call", 100.0, 100.0) - 0.20) < 1e-9
+
+    def test_floor_setting_caps_far_otm_premium(self):
+        # A deeply OTM strike collapses to the configured floor.
+        shared.runtime_settings["options_premium_floor"] = 0.005
+        far = _premium_frac("call", 100.0, 1000.0)
+        assert abs(far - 0.005) < 1e-9
+        shared.runtime_settings["options_premium_floor"] = 0.02
+        assert abs(_premium_frac("call", 100.0, 1000.0) - 0.02) < 1e-9
 
 
 # ---------------------------------------------------------------------------

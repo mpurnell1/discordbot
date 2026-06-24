@@ -292,13 +292,23 @@ def init_db():
             exit_price REAL,
             pnl INTEGER,
             settled_at TEXT,
-            side TEXT DEFAULT 'long'
+            side TEXT DEFAULT 'long',
+            contracts REAL,
+            entry_price REAL,
+            premium_frac REAL
         )
     """)
-    try:
-        db.execute("ALTER TABLE options ADD COLUMN side TEXT DEFAULT 'long'")
-    except sqlite3.OperationalError:
-        pass
+    # Migrations for DBs created before these columns existed.
+    for _col, _decl in (
+        ("side", "TEXT DEFAULT 'long'"),
+        ("contracts", "REAL"),
+        ("entry_price", "REAL"),
+        ("premium_frac", "REAL"),
+    ):
+        try:
+            db.execute(f"ALTER TABLE options ADD COLUMN {_col} {_decl}")
+        except sqlite3.OperationalError:
+            pass
     # The old per-day sparkline snapshot table is gone — we now pull history
     # straight from yfinance during the hourly tick and cache it in memory.
     db.execute("DROP TABLE IF EXISTS stock_price_history")
@@ -345,6 +355,11 @@ SETTINGS_DEFAULTS = {
     "ticker_channel_id": None,
     "ticker_last_morning_date": None,
     "ticker_last_tick_key": None,
+    # Options paper-trading knobs (see modules/stocks.py). vol sets the ATM
+    # premium, floor caps far-OTM leverage, expiry is the contract life in hours.
+    "options_vol": 0.06,
+    "options_premium_floor": 0.005,
+    "options_expiry_hours": 24,
 }
 PROTECTED_ADMIN_COMMANDS = {
     "adminhelp",
@@ -855,6 +870,22 @@ def load_runtime_settings():
         "ticker_last_morning_date", SETTINGS_DEFAULTS["ticker_last_morning_date"]
     )
     runtime_settings["ticker_last_tick_key"] = _load_json_setting("ticker_last_tick_key", SETTINGS_DEFAULTS["ticker_last_tick_key"])
+    for key, lo, hi in (
+        ("options_vol", 0.005, 1.0),
+        ("options_premium_floor", 0.0005, 0.5),
+    ):
+        raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = SETTINGS_DEFAULTS[key]
+        runtime_settings[key] = max(lo, min(hi, value))
+    raw_expiry = _load_json_setting("options_expiry_hours", SETTINGS_DEFAULTS["options_expiry_hours"])
+    try:
+        expiry = int(raw_expiry)
+    except (TypeError, ValueError):
+        expiry = SETTINGS_DEFAULTS["options_expiry_hours"]
+    runtime_settings["options_expiry_hours"] = max(1, min(720, expiry))
 
 
 def normalize_feature_name(feature: str) -> str:

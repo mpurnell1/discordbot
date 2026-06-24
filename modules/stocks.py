@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -55,8 +56,62 @@ CRYPTO_ALIASES: dict[str, str] = {
 }
 
 # Options paper-trading config.
-OPTIONS_LEVERAGE = 10  # 1% price move → 10% return on the bet
+#
+# Options are *premium-priced*: the coins you put in buy a position whose cost
+# scales with how far in/out of the money the strike is, and the payoff scales
+# with intrinsic value at expiry (not an all-or-nothing leverage bet). See
+# _premium_frac / open_option / settle_option below.
+#
+# These three are defaults only — the live values are read from
+# shared.runtime_settings (editable via `.settings options ...`).
 OPTIONS_EXPIRY_HOURS = 24
+OPTIONS_VOL = 0.06  # characteristic price move over the option's life; sets the ATM premium
+OPTIONS_PREMIUM_FLOOR = 0.005  # minimum premium fraction — caps leverage on far-OTM strikes
+
+
+def _options_vol() -> float:
+    return float(shared.runtime_settings.get("options_vol", OPTIONS_VOL))
+
+
+def _options_premium_floor() -> float:
+    return float(shared.runtime_settings.get("options_premium_floor", OPTIONS_PREMIUM_FLOOR))
+
+
+def _options_expiry_hours() -> int:
+    return int(shared.runtime_settings.get("options_expiry_hours", OPTIONS_EXPIRY_HOURS))
+
+
+def _premium_frac(opt_type: str, spot: float, strike: float) -> float:
+    """Cost — as a fraction of strike notional — to control 1 coin of exposure.
+
+    premium = intrinsic value now + extrinsic (time) value. The extrinsic term
+    is a Gaussian that peaks at-the-money and decays as the strike moves OTM, so
+    far-OTM strikes are cheap (1 coin of premium controls a large position) while
+    deep-ITM strikes cost roughly their intrinsic value (low leverage). Floored
+    so a far-OTM strike can never be free.
+    """
+    floor = _options_premium_floor()
+    if strike <= 0 or spot <= 0:
+        return floor
+    vol = _options_vol()
+    if opt_type == "call":
+        intrinsic = max(0.0, (spot - strike) / strike)
+        otm = max(0.0, (strike - spot) / strike)
+    else:
+        intrinsic = max(0.0, (strike - spot) / strike)
+        otm = max(0.0, (spot - strike) / strike)
+    extrinsic = vol * math.exp(-((otm / vol) ** 2) / 2.0)
+    return max(floor, intrinsic + extrinsic)
+
+
+def _intrinsic_frac(opt_type: str, strike: float, price: float) -> float:
+    """Intrinsic value of a long option at `price`, as a fraction of strike (≥ 0)."""
+    if strike <= 0:
+        return 0.0
+    if opt_type == "call":
+        return max(0.0, (price - strike) / strike)
+    return max(0.0, (strike - price) / strike)
+
 
 # Curated seed list. Anything users add via `.stocks add SYM` is appended to
 # the same `stock_tickers` table — this dict only matters on first boot or
@@ -442,10 +497,39 @@ def get_portfolio_value(user_id: int) -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 # OPTIONS
 # ---------------------------------------------------------------------------
-def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike: float, side: str = "long") -> int:
-    """Deduct coins_bet, insert an unsettled option row. Returns the new option id."""
+def position_size(opt_type: str, side: str, coins_bet: int, spot: float, strike: float) -> tuple[float, float]:
+    """Return (contracts, premium_frac) for an option.
+
+    - Long: the coins are a premium; they buy ``coins / premium_frac`` contracts,
+      so a cheap (far-OTM) premium controls a large position.
+    - Short: the coins are collateral backing a 1:1 notional position; the seller
+      collects ``coins * premium_frac`` and is liable for intrinsic value at expiry
+      (capped at the collateral).
+    """
+    pf = _premium_frac(opt_type, spot, strike)
+    contracts = float(coins_bet) if side == "short" else coins_bet / pf
+    return contracts, pf
+
+
+def open_option(
+    user_id: int,
+    ticker: str,
+    opt_type: str,
+    coins_bet: int,
+    strike: float,
+    side: str = "long",
+    spot: float | None = None,
+) -> int:
+    """Deduct coins_bet, insert an unsettled option row. Returns the new option id.
+
+    ``spot`` is the underlying price at open (defaults to the strike, i.e. ATM) and
+    is used to price the premium and size the position.
+    """
+    if spot is None:
+        spot = strike
+    contracts, pf = position_size(opt_type, side, coins_bet, spot, strike)
     now_iso = datetime.now(timezone.utc).isoformat()
-    expires_iso = (datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)).isoformat()
+    expires_iso = (datetime.now(timezone.utc) + timedelta(hours=_options_expiry_hours())).isoformat()
     opt_id: int | None = None
     with shared.db:
         row = shared.db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -463,9 +547,10 @@ def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike
         )
         cursor = shared.db.execute(
             "INSERT INTO options "
-            "(user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, ticker, opt_type, coins_bet, strike, now_iso, expires_iso, side),
+            "(user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side, "
+            "contracts, entry_price, premium_frac) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, ticker, opt_type, coins_bet, strike, now_iso, expires_iso, side, contracts, spot, pf),
         )
         opt_id = cursor.lastrowid
     return opt_id
@@ -473,50 +558,77 @@ def open_option(user_id: int, ticker: str, opt_type: str, coins_bet: int, strike
 
 def get_open_options(user_id: int | None = None) -> list[dict]:
     """Return all unsettled options, optionally filtered to a single user."""
+    cols = (
+        "id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side, "
+        "contracts, entry_price, premium_frac"
+    )
     if user_id is not None:
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side "
-            "FROM options WHERE settled = 0 AND user_id = ? ORDER BY expires_at",
+            f"SELECT {cols} FROM options WHERE settled = 0 AND user_id = ? ORDER BY expires_at",
             (user_id,),
         ).fetchall()
     else:
         rows = shared.db.execute(
-            "SELECT id, user_id, ticker, option_type, coins_bet, strike_price, opened_at, expires_at, side "
-            "FROM options WHERE settled = 0 ORDER BY expires_at",
+            f"SELECT {cols} FROM options WHERE settled = 0 ORDER BY expires_at",
         ).fetchall()
-    return [
-        {
-            "id": int(r[0]),
-            "user_id": int(r[1]),
-            "ticker": r[2],
-            "option_type": r[3],
-            "coins_bet": int(r[4]),
-            "strike_price": float(r[5]),
-            "opened_at": r[6],
-            "expires_at": r[7],
-            "side": r[8] or "long",
-        }
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        opt_type, side, coins_bet, strike = r[3], r[8] or "long", int(r[4]), float(r[5])
+        # Legacy rows opened before premium pricing have NULL contracts/premium_frac;
+        # backfill from an at-the-money assumption so they still display/settle.
+        contracts, pf = position_size(opt_type, side, coins_bet, strike, strike)
+        out.append(
+            {
+                "id": int(r[0]),
+                "user_id": int(r[1]),
+                "ticker": r[2],
+                "option_type": opt_type,
+                "coins_bet": coins_bet,
+                "strike_price": strike,
+                "opened_at": r[6],
+                "expires_at": r[7],
+                "side": side,
+                "contracts": float(r[9]) if r[9] is not None else contracts,
+                "entry_price": float(r[10]) if r[10] is not None else strike,
+                "premium_frac": float(r[11]) if r[11] is not None else pf,
+            }
+        )
+    return out
 
 
 def settle_option(
     opt_id: int, user_id: int, coins_bet: int, strike: float, exit_price: float, opt_type: str, side: str = "long"
 ) -> tuple[int, int]:
     """Mark option settled, credit payout to user. Returns (pnl, payout).
-    pnl is negative (−coins_bet) on a loss; positive on a win."""
-    pct_change = abs(exit_price - strike) / strike if strike > 0 else 0.0
+
+    Premium-priced settlement:
+
+    - Long: payout = contracts × intrinsic value at expiry. A long loses its whole
+      premium only if it finishes out of the money (intrinsic 0); otherwise the
+      payoff scales with how far in the money it lands.
+    - Short: keeps the collateral, collects the premium, and pays out intrinsic
+      value (capped at the collateral). It loses nothing extra if the option
+      expires worthless.
+
+    ``payout`` is the amount credited back to the user's balance at settlement.
+    """
+    row = shared.db.execute("SELECT contracts, premium_frac FROM options WHERE id = ?", (opt_id,)).fetchone()
+    contracts, premium_frac = position_size(opt_type, side, coins_bet, strike, strike)
+    if row is not None:
+        if row[0] is not None:
+            contracts = float(row[0])
+        if row[1] is not None:
+            premium_frac = float(row[1])
+
+    intrinsic = _intrinsic_frac(opt_type, strike, exit_price)
     if side == "short":
-        won = (exit_price < strike) if opt_type == "call" else (exit_price > strike)
+        premium = int(round(contracts * premium_frac))
+        liability = min(coins_bet, int(round(contracts * intrinsic)))
+        pnl = premium - liability
+        payout = coins_bet - liability + premium
     else:
-        won = (exit_price > strike) if opt_type == "call" else (exit_price < strike)
-    if won:
-        multiplier = max(1.1, 1.0 + pct_change * OPTIONS_LEVERAGE)
-        payout = int(round(coins_bet * multiplier))
+        payout = int(round(contracts * intrinsic))
         pnl = payout - coins_bet
-    else:
-        payout = 0
-        pnl = -coins_bet
 
     now_iso = datetime.now(timezone.utc).isoformat()
     with shared.db:
@@ -532,6 +644,21 @@ def settle_option(
                 (payout, user_id),
             )
     return pnl, payout
+
+
+def estimate_option_pnl(o: dict, price: float) -> int:
+    """Estimated P/L of an open option dict if it settled at ``price`` right now.
+
+    Mirrors :func:`settle_option` so the live ``{PREFIX}options`` view matches what
+    settlement will pay out.
+    """
+    intrinsic = _intrinsic_frac(o["option_type"], o["strike_price"], price)
+    contracts = o.get("contracts") or 0.0
+    if o.get("side", "long") == "short":
+        premium = int(round(contracts * o.get("premium_frac", 0.0)))
+        liability = min(o["coins_bet"], int(round(contracts * intrinsic)))
+        return premium - liability
+    return int(round(contracts * intrinsic)) - o["coins_bet"]
 
 
 # ---------------------------------------------------------------------------
@@ -1034,12 +1161,14 @@ class StocksCog(commands.Cog):
 
     @commands.command(name="call", aliases=["callopt"])
     async def call_option(self, ctx, ticker: str = None, coins: int = None, strike: float = None):
-        """Buy/sell a call — long (positive) wins if price goes UP, short (negative) wins if price stays DOWN."""
+        """Premium-priced call. Positive coins = premium paid (payout scales with how far it ends
+        above the strike); negative coins = collateral to sell one and collect a premium."""
         await self._open_option(ctx, "call", ticker, coins, strike)
 
     @commands.command(name="put", aliases=["putopt"])
     async def put_option(self, ctx, ticker: str = None, coins: int = None, strike: float = None):
-        """Buy/sell a put — long (positive) wins if price goes DOWN, short (negative) wins if price stays UP."""
+        """Premium-priced put. Positive coins = premium paid (payout scales with how far it ends
+        below the strike); negative coins = collateral to sell one and collect a premium."""
         await self._open_option(ctx, "put", ticker, coins, strike)
 
     async def _open_option(self, ctx, opt_type: str, ticker: str | None, coins: int | None, strike: float | None = None):
@@ -1073,28 +1202,35 @@ class StocksCog(commands.Cog):
             return await ctx.send(embed=make_embed("No Price", "Price unavailable right now — try again in a minute.", COLOR_ERROR))
 
         strike_price = strike if strike is not None else price
-        expiry_dt = datetime.now(timezone.utc) + timedelta(hours=OPTIONS_EXPIRY_HOURS)
-        open_option(ctx.author.id, ticker, opt_type, coins_bet, strike_price, side=side)
+        expiry_dt = datetime.now(timezone.utc) + timedelta(hours=_options_expiry_hours())
+        contracts, pf = position_size(opt_type, side, coins_bet, price, strike_price)
+        open_option(ctx.author.id, ticker, opt_type, coins_bet, strike_price, side=side, spot=price)
 
         type_label = "CALL" if opt_type == "call" else "PUT"
         if side == "long":
             icon = "📈" if opt_type == "call" else "📉"
             direction = "📈 **UP**" if opt_type == "call" else "📉 **DOWN**"
+            # Long is in the money past the strike; breakeven also has to cover the premium.
+            be_price = strike_price * (1 + pf) if opt_type == "call" else strike_price * (1 - pf)
+            leverage = contracts / coins_bet if coins_bet else 0.0
             description = (
-                f"You bet **{coins_bet:,}** coins that `{ticker}` goes {direction}.\n"
-                f"Strike: **${strike_price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
-                f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
-                f"**Lose:** forfeit entire bet\n\n"
+                f"You paid **{coins_bet:,}** coins (premium) for a {type_label} on `{ticker}` going {direction}.\n"
+                f"Spot: **${price:,.2f}** | Strike: **${strike_price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
+                f"Controls **~{contracts:,.0f}** of notional (**{leverage:.1f}×** leverage).\n"
+                f"**Payout:** scales with how far ITM it lands — breakeven ≈ **${be_price:,.2f}**.\n"
+                f"**Max loss:** your **{coins_bet:,}**-coin premium if it expires OTM.\n\n"
                 f"Use `{PREFIX}options` to track your positions."
             )
         else:
             icon = "📉" if opt_type == "call" else "📈"
             stay_dir = "**BELOW**" if opt_type == "call" else "**ABOVE**"
+            premium = int(round(contracts * pf))
             description = (
-                f"You sold **{coins_bet:,}** coins of {type_label} — win if `{ticker}` stays {stay_dir} **${strike_price:,.2f}**.\n"
-                f"Strike: **${strike_price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
-                f"**Win:** bet × max(1.1, 1 + |move%| × {OPTIONS_LEVERAGE}×)\n"
-                f"**Lose:** forfeit entire bet\n\n"
+                f"You sold a {type_label} on `{ticker}` — wins if it stays {stay_dir} **${strike_price:,.2f}**.\n"
+                f"Spot: **${price:,.2f}** | Strike: **${strike_price:,.2f}** | Expires: <t:{int(expiry_dt.timestamp())}:R>\n\n"
+                f"Collateral: **{coins_bet:,}** coins.\n"
+                f"**Premium collected** (if it expires worthless): **+{premium:,}**.\n"
+                f"**Loss:** intrinsic value if it goes ITM, capped at your **{coins_bet:,}**-coin collateral.\n\n"
                 f"Use `{PREFIX}options` to track your positions."
             )
         await ctx.send(
@@ -1124,22 +1260,14 @@ class StocksCog(commands.Cog):
             else:
                 type_label = f"{'📈 CALL' if opt_type == 'call' else '📉 PUT'}"
             pct = (current - o["strike_price"]) / o["strike_price"] * 100 if o["strike_price"] else 0.0
-            if side == "short":
-                in_money = (current < o["strike_price"]) if opt_type == "call" else (current > o["strike_price"])
-            else:
-                in_money = (current > o["strike_price"]) if opt_type == "call" else (current < o["strike_price"])
-            if in_money:
-                multiplier = max(1.1, 1.0 + abs(pct) / 100 * OPTIONS_LEVERAGE)
-                est_payout = int(round(o["coins_bet"] * multiplier))
-                est_pnl = est_payout - o["coins_bet"]
-                est_str = f"🟢 +{est_pnl:,} (×{multiplier:.2f})"
-            else:
-                est_str = f"🔴 −{o['coins_bet']:,} (out of the money)"
+            est_pnl = estimate_option_pnl(o, current)
+            est_str = f"🟢 +{est_pnl:,}" if est_pnl >= 0 else f"🔴 {est_pnl:,}"
+            stake_label = "collateral" if side == "short" else "premium"
             expires_at = datetime.fromisoformat(o["expires_at"])
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
             lines.append(
-                f"{type_label} `{o['ticker']}` — bet **{o['coins_bet']:,}** @ ${o['strike_price']:,.2f}\n"
+                f"{type_label} `{o['ticker']}` — {stake_label} **{o['coins_bet']:,}** @ ${o['strike_price']:,.2f}\n"
                 f"  Now: ${current:,.2f} ({pct:+.2f}%) | Est. P/L: {est_str}\n"
                 f"  Expires: <t:{int(expires_at.timestamp())}:R>"
             )
@@ -1148,7 +1276,7 @@ class StocksCog(commands.Cog):
             "\n\n".join(lines),
             COLOR_DEFAULT,
         )
-        embed.set_footer(text=f"Auto-settles after {OPTIONS_EXPIRY_HOURS}h · {PREFIX}call / {PREFIX}put to open")
+        embed.set_footer(text=f"Auto-settles after {_options_expiry_hours()}h · {PREFIX}call / {PREFIX}put to open")
         await ctx.send(embed=embed)
 
     # ---------------------------------------------------------------------------
@@ -1190,7 +1318,7 @@ class StocksCog(commands.Cog):
                 if pnl >= 0:
                     result_str = f"🟢 Won **+{pnl:,}** coins (paid out {payout:,})"
                 else:
-                    result_str = f"🔴 Lost **{abs(pnl):,}** coins (forfeited bet)"
+                    result_str = f"🔴 Lost **{abs(pnl):,}** coins"
                 try:
                     member = self.bot.get_user(user_id)
                     user_str = member.mention if member else f"<@{user_id}>"
