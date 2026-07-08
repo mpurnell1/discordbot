@@ -40,10 +40,10 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_REASONING_MODEL", "deepseek-r1:8b")
 
-# Late night callout: hours in US Central time that count as "late"
+# Late night callout: hours in US Central time that count as "late".
+# The callout chance is the late_night_chance_pct runtime setting.
 LATE_NIGHT_START = 1  # 1am Central
 LATE_NIGHT_END = 5  # 5am Central
-LATE_NIGHT_CHANCE = 0.4  # 40% chance to call someone out
 
 # Dead chat: minutes of silence before escalating
 DEAD_CHAT_THRESHOLDS = [60, 180, 360, 720]  # 1hr, 3hr, 6hr, 12hr
@@ -363,6 +363,7 @@ SETTINGS_DEFAULTS = {
     "unsolicited_chance_pct": 0,
     "silas_banter_chance_pct": 0,
     "silas_react_chance_pct": 0,
+    "late_night_chance_pct": 0,
     "guild_join_report_channel_id": None,
     "kids_interaction_log_channel_id": None,
     "bug_report_channel_id": None,
@@ -863,7 +864,7 @@ def load_runtime_settings():
     runtime_settings["weather_alert_last_date"] = _load_json_setting(
         "weather_alert_last_date", SETTINGS_DEFAULTS["weather_alert_last_date"]
     )
-    for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct"):
+    for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct", "late_night_chance_pct"):
         raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
         try:
             value = int(raw)
