@@ -404,31 +404,37 @@ class GamesCog(commands.Cog):
         if not channel:
             return
         if pending["type"] == "ttt":
-            if channel.id in active_ttt:
-                return
-            game = start_ttt(pending["host"], joiner)
-            active_ttt[channel.id] = game
-            await channel.send(
-                embed=make_embed(
-                    "Tic-Tac-Toe",
-                    f"{pending['host'].mention} ({TTT_X}) vs {joiner.mention} ({TTT_O})\n\n"
-                    f"{ttt_render(game['board'])}\n\n"
-                    f"{pending['host'].mention}'s turn — use `{PREFIX}m <1-9>`",
-                )
-            )
+            await self._begin_ttt(channel, pending["host"], joiner)
         elif pending["type"] == "c4":
-            if channel.id in active_c4:
-                return
-            game = start_c4(pending["host"], joiner)
-            active_c4[channel.id] = game
-            await channel.send(
-                embed=make_embed(
-                    "Connect 4",
-                    f"{pending['host'].mention} ({C4_RED}) vs {joiner.mention} ({C4_YELLOW})\n\n"
-                    f"{c4_render(game['board'])}\n\n"
-                    f"{pending['host'].mention}'s turn — use `{PREFIX}drop <1-7>`",
-                )
+            await self._begin_c4(channel, pending["host"], joiner)
+
+    async def _begin_ttt(self, channel, host, opponent):
+        if channel.id in active_ttt:
+            return
+        game = start_ttt(host, opponent)
+        active_ttt[channel.id] = game
+        await channel.send(
+            embed=make_embed(
+                "Tic-Tac-Toe",
+                f"{host.mention} ({TTT_X}) vs {opponent.mention} ({TTT_O})\n\n"
+                f"{ttt_render(game['board'])}\n\n"
+                f"{host.mention}'s turn — use `{PREFIX}m <1-9>`",
             )
+        )
+
+    async def _begin_c4(self, channel, host, opponent):
+        if channel.id in active_c4:
+            return
+        game = start_c4(host, opponent)
+        active_c4[channel.id] = game
+        await channel.send(
+            embed=make_embed(
+                "Connect 4",
+                f"{host.mention} ({C4_RED}) vs {opponent.mention} ({C4_YELLOW})\n\n"
+                f"{c4_render(game['board'])}\n\n"
+                f"{host.mention}'s turn — use `{PREFIX}drop <1-7>`",
+            )
+        )
 
     # QUICK GAMES
     # ---------------------------------------------------------------------------
@@ -707,16 +713,7 @@ class GamesCog(commands.Cog):
         if opponent:
             if opponent.bot or opponent == ctx.author:
                 return await ctx.send("You can't play against yourself or a bot.")
-            game = start_ttt(ctx.author, opponent)
-            active_ttt[ctx.channel.id] = game
-            await ctx.send(
-                embed=make_embed(
-                    "Tic-Tac-Toe",
-                    f"{ctx.author.mention} ({TTT_X}) vs {opponent.mention} ({TTT_O})\n\n"
-                    f"{ttt_render(game['board'])}\n\n"
-                    f"{ctx.author.mention}'s turn — use `{PREFIX}m <1-9>`",
-                )
-            )
+            await self._begin_ttt(ctx.channel, ctx.author, opponent)
         else:
             msg = await ctx.send(embed=make_embed("Tic-Tac-Toe", f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
@@ -727,70 +724,71 @@ class GamesCog(commands.Cog):
                 "created_at": datetime.now(timezone.utc),
             }
 
+    async def _ttt_move(self, ctx, game, pos: int):
+        current = game["players"][game["turn"]]
+        if ctx.author != current:
+            return
+        if pos < 1 or pos > 9 or game["board"][pos - 1] in ("X", "O"):
+            return await ctx.send("Invalid move.")
+        game["board"][pos - 1] = game["turn"]
+        winner = ttt_check_winner(game["board"])
+        if winner == "draw":
+            x, o = game["players"]["X"], game["players"]["O"]
+            del active_ttt[ctx.channel.id]
+            log_game_draw(x.id, o.id, "ttt")
+            return await ctx.send(embed=make_embed("Tic-Tac-Toe — Draw!", ttt_render(game["board"]), COLOR_WARNING))
+        if winner:
+            loser_piece = "O" if winner == "X" else "X"
+            w = game["players"][winner]
+            loser = game["players"][loser_piece]
+            del active_ttt[ctx.channel.id]
+            log_game_win(w.id, loser.id, "ttt")
+            return await ctx.send(
+                embed=make_embed(f"Tic-Tac-Toe — {w.display_name} Wins!", ttt_render(game["board"]), COLOR_SUCCESS)
+            )
+        game["turn"] = "O" if game["turn"] == "X" else "X"
+        nxt = game["players"][game["turn"]]
+        return await ctx.send(
+            embed=make_embed("Tic-Tac-Toe", f"{ttt_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-9>`")
+        )
+
+    async def _c4_move(self, ctx, game, col: int):
+        current = game["players"][game["turn"]]
+        if ctx.author != current:
+            return
+        if col < 1 or col > C4_COLS:
+            return await ctx.send(f"Pick a column between 1 and {C4_COLS}.")
+        row = c4_drop(game["board"], col - 1, game["turn"])
+        if row == -1:
+            return await ctx.send("That column is full.")
+        winner = c4_check_winner(game["board"])
+        if winner == "draw":
+            r_p, y_p = game["players"]["R"], game["players"]["Y"]
+            del active_c4[ctx.channel.id]
+            log_game_draw(r_p.id, y_p.id, "c4")
+            return await ctx.send(embed=make_embed("Connect 4 — Draw!", c4_render(game["board"]), COLOR_WARNING))
+        if winner:
+            loser_piece = "Y" if winner == "R" else "R"
+            w = game["players"][winner]
+            loser = game["players"][loser_piece]
+            del active_c4[ctx.channel.id]
+            log_game_win(w.id, loser.id, "c4")
+            return await ctx.send(embed=make_embed(f"Connect 4 — {w.display_name} Wins!", c4_render(game["board"]), COLOR_SUCCESS))
+        game["turn"] = "Y" if game["turn"] == "R" else "R"
+        nxt = game["players"][game["turn"]]
+        return await ctx.send(
+            embed=make_embed("Connect 4", f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`")
+        )
+
     @commands.command()
     async def m(self, ctx, pos: int):
         """Make a move in tic-tac-toe (1-9) or connect 4 (1-7)."""
-        # Try tic-tac-toe first
         ttt_game = active_ttt.get(ctx.channel.id)
         if ttt_game:
-            current = ttt_game["players"][ttt_game["turn"]]
-            if ctx.author != current:
-                return
-            if pos < 1 or pos > 9 or ttt_game["board"][pos - 1] in ("X", "O"):
-                return await ctx.send("Invalid move.")
-            ttt_game["board"][pos - 1] = ttt_game["turn"]
-            winner = ttt_check_winner(ttt_game["board"])
-            if winner == "draw":
-                x, o = ttt_game["players"]["X"], ttt_game["players"]["O"]
-                del active_ttt[ctx.channel.id]
-                log_game_draw(x.id, o.id, "ttt")
-                return await ctx.send(embed=make_embed("Tic-Tac-Toe — Draw!", ttt_render(ttt_game["board"]), COLOR_WARNING))
-            if winner:
-                loser_piece = "O" if winner == "X" else "X"
-                w = ttt_game["players"][winner]
-                loser = ttt_game["players"][loser_piece]
-                del active_ttt[ctx.channel.id]
-                log_game_win(w.id, loser.id, "ttt")
-                return await ctx.send(
-                    embed=make_embed(f"Tic-Tac-Toe — {w.display_name} Wins!", ttt_render(ttt_game["board"]), COLOR_SUCCESS)
-                )
-            ttt_game["turn"] = "O" if ttt_game["turn"] == "X" else "X"
-            nxt = ttt_game["players"][ttt_game["turn"]]
-            return await ctx.send(
-                embed=make_embed("Tic-Tac-Toe", f"{ttt_render(ttt_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}m <1-9>`")
-            )
-
-        # Try connect 4
+            return await self._ttt_move(ctx, ttt_game, pos)
         c4_game = active_c4.get(ctx.channel.id)
         if c4_game:
-            current = c4_game["players"][c4_game["turn"]]
-            if ctx.author != current:
-                return
-            if pos < 1 or pos > C4_COLS:
-                return await ctx.send(f"Pick a column between 1 and {C4_COLS}.")
-            row = c4_drop(c4_game["board"], pos - 1, c4_game["turn"])
-            if row == -1:
-                return await ctx.send("That column is full.")
-            winner = c4_check_winner(c4_game["board"])
-            if winner == "draw":
-                r_p, y_p = c4_game["players"]["R"], c4_game["players"]["Y"]
-                del active_c4[ctx.channel.id]
-                log_game_draw(r_p.id, y_p.id, "c4")
-                return await ctx.send(embed=make_embed("Connect 4 — Draw!", c4_render(c4_game["board"]), COLOR_WARNING))
-            if winner:
-                loser_piece = "Y" if winner == "R" else "R"
-                w = c4_game["players"][winner]
-                loser = c4_game["players"][loser_piece]
-                del active_c4[ctx.channel.id]
-                log_game_win(w.id, loser.id, "c4")
-                return await ctx.send(
-                    embed=make_embed(f"Connect 4 — {w.display_name} Wins!", c4_render(c4_game["board"]), COLOR_SUCCESS)
-                )
-            c4_game["turn"] = "Y" if c4_game["turn"] == "R" else "R"
-            nxt = c4_game["players"][c4_game["turn"]]
-            return await ctx.send(
-                embed=make_embed("Connect 4", f"{c4_render(c4_game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`")
-            )
+            return await self._c4_move(ctx, c4_game, pos)
 
     @commands.command(aliases=["ff", "quit", "stop"])
     async def forfeit(self, ctx):
@@ -837,16 +835,7 @@ class GamesCog(commands.Cog):
         if opponent:
             if opponent.bot or opponent == ctx.author:
                 return await ctx.send("You can't play against yourself or a bot.")
-            game = start_c4(ctx.author, opponent)
-            active_c4[ctx.channel.id] = game
-            await ctx.send(
-                embed=make_embed(
-                    "Connect 4",
-                    f"{ctx.author.mention} ({C4_RED}) vs {opponent.mention} ({C4_YELLOW})\n\n"
-                    f"{c4_render(game['board'])}\n\n"
-                    f"{ctx.author.mention}'s turn — use `{PREFIX}drop <1-7>`",
-                )
-            )
+            await self._begin_c4(ctx.channel, ctx.author, opponent)
         else:
             msg = await ctx.send(embed=make_embed("Connect 4", f"{ctx.author.mention} wants to play! React with ✅ to join."))
             await msg.add_reaction("✅")
@@ -863,32 +852,7 @@ class GamesCog(commands.Cog):
         game = active_c4.get(ctx.channel.id)
         if not game:
             return
-        current = game["players"][game["turn"]]
-        if ctx.author != current:
-            return
-        if col < 1 or col > C4_COLS:
-            return await ctx.send(f"Pick a column between 1 and {C4_COLS}.")
-        row = c4_drop(game["board"], col - 1, game["turn"])
-        if row == -1:
-            return await ctx.send("That column is full.")
-        winner = c4_check_winner(game["board"])
-        if winner == "draw":
-            r_p, y_p = game["players"]["R"], game["players"]["Y"]
-            del active_c4[ctx.channel.id]
-            log_game_draw(r_p.id, y_p.id, "c4")
-            return await ctx.send(embed=make_embed("Connect 4 — Draw!", c4_render(game["board"]), COLOR_WARNING))
-        if winner:
-            loser_piece = "Y" if winner == "R" else "R"
-            w = game["players"][winner]
-            loser = game["players"][loser_piece]
-            del active_c4[ctx.channel.id]
-            log_game_win(w.id, loser.id, "c4")
-            return await ctx.send(embed=make_embed(f"Connect 4 — {w.display_name} Wins!", c4_render(game["board"]), COLOR_SUCCESS))
-        game["turn"] = "Y" if game["turn"] == "R" else "R"
-        nxt = game["players"][game["turn"]]
-        await ctx.send(
-            embed=make_embed("Connect 4", f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`")
-        )
+        await self._c4_move(ctx, game, col)
 
     # ---------------------------------------------------------------------------
     # GAMES: HANGMAN
