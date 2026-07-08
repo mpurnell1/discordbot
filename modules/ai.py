@@ -41,6 +41,16 @@ from shared import (
 logger = logging.getLogger("garybot")
 
 
+def is_pass_reply(text: str) -> bool:
+    """True only for a bare PASS reply (the model declining to comment).
+
+    The prompts ask for the single word PASS, but models sometimes wrap it
+    in punctuation or markdown — strip that before comparing. A sentence that
+    merely contains "pass" is a real reply and must not be dropped.
+    """
+    return text.strip().strip("\"'`*_.! ").lower() == "pass"
+
+
 class AICog(commands.Cog):
     BJ_BET_PCT_MIN = 1  # percent when losing (< 80 % of anchor)
     BJ_BET_PCT_BASE = 3  # percent at or near anchor
@@ -822,7 +832,7 @@ class AICog(commands.Cog):
                 response = await query_ollama(prompt, "", model=OLLAMA_REASONING_MODEL)
                 if response:
                     text = clean_reasoning(response)
-                    if text and "pass" not in text.lower():
+                    if text and not is_pass_reply(text):
                         await asyncio.sleep(random.uniform(2, 6))
                         if len(text) > 500:
                             text = text[:500] + "..."
@@ -871,7 +881,7 @@ class AICog(commands.Cog):
                 response = await query_ollama(UNSOLICITED_SYSTEM_PROMPT, prompt, model=OLLAMA_REASONING_MODEL)
             if response:
                 text = clean_reasoning(response)
-                if text and "pass" not in text.lower():
+                if text and not is_pass_reply(text):
                     if len(text) > 500:
                         text = text[:500] + "..."
                     await message.reply(text, mention_author=False)
@@ -909,7 +919,7 @@ class AICog(commands.Cog):
 
                 if response:
                     text = clean_reasoning(response)
-                    if text and "pass" not in text.lower():
+                    if text and not is_pass_reply(text):
                         # Only show typing once we know we're going to say something
                         async with message.channel.typing():
                             await asyncio.sleep(random.uniform(1, 4))
