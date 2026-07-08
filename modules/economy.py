@@ -1627,8 +1627,7 @@ class EconomyCog(commands.Cog):
             return await ctx.send(f"Usage: `{PREFIX}settings blackjack hint <on|off|status>`")
 
         enabled = action == "on"
-        shared.runtime_settings["bj_basic_hint_enabled"] = enabled
-        shared._save_json_setting("bj_basic_hint_enabled", enabled)
+        shared.set_setting("bj_basic_hint_enabled", enabled)
         await ctx.send(f"Blackjack strategy hints are now **{'ON' if enabled else 'OFF'}**.")
 
     async def bjruleset(self, ctx, mode: str = "status"):
@@ -1647,8 +1646,7 @@ class EconomyCog(commands.Cog):
             return await ctx.send("Cannot switch blackjack rules while a hand is active. Finish current hands first.")
 
         selected = apply_blackjack_ruleset(action)
-        shared.runtime_settings["bj_ruleset"] = selected
-        shared._save_json_setting("bj_ruleset", selected)
+        shared.set_setting("bj_ruleset", selected)
         blackjack_shoe.clear()
         await ctx.send(f"Blackjack ruleset set to **{selected}**.")
 

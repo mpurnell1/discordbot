@@ -742,11 +742,9 @@ class StocksCog(commands.Cog):
 
         if last_morning != today_key:
             await self._post_morning_announcement()
-            shared.runtime_settings["ticker_last_morning_date"] = today_key
-            shared._save_json_setting("ticker_last_morning_date", today_key)
+            shared.set_setting("ticker_last_morning_date", today_key)
 
-        shared.runtime_settings["ticker_last_tick_key"] = hour_key
-        shared._save_json_setting("ticker_last_tick_key", hour_key)
+        shared.set_setting("ticker_last_tick_key", hour_key)
 
     @stock_tick_check.before_loop
     async def _wait_until_ready(self):

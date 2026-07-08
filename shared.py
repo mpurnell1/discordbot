@@ -78,42 +78,91 @@ messages_seen = 0  # non-self messages observed (resets on restart)
 # --- Silas roleplay state ---
 active_silas_rp = {}  # channel_id -> {"character": str, "history": list}
 
-SETTINGS_DEFAULTS = {
-    "dead_chat_enabled": False,
-    "command_toggles": {},
-    "feature_channel_rules": {},
-    "gary_gamble_enabled": False,
-    "gary_gamble_channel_id": None,
-    "gary_gamble_report_channel_id": None,
-    "bj_ruleset": "realistic",
-    "bj_basic_hint_enabled": True,
-    "weather_alert_channel_id": None,
-    "weather_alert_city": "Champaign",
-    "weather_alert_last_date": None,
+
+# ---------------------------------------------------------------------------
+# RUNTIME SETTINGS REGISTRY
+#
+# Each setting is declared exactly once: (default, coercer). The coercer turns
+# whatever was stored (or passed to set_setting) into a valid value; if it
+# raises TypeError/ValueError the default wins. Loading and saving both go
+# through the same coercion, so a bad DB value can never poison the runtime.
+# ---------------------------------------------------------------------------
+def _optional_id(raw):
+    return int(raw) if raw else None
+
+
+def _copy_dict(raw):
+    return dict(raw)
+
+
+def _passthrough(raw):
+    return raw
+
+
+def _int_between(lo: int, hi: int):
+    return lambda raw: max(lo, min(hi, int(raw)))
+
+
+def _float_between(lo: float, hi: float):
+    return lambda raw: max(lo, min(hi, float(raw)))
+
+
+def _choice(*options: str):
+    def coerce(raw):
+        value = str(raw).strip().lower()
+        if value not in options:
+            raise ValueError(f"expected one of {options}, got {raw!r}")
+        return value
+
+    return coerce
+
+
+SETTINGS_REGISTRY = {
+    "dead_chat_enabled": (False, bool),
+    "command_toggles": ({}, _copy_dict),
+    "feature_channel_rules": ({}, _copy_dict),
+    "gary_gamble_enabled": (False, bool),
+    "gary_gamble_channel_id": (None, _optional_id),
+    "gary_gamble_report_channel_id": (None, _optional_id),
+    "bj_ruleset": ("realistic", _choice("realistic", "arcade")),
+    "bj_basic_hint_enabled": (True, bool),
+    "weather_alert_channel_id": (None, _optional_id),
+    "weather_alert_city": ("Champaign", str),
+    "weather_alert_last_date": (None, _passthrough),
     # Percent chances (0-100) for passive AI features. Stored as int.
-    "unsolicited_chance_pct": 0,
-    "silas_banter_chance_pct": 0,
-    "silas_react_chance_pct": 0,
-    "late_night_chance_pct": 0,
-    "guild_join_report_channel_id": None,
-    "kids_interaction_log_channel_id": None,
-    "bug_report_channel_id": None,
-    "feature_request_channel_id": None,
-    "request_tracking_channel_id": None,
-    "silas_bot_id": None,
-    "ticker_channel_id": None,
-    "ticker_last_morning_date": None,
-    "ticker_last_tick_key": None,
+    "unsolicited_chance_pct": (0, _int_between(0, 100)),
+    "silas_banter_chance_pct": (0, _int_between(0, 100)),
+    "silas_react_chance_pct": (0, _int_between(0, 100)),
+    "late_night_chance_pct": (0, _int_between(0, 100)),
+    "guild_join_report_channel_id": (None, _optional_id),
+    "kids_interaction_log_channel_id": (None, _optional_id),
+    "bug_report_channel_id": (None, _optional_id),
+    "feature_request_channel_id": (None, _optional_id),
+    "request_tracking_channel_id": (None, _optional_id),
+    "silas_bot_id": (None, _optional_id),
+    "ticker_channel_id": (None, _optional_id),
+    "ticker_last_morning_date": (None, _passthrough),
+    "ticker_last_tick_key": (None, _passthrough),
     # Options paper-trading knobs (see modules/stocks.py). vol sets the ATM
     # premium, floor caps far-OTM leverage, expiry is the contract life in hours.
-    "options_vol": 0.06,
-    "options_premium_floor": 0.005,
-    "options_expiry_hours": 24,
+    "options_vol": (0.06, _float_between(0.005, 1.0)),
+    "options_premium_floor": (0.005, _float_between(0.0005, 0.5)),
+    "options_expiry_hours": (24, _int_between(1, 720)),
 }
+
+SETTINGS_DEFAULTS = {key: default for key, (default, _) in SETTINGS_REGISTRY.items()}
 
 # Loaded from SQLite on startup and updated live by admin commands.
 runtime_settings = dict(SETTINGS_DEFAULTS)
 guild_runtime_settings = {}
+
+
+def _coerce_setting(key: str, raw):
+    default, coercer = SETTINGS_REGISTRY[key]
+    try:
+        return coercer(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -474,73 +523,24 @@ def is_kids_command_allowed(command_name: str) -> bool:
 
 
 def load_runtime_settings():
-    runtime_settings["dead_chat_enabled"] = bool(_load_json_setting("dead_chat_enabled", SETTINGS_DEFAULTS["dead_chat_enabled"]))
-    runtime_settings["command_toggles"] = _load_json_setting("command_toggles", SETTINGS_DEFAULTS["command_toggles"])
-    runtime_settings["feature_channel_rules"] = _load_json_setting(
-        "feature_channel_rules", SETTINGS_DEFAULTS["feature_channel_rules"]
-    )
-    runtime_settings["gary_gamble_enabled"] = bool(
-        _load_json_setting("gary_gamble_enabled", SETTINGS_DEFAULTS["gary_gamble_enabled"])
-    )
-    channel_val = _load_json_setting("gary_gamble_channel_id", SETTINGS_DEFAULTS["gary_gamble_channel_id"])
-    runtime_settings["gary_gamble_channel_id"] = int(channel_val) if channel_val else None
-    report_val = _load_json_setting("gary_gamble_report_channel_id", SETTINGS_DEFAULTS["gary_gamble_report_channel_id"])
-    runtime_settings["gary_gamble_report_channel_id"] = int(report_val) if report_val else None
-    bj_ruleset = _load_json_setting("bj_ruleset", SETTINGS_DEFAULTS["bj_ruleset"])
-    runtime_settings["bj_ruleset"] = (
-        str(bj_ruleset).strip().lower()
-        if str(bj_ruleset).strip().lower() in {"realistic", "arcade"}
-        else SETTINGS_DEFAULTS["bj_ruleset"]
-    )
-    runtime_settings["bj_basic_hint_enabled"] = bool(
-        _load_json_setting("bj_basic_hint_enabled", SETTINGS_DEFAULTS["bj_basic_hint_enabled"])
-    )
-    weather_channel_val = _load_json_setting("weather_alert_channel_id", SETTINGS_DEFAULTS["weather_alert_channel_id"])
-    runtime_settings["weather_alert_channel_id"] = int(weather_channel_val) if weather_channel_val else None
-    runtime_settings["weather_alert_city"] = str(_load_json_setting("weather_alert_city", SETTINGS_DEFAULTS["weather_alert_city"]))
-    runtime_settings["weather_alert_last_date"] = _load_json_setting(
-        "weather_alert_last_date", SETTINGS_DEFAULTS["weather_alert_last_date"]
-    )
-    for key in ("unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct", "late_night_chance_pct"):
-        raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            value = SETTINGS_DEFAULTS[key]
-        runtime_settings[key] = max(0, min(100, value))
-    for key in (
-        "guild_join_report_channel_id",
-        "kids_interaction_log_channel_id",
-        "bug_report_channel_id",
-        "feature_request_channel_id",
-        "request_tracking_channel_id",
-    ):
-        raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
-        runtime_settings[key] = int(raw) if raw else None
-    silas_raw = _load_json_setting("silas_bot_id", SETTINGS_DEFAULTS["silas_bot_id"])
-    runtime_settings["silas_bot_id"] = int(silas_raw) if silas_raw else None
-    ticker_channel_val = _load_json_setting("ticker_channel_id", SETTINGS_DEFAULTS["ticker_channel_id"])
-    runtime_settings["ticker_channel_id"] = int(ticker_channel_val) if ticker_channel_val else None
-    runtime_settings["ticker_last_morning_date"] = _load_json_setting(
-        "ticker_last_morning_date", SETTINGS_DEFAULTS["ticker_last_morning_date"]
-    )
-    runtime_settings["ticker_last_tick_key"] = _load_json_setting("ticker_last_tick_key", SETTINGS_DEFAULTS["ticker_last_tick_key"])
-    for key, lo, hi in (
-        ("options_vol", 0.005, 1.0),
-        ("options_premium_floor", 0.0005, 0.5),
-    ):
-        raw = _load_json_setting(key, SETTINGS_DEFAULTS[key])
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            value = SETTINGS_DEFAULTS[key]
-        runtime_settings[key] = max(lo, min(hi, value))
-    raw_expiry = _load_json_setting("options_expiry_hours", SETTINGS_DEFAULTS["options_expiry_hours"])
-    try:
-        expiry = int(raw_expiry)
-    except (TypeError, ValueError):
-        expiry = SETTINGS_DEFAULTS["options_expiry_hours"]
-    runtime_settings["options_expiry_hours"] = max(1, min(720, expiry))
+    for key, (default, _) in SETTINGS_REGISTRY.items():
+        raw = _load_json_setting(key, default)
+        runtime_settings[key] = _coerce_setting(key, raw)
+
+
+def set_setting(key: str, value):
+    """Coerce `value`, apply it to runtime_settings, and persist it.
+
+    The only supported write path for runtime settings — assigning to
+    runtime_settings directly is silently reverted on the next restart.
+    Returns the coerced value actually stored.
+    """
+    if key not in SETTINGS_REGISTRY:
+        raise KeyError(f"Unknown runtime setting: {key}")
+    coerced = _coerce_setting(key, value)
+    runtime_settings[key] = coerced
+    _save_json_setting(key, coerced)
+    return coerced
 
 
 def normalize_feature_name(feature: str) -> str:

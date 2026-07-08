@@ -497,8 +497,7 @@ class MiscCog(commands.Cog):
         if embed is None:
             return
         await channel.send(embed=embed)
-        shared.runtime_settings["weather_alert_last_date"] = today_key
-        shared._save_json_setting("weather_alert_last_date", today_key)
+        shared.set_setting("weather_alert_last_date", today_key)
 
     # ---------------------------------------------------------------------------
     # ANIMALS
@@ -939,9 +938,7 @@ class MiscCog(commands.Cog):
                     value = int(args[1])
                 except ValueError:
                     return await ctx.send("Value must be an integer percent (0-100).")
-                value = max(0, min(100, value))
-                shared.runtime_settings[keys[target]] = value
-                shared._save_json_setting(keys[target], value)
+                value = shared.set_setting(keys[target], value)
                 return await ctx.send(f"`{target}` is now **{value}%**.")
 
             if sec == "gamble":
@@ -961,14 +958,11 @@ class MiscCog(commands.Cog):
                 if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
                     return await ctx.send("Gary autonomous gambling cannot be configured from a kids-mode server.")
                 if action == "on":
-                    shared.runtime_settings["gary_gamble_enabled"] = True
-                    shared.runtime_settings["gary_gamble_channel_id"] = ctx.channel.id
-                    shared._save_json_setting("gary_gamble_enabled", True)
-                    shared._save_json_setting("gary_gamble_channel_id", ctx.channel.id)
+                    shared.set_setting("gary_gamble_enabled", True)
+                    shared.set_setting("gary_gamble_channel_id", ctx.channel.id)
                     return await ctx.send(f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}.")
                 if action == "off":
-                    shared.runtime_settings["gary_gamble_enabled"] = False
-                    shared._save_json_setting("gary_gamble_enabled", False)
+                    shared.set_setting("gary_gamble_enabled", False)
                     return await ctx.send("Gary autonomous gambling is now **OFF**.")
                 if action == "status":
                     enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
@@ -982,8 +976,7 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    shared.runtime_settings["gary_gamble_channel_id"] = target.id
-                    shared._save_json_setting("gary_gamble_channel_id", target.id)
+                    shared.set_setting("gary_gamble_channel_id", target.id)
                     return await ctx.send(f"Gary gambling channel set to {target.mention}.")
                 if action == "now":
                     ai_cog = self.bot.get_cog("AICog")
@@ -995,8 +988,7 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    shared.runtime_settings["gary_gamble_report_channel_id"] = target.id
-                    shared._save_json_setting("gary_gamble_report_channel_id", target.id)
+                    shared.set_setting("gary_gamble_report_channel_id", target.id)
                     return await ctx.send(f"Gamble report channel set to {target.mention}.")
                 return await ctx.send(f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`")
 
@@ -1015,12 +1007,10 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    shared.runtime_settings["weather_alert_channel_id"] = target.id
-                    shared._save_json_setting("weather_alert_channel_id", target.id)
+                    shared.set_setting("weather_alert_channel_id", target.id)
                     return await ctx.send(f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central.")
                 if action == "off":
-                    shared.runtime_settings["weather_alert_channel_id"] = None
-                    shared._save_json_setting("weather_alert_channel_id", None)
+                    shared.set_setting("weather_alert_channel_id", None)
                     return await ctx.send("Daily weather alert is now **OFF**.")
                 if action == "status":
                     state = "ON" if channel_id else "OFF"
@@ -1029,8 +1019,7 @@ class MiscCog(commands.Cog):
                     if len(args) < 2:
                         return await ctx.send(f"Usage: `{PREFIX}settings weather city <city name>`")
                     new_city = " ".join(args[1:]).strip()
-                    shared.runtime_settings["weather_alert_city"] = new_city
-                    shared._save_json_setting("weather_alert_city", new_city)
+                    shared.set_setting("weather_alert_city", new_city)
                     return await ctx.send(f"Weather alert city set to **{new_city}**.")
                 return await ctx.send(f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`")
 
@@ -1050,16 +1039,14 @@ class MiscCog(commands.Cog):
                     target = ctx.channel
                     if ctx.message.channel_mentions:
                         target = ctx.message.channel_mentions[0]
-                    shared.runtime_settings["ticker_channel_id"] = target.id
-                    shared._save_json_setting("ticker_channel_id", target.id)
+                    shared.set_setting("ticker_channel_id", target.id)
                     return await ctx.send(
                         f"Daily ticker is now **ON** in {target.mention}. "
                         "Morning post fires on the first weekday tick after "
                         "NYSE open (9:30 AM ET / 8:30 AM CT)."
                     )
                 if action == "off":
-                    shared.runtime_settings["ticker_channel_id"] = None
-                    shared._save_json_setting("ticker_channel_id", None)
+                    shared.set_setting("ticker_channel_id", None)
                     return await ctx.send("Daily ticker is now **OFF**.")
                 if action == "status":
                     state = "ON" if channel_id else "OFF"
@@ -1085,8 +1072,7 @@ class MiscCog(commands.Cog):
                 if action not in {"on", "off"}:
                     return await ctx.send(f"Usage: `{PREFIX}settings deadchat <on|off|status>`")
                 enabled = action == "on"
-                shared.runtime_settings["dead_chat_enabled"] = enabled
-                shared._save_json_setting("dead_chat_enabled", enabled)
+                shared.set_setting("dead_chat_enabled", enabled)
                 shared.last_message_time.clear()
                 shared.dead_chat_stage.clear()
                 return await ctx.send(f"Dead chat is now **{action.upper()}**.")
@@ -1117,8 +1103,7 @@ class MiscCog(commands.Cog):
                     return await ctx.send("That command cannot be disabled.")
                 toggles = shared.runtime_settings.get("command_toggles", {})
                 toggles[canonical_name] = state_arg == "on"
-                shared.runtime_settings["command_toggles"] = toggles
-                shared._save_json_setting("command_toggles", toggles)
+                shared.set_setting("command_toggles", toggles)
                 return await ctx.send(f"`{PREFIX}{canonical_name}` is now **{state_arg.upper()}**.")
 
             if sec in {"features", "feature"}:
@@ -1150,8 +1135,7 @@ class MiscCog(commands.Cog):
                     existing["mode"] = action
                     existing["channels"] = [int(c) for c in existing.get("channels", [])]
                     rules[feat] = existing
-                    shared.runtime_settings["feature_channel_rules"] = rules
-                    shared._save_json_setting("feature_channel_rules", rules)
+                    shared.set_setting("feature_channel_rules", rules)
                     return await ctx.send(f"`{feat}` mode is now **{action}**.")
                 if action in {"add", "remove", "clear"}:
                     rule = rules.get(feat, {"mode": "all", "channels": []})
@@ -1168,8 +1152,7 @@ class MiscCog(commands.Cog):
                         channels = channels | ids if action == "add" else channels - ids
                     rule["channels"] = sorted(channels)
                     rules[feat] = rule
-                    shared.runtime_settings["feature_channel_rules"] = rules
-                    shared._save_json_setting("feature_channel_rules", rules)
+                    shared.set_setting("feature_channel_rules", rules)
                     ch_str = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
                     return await ctx.send(f"`{feat}` channels: {ch_str}")
                 return await ctx.send(
@@ -1218,14 +1201,12 @@ class MiscCog(commands.Cog):
                     val = shared.runtime_settings.get(key)
                     return await ctx.send(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
                 if args[1].strip().lower() == "off":
-                    shared.runtime_settings[key] = None
-                    shared._save_json_setting(key, None)
+                    shared.set_setting(key, None)
                     return await ctx.send(f"`{name}` channel cleared.")
                 mentioned = ctx.message.channel_mentions
                 if not mentioned:
                     return await ctx.send(f"Mention a channel or use `off`. Example: `{PREFIX}settings channels {name} #general`")
-                shared.runtime_settings[key] = mentioned[0].id
-                shared._save_json_setting(key, mentioned[0].id)
+                shared.set_setting(key, mentioned[0].id)
                 return await ctx.send(f"`{name}` channel set to {mentioned[0].mention}.")
 
             if sec == "silas":
@@ -1247,8 +1228,7 @@ class MiscCog(commands.Cog):
                         new_id = int(args[1].strip())
                     except ValueError:
                         return await ctx.send("Bot ID must be an integer.")
-                    shared.runtime_settings["silas_bot_id"] = new_id
-                    shared._save_json_setting("silas_bot_id", new_id)
+                    shared.set_setting("silas_bot_id", new_id)
                     return await ctx.send(f"Silas bot ID set to `{new_id}`.")
                 if sub in {"banter", "react"}:
                     key = f"silas_{sub}_chance_pct"
@@ -1259,8 +1239,7 @@ class MiscCog(commands.Cog):
                         value = max(0, min(100, int(args[1])))
                     except ValueError:
                         return await ctx.send("Value must be an integer (0-100).")
-                    shared.runtime_settings[key] = value
-                    shared._save_json_setting(key, value)
+                    shared.set_setting(key, value)
                     return await ctx.send(f"Silas {sub} is now **{value}%**.")
                 return await ctx.send(f"Usage: `{PREFIX}settings silas <id|banter|react> [value]`")
 
@@ -1298,8 +1277,7 @@ class MiscCog(commands.Cog):
                     return await ctx.send(f"Value must be {kind} between {lo} and {hi}.")
                 if not lo <= value <= hi:
                     return await ctx.send(f"`{target}` must be between {lo} and {hi}.")
-                shared.runtime_settings[key] = value
-                shared._save_json_setting(key, value)
+                shared.set_setting(key, value)
                 return await ctx.send(f"`{target}` is now {_fmt_opt(target)}.")
 
             _SECTIONS = (
