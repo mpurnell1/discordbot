@@ -10,6 +10,7 @@ re-exported here because most of the codebase (and the test suite) reaches
 them through `shared`.
 """
 
+import functools
 import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -168,6 +169,23 @@ def _coerce_setting(key: str, raw):
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
+def admin_only(func):
+    """Make an async cog method silently no-op unless invoked by the admin.
+
+    Wraps the callback itself (rather than registering a commands.check) so
+    the gate also holds when callbacks are called directly — which is how the
+    test suite and internal dispatchers like .settings drive these methods.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(self, ctx, *args, **kwargs):
+        if ctx.author.id != ADMIN_ID:
+            return None
+        return await func(self, ctx, *args, **kwargs)
+
+    return wrapper
+
+
 def log_balance(user_id: int, balance: int):
     db.execute(
         "INSERT INTO balance_history (user_id, balance, timestamp) VALUES (?, ?, ?)",

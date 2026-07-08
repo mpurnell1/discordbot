@@ -10,7 +10,6 @@ from discord.ext import commands, tasks
 
 import shared
 from config import (
-    ADMIN_ID,
     CENTRAL_TZ,
     DEAD_CHAT_CHANNEL,
     DEAD_CHAT_THRESHOLDS,
@@ -632,11 +631,9 @@ class AICog(commands.Cog):
         return "Blackjack hand already active; waiting to play hit/stand."
 
     @commands.command()
+    @shared.admin_only
     async def garystats(self, ctx):
         """Show Gary's autonomous gambling session history (admin only)."""
-        if ctx.author.id != ADMIN_ID:
-            return
-
         stats = get_gary_gamble_stats()
         balance = self.gamble_state.get("last_known_balance")
         anchor = self.gamble_state.get("session_anchor_balance")

@@ -7,7 +7,6 @@ from discord.ext import commands
 
 import shared
 from config import (
-    ADMIN_ID,
     CENTRAL_TZ,
     COLOR_ERROR,
     COLOR_SUCCESS,
@@ -1372,10 +1371,9 @@ class EconomyCog(commands.Cog):
                 await ctx.send(embed=make_embed("Wrong", f"That's not it. Attempts left: **{remaining}**", COLOR_ERROR))
 
     @commands.command()
+    @shared.admin_only
     async def repuzzle(self, ctx, member: discord.Member = None):
         """Admin only: regenerate a user's daily puzzle (or your own)."""
-        if ctx.author.id != ADMIN_ID:
-            return
         target = member or ctx.author
         active_puzzles.pop(_puzzle_key(target.id, False), None)
         active_puzzles.pop(_puzzle_key(target.id, True), None)
@@ -1613,11 +1611,9 @@ class EconomyCog(commands.Cog):
         """Show the active blackjack table rules."""
         await ctx.send(self._blackjack_rules_summary())
 
+    @shared.admin_only
     async def bjhint(self, ctx, mode: str = "status"):
         """Toggle blackjack basic-strategy hints (`on`, `off`, `status`). Called from .settings blackjack hint."""
-        if ctx.author.id != ADMIN_ID:
-            return
-
         action = mode.strip().lower()
         if action == "status":
             enabled = shared.runtime_settings.get("bj_basic_hint_enabled", True)
@@ -1630,11 +1626,9 @@ class EconomyCog(commands.Cog):
         shared.set_setting("bj_basic_hint_enabled", enabled)
         await ctx.send(f"Blackjack strategy hints are now **{'ON' if enabled else 'OFF'}**.")
 
+    @shared.admin_only
     async def bjruleset(self, ctx, mode: str = "status"):
         """Set blackjack ruleset (`realistic` or `arcade`) or show status. Called from .settings blackjack ruleset."""
-        if ctx.author.id != ADMIN_ID:
-            return
-
         action = mode.strip().lower()
         if action == "status":
             return await ctx.send(self._blackjack_rules_summary())

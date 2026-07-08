@@ -852,10 +852,9 @@ class MiscCog(commands.Cog):
 
     @commands.command()
     @commands.guild_only()
+    @shared.admin_only
     async def unquote(self, ctx, quote_id: int):
         """Delete a quote by ID (admin only)."""
-        if ctx.author.id != ADMIN_ID:
-            return
         row = shared.db.execute("SELECT id FROM quotes WHERE id = ? AND guild_id = ?", (quote_id, ctx.guild.id)).fetchone()
         if not row:
             return await ctx.send(f"Quote #{quote_id} not found.")
@@ -867,9 +866,8 @@ class MiscCog(commands.Cog):
     # ADMIN
     # ---------------------------------------------------------------------------
 
+    @shared.admin_only
     async def _set_kids_mode(self, ctx, action: str = "status"):
-        if ctx.author.id != ADMIN_ID:
-            return
         if ctx.guild is None:
             return await ctx.send("Kids mode is server-specific. Run this in the target server.")
 
@@ -899,11 +897,9 @@ class MiscCog(commands.Cog):
         )
 
     @commands.command(aliases=["set"])
+    @shared.admin_only
     async def settings(self, ctx, section: str = "", *args):
         """Show runtime settings or manage sections (example: .settings gamble on)."""
-        if ctx.author.id != ADMIN_ID:
-            return
-
         if section:
             sec = section.strip().lower()
             if sec in {"kids", "kidsmode"}:
@@ -1375,10 +1371,9 @@ class MiscCog(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
+    @shared.admin_only
     async def restart(self, ctx):
         """Admin only: restart this bot process."""
-        if ctx.author.id != ADMIN_ID:
-            return
         await ctx.send("Restarting bot process now...")
         shared.db.commit()
         python = sys.executable
@@ -1388,6 +1383,8 @@ class MiscCog(commands.Cog):
     async def clear(self, ctx, count: str = ""):
         """Admin only: delete the last <n> messages from Gary."""
         try:
+            # Not @shared.admin_only: the finally-delete of the invoking
+            # message must happen even for non-admins.
             if ctx.author.id != ADMIN_ID:
                 return
 
@@ -1435,10 +1432,9 @@ class MiscCog(commands.Cog):
                 pass
 
     @commands.command(aliases=["botstats", "bs", "bot"])
+    @shared.admin_only
     async def botstat(self, ctx):
         """Admin only: show runtime bot stats."""
-        if ctx.author.id != ADMIN_ID:
-            return
         now = datetime.now(timezone.utc)
         if shared.bot_start_time:
             delta = now - shared.bot_start_time
@@ -1521,19 +1517,17 @@ class MiscCog(commands.Cog):
         await ctx.send(embed=make_embed("🔗 Invite Link", f"[Click here to invite me!]({link})"))
 
     @commands.command()
+    @shared.admin_only
     async def give(self, ctx, member: discord.Member, amount: int):
         """Admin only: add coins to a user."""
-        if ctx.author.id != ADMIN_ID:
-            return
         update_balance(member.id, amount)
         new_bal = get_balance(member.id)
         await ctx.send(f"Gave **{amount}** coins to {member.mention}. New balance: **{new_bal}**")
 
     @commands.command()
+    @shared.admin_only
     async def say(self, ctx, *, text: str):
         """Admin only: delete command message and make Gary say text."""
-        if ctx.author.id != ADMIN_ID:
-            return
         deleted = True
         try:
             await ctx.message.delete()
@@ -1868,10 +1862,9 @@ class MiscCog(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(aliases=["ah"])
+    @shared.admin_only
     async def adminhelp(self, ctx):
         """Show admin-only commands."""
-        if ctx.author.id != ADMIN_ID:
-            return
         p = PREFIX
         embed = discord.Embed(title="Admin Commands", color=COLOR_DEFAULT)
         embed.add_field(
