@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import logging
+import traceback
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -360,14 +361,17 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CommandNotFound):
         logger.info("Unknown command from %s (%s)", ctx.author, ctx.author.id)
     else:
-        import traceback as _tb
-
-        tb_text = _tb.format_exc()
-        logger.exception(
-            "Unhandled command error: command=%s user=%s (%s)",
+        # on_command_error is dispatched outside the except block, so
+        # traceback.format_exc() sees no active exception here — format the
+        # error object itself (unwrapping CommandInvokeError) instead.
+        root = getattr(error, "original", error)
+        tb_text = "".join(traceback.format_exception(type(root), root, root.__traceback__))
+        logger.error(
+            "Unhandled command error: command=%s user=%s (%s)\n%s",
             getattr(ctx.command, "name", "unknown"),
             ctx.author,
             ctx.author.id,
+            tb_text,
         )
         await ctx.send("That command failed unexpectedly. Check logs and try again.")
         await post_error_log(
@@ -382,9 +386,9 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_error(event, *args, **kwargs):
-    import traceback as _tb
-
-    tb_text = _tb.format_exc()
+    # Unlike on_command_error, on_error IS dispatched from the except block,
+    # so the active exception is available here.
+    tb_text = traceback.format_exc()
     logger.exception("Unhandled error in event listener: %s", event)
     await post_error_log("⚠️ Event Listener Error", f"**Event:** `{event}`\n```\n{tb_text[-1800:]}\n```")
 
