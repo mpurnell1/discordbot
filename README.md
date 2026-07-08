@@ -71,8 +71,13 @@ Rotation policy:
 ## Project Structure
 
 - `bot.py`: bootstrap, cog loading, global command error handling
-- `shared.py`: config/constants, DB setup, shared helpers/runtime settings
+- `config.py`: environment variables and gameplay constants
+- `content.py`: canned responses, AI prompts, kids-mode policy
+- `db.py`: SQLite connection, schema, versioned migrations (`PRAGMA user_version`)
+- `ollama_client.py`: Ollama chat API client
+- `shared.py`: runtime state, settings registry/persistence (`set_setting`), shared DB helpers
 - `modules/ai.py`: AI listeners/tasks and AI commands
+- `modules/reminders.py`: interactive reminder cards, repeating schedules, background delivery
 - `modules/economy.py`: economy, puzzle, and gambling commands
 - `modules/games.py`: ttt/c4/hangman game commands and listeners
 - `modules/misc.py`: weather/fun/quotes/admin/help/stats/invite

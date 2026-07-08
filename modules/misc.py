@@ -1316,7 +1316,7 @@ class MiscCog(commands.Cog):
         return await ctx.send(f"`{target}` is now {_fmt_opt(target)}.")
 
     async def _settings_overview(self, ctx):
-        dead_chat_state = "ON" if shared.runtime_settings.get("dead_chat_enabled", True) else "OFF"
+        dead_chat_state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
         kids_mode_state = "ON" if ctx.guild and is_kids_mode_guild(ctx.guild.id) else "OFF"
         gary_gamble_state = "ON" if shared.runtime_settings.get("gary_gamble_enabled", False) else "OFF"
         bj_ruleset = str(shared.runtime_settings.get("bj_ruleset", "realistic")).upper()

@@ -846,7 +846,7 @@ class AICog(commands.Cog):
         now = datetime.now(timezone.utc)
 
         # --- Track message times for dead chat ---
-        if shared.runtime_settings.get("dead_chat_enabled", True) and is_feature_allowed("dead_chat", channel_id, guild_id):
+        if shared.runtime_settings.get("dead_chat_enabled", False) and is_feature_allowed("dead_chat", channel_id, guild_id):
             shared.last_message_time[channel_id] = now
             shared.dead_chat_stage[channel_id] = -1  # reset escalation
 
@@ -934,7 +934,7 @@ class AICog(commands.Cog):
     @tasks.loop(minutes=10)
     async def dead_chat_checker(self):
         """Periodically check all tracked channels for dead chat."""
-        if not shared.runtime_settings.get("dead_chat_enabled", True):
+        if not shared.runtime_settings.get("dead_chat_enabled", False):
             return
         now = datetime.now(timezone.utc)
         for channel_id, last_time in list(shared.last_message_time.items()):
