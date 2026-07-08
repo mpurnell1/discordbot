@@ -204,7 +204,6 @@ def summarize_bot_message(message: discord.Message) -> str:
 
 @bot.event
 async def on_command(ctx):
-    shared.command_usage[ctx.command.name] += 1
     logger.info(
         "Command invoked: %s | user=%s (%s) | guild=%s | channel=%s",
         ctx.command.name,
