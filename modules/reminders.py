@@ -20,7 +20,8 @@ import discord
 from discord.ext import commands, tasks
 
 import shared
-from shared import CENTRAL_TZ, COLOR_DEFAULT, COLOR_ERROR, COLOR_SUCCESS, PREFIX, make_embed
+from config import CENTRAL_TZ, COLOR_DEFAULT, COLOR_ERROR, COLOR_SUCCESS, PREFIX
+from shared import make_embed
 
 logger = logging.getLogger(__name__)
 

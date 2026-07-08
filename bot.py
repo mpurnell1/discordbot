@@ -8,15 +8,19 @@ import discord
 from discord.ext import commands
 
 import shared
-from shared import (
-    TOKEN,
-    PREFIX,
+from config import (
     ADMIN_ID,
-    DAILY_AMOUNT,
     CENTRAL_TZ,
     COLOR_DEFAULT,
+    COLOR_ERROR,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    DAILY_AMOUNT,
+    OLLAMA_URL,
+    PREFIX,
+    TOKEN,
+)
+from shared import (
     make_embed,
     get_balance,
     update_balance,
@@ -182,7 +186,7 @@ async def post_error_log(title: str, body: str):
         return
     try:
         channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
-        await channel.send(embed=make_embed(title, body[:4000], shared.COLOR_ERROR))
+        await channel.send(embed=make_embed(title, body[:4000], COLOR_ERROR))
     except discord.HTTPException:
         logger.warning("Could not post to error log channel")
 
@@ -406,6 +410,6 @@ async def on_resumed():
 if __name__ == "__main__":
     if not ADMIN_ID:
         raise SystemExit("ADMIN_ID is not set in .env — cannot start bot.")
-    if not shared.OLLAMA_URL:
+    if not OLLAMA_URL:
         logger.warning("OLLAMA_URL is not set — AI features will not work.")
     bot.run(TOKEN)

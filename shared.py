@@ -1,342 +1,69 @@
-from dotenv import load_dotenv
-import discord
-import aiohttp
-import sqlite3
-import asyncio
-import re
-import os
+"""Runtime state, settings persistence, and shared DB helpers.
+
+Importing this module has side effects: it opens the SQLite database (via
+db.py) and loads runtime settings from it. Tests must set DISCORDBOT_DB_PATH
+before importing anything that imports shared — tests/conftest.py does this.
+
+Static configuration lives in config.py, canned responses and prompts in
+content.py, and the Ollama HTTP client in ollama_client.py. Their names are
+re-exported here because most of the codebase (and the test suite) reaches
+them through `shared`.
+"""
+
 import json
-from pathlib import Path
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
-load_dotenv()
+import discord
 
-CENTRAL_TZ = ZoneInfo("America/Chicago")
-
-# ---------------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------------
-TOKEN = os.getenv("DISCORD_TOKEN", "YOUR_TOKEN_HERE")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "YOUR_API_KEY_HERE")
-PREFIX = "."
-DAILY_AMOUNT = 200
-NICKNAME_COST = 2000
-NICKNAME_DURATION_HOURS = 24
-STARTING_BALANCE = 100
-
-# --- Embed colors ---
-COLOR_DEFAULT = 0x5865F2  # Discord blurple
-COLOR_SUCCESS = 0x57F287  # Green
-COLOR_ERROR = 0xED4245  # Red
-COLOR_WARNING = 0xFEE75C  # Yellow
-COLOR_PINK = 0xEB459E
-COLOR_ORANGE = 0xE67E22
-COLOR_GOLD = 0xF1C40F
-
-# --- Passive feature config ---
-OLLAMA_URL = os.getenv("OLLAMA_URL", "")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
-OLLAMA_REASONING_MODEL = os.getenv("OLLAMA_REASONING_MODEL", "deepseek-r1:8b")
-
-# Late night callout: hours in US Central time that count as "late".
-# The callout chance is the late_night_chance_pct runtime setting.
-LATE_NIGHT_START = 1  # 1am Central
-LATE_NIGHT_END = 5  # 5am Central
-
-# Dead chat: minutes of silence before escalating
-DEAD_CHAT_THRESHOLDS = [60, 180, 360, 720]  # 1hr, 3hr, 6hr, 12hr
-DEAD_CHAT_CHANNEL = "bot-spam"  # Only send dead chat messages in this channel
-
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-
-# --- Lucky guess config ---
-LUCKY_GUESS_RANGE = 10  # Guess 1-N
-LUCKY_GUESS_REWARD = 1  # Coins awarded on correct guess
-LUCKY_GUESS_MAX_DAILY = 3  # Max attempts per day
-
-# --- Daily puzzle config ---
-PUZZLE_REWARD = 50  # Coins awarded for solving daily puzzle
-PUZZLE_MAX_ATTEMPTS = 3  # Max wrong answers before lockout
-
+from config import (  # noqa: F401
+    ADMIN_ID,
+    CENTRAL_TZ,
+    COLOR_DEFAULT,
+    COLOR_ERROR,
+    COLOR_GOLD,
+    COLOR_ORANGE,
+    COLOR_PINK,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    DAILY_AMOUNT,
+    DEAD_CHAT_CHANNEL,
+    DEAD_CHAT_THRESHOLDS,
+    LATE_NIGHT_END,
+    LATE_NIGHT_START,
+    LUCKY_GUESS_MAX_DAILY,
+    LUCKY_GUESS_RANGE,
+    LUCKY_GUESS_REWARD,
+    NICKNAME_COST,
+    NICKNAME_DURATION_HOURS,
+    OLLAMA_MODEL,
+    OLLAMA_REASONING_MODEL,
+    OLLAMA_URL,
+    OPENWEATHER_API_KEY,
+    PREFIX,
+    PUZZLE_MAX_ATTEMPTS,
+    PUZZLE_REWARD,
+    STARTING_BALANCE,
+    STREAK_MILESTONES,
+    TOKEN,
+)
+from content import (  # noqa: F401
+    ASK_SYSTEM_PROMPT,
+    DEAD_CHAT_RESPONSES,
+    KIDS_MODE_BLOCKED_COMMANDS,
+    KIDS_MODE_BLOCKED_FEATURES,
+    KIDS_MODE_SUMMARY,
+    LATE_NIGHT_RESPONSES,
+    PROTECTED_ADMIN_COMMANDS,
+    SILAS_BANTER_PROMPT,
+    SILAS_REACTIONS,
+    UNSOLICITED_SYSTEM_PROMPT,
+)
+from db import db, init_db  # noqa: F401
+from ollama_client import clean_reasoning, query_ollama, query_ollama_chat  # noqa: F401
 
 # ---------------------------------------------------------------------------
-# DATABASE SETUP
-# ---------------------------------------------------------------------------
-def init_db():
-    db_path = os.getenv("DISCORDBOT_DB_PATH") or str(Path(__file__).resolve().parent / "bot.db")
-    db = sqlite3.connect(db_path)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            balance INTEGER DEFAULT 0,
-            last_daily TEXT DEFAULT '',
-            last_daily_reminder TEXT DEFAULT '',
-            guess_date TEXT DEFAULT '',
-            guess_count INTEGER DEFAULT 0,
-            puzzle_date TEXT DEFAULT '',
-            puzzle_solved INTEGER DEFAULT 0,
-            puzzle_attempts INTEGER DEFAULT 0,
-            active_puzzle_type TEXT DEFAULT '',
-            active_puzzle_answer TEXT DEFAULT '',
-            active_puzzle_display TEXT DEFAULT '',
-            active_puzzle_guesses TEXT DEFAULT '[]'
-        )
-    """)
-    # Migrate existing databases missing the guess columns
-    try:
-        db.execute("ALTER TABLE users ADD COLUMN guess_date TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        db.execute("ALTER TABLE users ADD COLUMN guess_count INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        db.execute("ALTER TABLE users ADD COLUMN last_daily_reminder TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    for col in [
-        "puzzle_date TEXT DEFAULT ''",
-        "puzzle_solved INTEGER DEFAULT 0",
-        "puzzle_attempts INTEGER DEFAULT 0",
-        "active_puzzle_type TEXT DEFAULT ''",
-        "active_puzzle_answer TEXT DEFAULT ''",
-        "active_puzzle_display TEXT DEFAULT ''",
-        "active_puzzle_guesses TEXT DEFAULT '[]'",
-        "activity_streak INTEGER DEFAULT 0",
-        "activity_streak_max INTEGER DEFAULT 0",
-    ]:
-        try:
-            db.execute(f"ALTER TABLE users ADD COLUMN {col}")
-        except sqlite3.OperationalError:
-            pass
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS nick_changes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
-            target_id INTEGER,
-            original_nick TEXT,
-            expires_at TEXT
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS quotes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id INTEGER,
-            quoted_user_id INTEGER,
-            quoted_user_name TEXT,
-            content TEXT,
-            saved_by INTEGER,
-            saved_at TEXT
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS guild_settings (
-            guild_id INTEGER,
-            key TEXT,
-            value TEXT NOT NULL,
-            PRIMARY KEY (guild_id, key)
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS command_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            command_name TEXT NOT NULL,
-            guild_id INTEGER,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS balance_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            balance INTEGER NOT NULL,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS puzzle_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            attempts INTEGER NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS game_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            opponent_id INTEGER NOT NULL,
-            game_type TEXT NOT NULL,
-            outcome TEXT NOT NULL,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS gambling_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            game_type TEXT NOT NULL,
-            wager INTEGER NOT NULL,
-            delta INTEGER NOT NULL,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS gary_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at TEXT NOT NULL,
-            ended_at TEXT,
-            start_balance INTEGER NOT NULL,
-            end_balance INTEGER,
-            peak_balance INTEGER NOT NULL,
-            outcome TEXT
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS stock_prices (
-            ticker TEXT PRIMARY KEY,
-            price REAL NOT NULL,
-            prev_close REAL NOT NULL,
-            last_updated TEXT NOT NULL
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS stock_holdings (
-            user_id INTEGER NOT NULL,
-            ticker TEXT NOT NULL,
-            shares REAL NOT NULL,
-            avg_cost REAL NOT NULL,
-            PRIMARY KEY (user_id, ticker)
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS stock_trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            ticker TEXT NOT NULL,
-            action TEXT NOT NULL,
-            shares REAL NOT NULL,
-            price REAL NOT NULL,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    try:
-        db.execute("ALTER TABLE stock_trades ADD COLUMN realized_pl REAL")
-    except sqlite3.OperationalError:
-        pass
-    # Registry of tradable US tickers. Seeded with a curated list in
-    # modules/stocks.py on first boot; users can add more via `.stocks add SYM`.
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS stock_tickers (
-            ticker TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            added_by INTEGER,
-            added_at TEXT NOT NULL
-        )
-    """)
-    # ----- One-time migration: retire the old simulated tickers -----
-    # The simulated market's last "price" was itself fabricated, so we refund
-    # every open position at the user's avg_cost — they get back exactly what
-    # they paid in, zero realized P/L. Each refund is logged to balance_history
-    # for auditability. Legacy trade rows are dropped along with the holdings
-    # and price rows so the new yfinance-backed seeding can take over cleanly.
-    _LEGACY_FAKE_TICKERS = ("GARY", "SILS", "COIN", "DOGE", "WORD", "DEAD")
-    _legacy_placeholders = ",".join("?" * len(_LEGACY_FAKE_TICKERS))
-    legacy_present = db.execute(
-        f"SELECT 1 FROM stock_prices WHERE ticker IN ({_legacy_placeholders}) LIMIT 1",
-        _LEGACY_FAKE_TICKERS,
-    ).fetchone()
-    if legacy_present:
-        legacy_holdings = db.execute(
-            f"SELECT user_id, ticker, shares, avg_cost FROM stock_holdings WHERE ticker IN ({_legacy_placeholders})",
-            _LEGACY_FAKE_TICKERS,
-        ).fetchall()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        for user_id, ticker, shares, avg_cost in legacy_holdings:
-            refund = int(round(float(shares) * float(avg_cost)))
-            if refund <= 0:
-                continue
-            db.execute(
-                "INSERT INTO users (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?",
-                (user_id, refund, refund),
-            )
-            new_bal = db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
-            db.execute(
-                "INSERT INTO balance_history (user_id, balance, timestamp) VALUES (?, ?, ?)",
-                (user_id, new_bal, now_iso),
-            )
-        db.execute(f"DELETE FROM stock_holdings WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
-        db.execute(f"DELETE FROM stock_trades   WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
-        db.execute(f"DELETE FROM stock_prices   WHERE ticker IN ({_legacy_placeholders})", _LEGACY_FAKE_TICKERS)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS options (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            ticker TEXT NOT NULL,
-            option_type TEXT NOT NULL,
-            coins_bet INTEGER NOT NULL,
-            strike_price REAL NOT NULL,
-            opened_at TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            settled INTEGER DEFAULT 0,
-            exit_price REAL,
-            pnl INTEGER,
-            settled_at TEXT,
-            side TEXT DEFAULT 'long',
-            contracts REAL,
-            entry_price REAL,
-            premium_frac REAL
-        )
-    """)
-    # Migrations for DBs created before these columns existed.
-    for _col, _decl in (
-        ("side", "TEXT DEFAULT 'long'"),
-        ("contracts", "REAL"),
-        ("entry_price", "REAL"),
-        ("premium_frac", "REAL"),
-    ):
-        try:
-            db.execute(f"ALTER TABLE options ADD COLUMN {_col} {_decl}")
-        except sqlite3.OperationalError:
-            pass
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            channel_id INTEGER,
-            guild_id INTEGER,
-            text TEXT NOT NULL,
-            next_fire_at TEXT NOT NULL,
-            repeat_kind TEXT NOT NULL DEFAULT 'none',
-            repeat_interval INTEGER,
-            repeat_unit TEXT,
-            destination TEXT NOT NULL DEFAULT 'channel',
-            created_at TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1
-        )
-    """)
-    db.execute("CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (active, next_fire_at)")
-    # The old per-day sparkline snapshot table is gone — we now pull history
-    # straight from yfinance during the hourly tick and cache it in memory.
-    db.execute("DROP TABLE IF EXISTS stock_price_history")
-    db.commit()
-    return db
-
-
-db = init_db()
-
-# ---------------------------------------------------------------------------
-# BOT SETUP
+# RUNTIME STATE (in-memory, resets on restart)
 # ---------------------------------------------------------------------------
 
 # Passive feature state
@@ -347,6 +74,10 @@ recent_messages = {}  # channel_id -> list of last N messages for context
 bot_start_time = None  # set in on_ready
 command_usage = Counter()  # command name -> count (resets on restart)
 messages_seen = 0  # non-self messages observed (resets on restart)
+
+# --- Silas roleplay state ---
+active_silas_rp = {}  # channel_id -> {"character": str, "history": list}
+
 SETTINGS_DEFAULTS = {
     "dead_chat_enabled": False,
     "command_toggles": {},
@@ -379,97 +110,6 @@ SETTINGS_DEFAULTS = {
     "options_premium_floor": 0.005,
     "options_expiry_hours": 24,
 }
-PROTECTED_ADMIN_COMMANDS = {
-    "adminhelp",
-    "settings",
-    "restart",
-    "say",
-    "give",
-    "clear",
-}
-
-KIDS_MODE_BLOCKED_COMMANDS = {
-    # Economy is intentionally excluded from kids mode.
-    "guess",
-    "repuzzle",
-    "balance",
-    "leaderboard",
-    "give",
-    "invite",
-    "botstat",
-    # Stocks (economy adjacent).
-    "stocks",
-    "buy",
-    "sell",
-    "portfolio",
-    # Gambling and blackjack-adjacent actions.
-    "coinflip",
-    "slots",
-    "blackjack",
-    "hit",
-    "stand",
-    "double",
-    "split",
-    "surrender",
-    "bjrules",
-    # Free-form AI and bot-to-bot roleplay are not predictable enough for kids mode.
-    "ask",
-    "rp",
-    "stoprp",
-    # Moderation/social commands that can be used to embarrass or preserve messages.
-    "changenick",
-    "quote",
-    "quotes",
-    "unquote",
-    # External uncurated text content is not exposed in kids mode.
-    "onthisday",
-}
-
-KIDS_MODE_BLOCKED_FEATURES = {
-    "cmd:coinflip",
-    "cmd:slots",
-    "cmd:blackjack",
-    "cmd:hit",
-    "cmd:stand",
-    "cmd:double",
-    "cmd:split",
-    "cmd:surrender",
-    "cmd:bjrules",
-    "cmd:ask",
-    "cmd:rp",
-    "cmd:stoprp",
-    "cmd:changenick",
-    "cmd:quote",
-    "cmd:quotes",
-    "cmd:unquote",
-    "cmd:onthisday",
-    "cmd:guess",
-    "cmd:repuzzle",
-    "cmd:balance",
-    "cmd:leaderboard",
-    "cmd:give",
-    "cmd:invite",
-    "cmd:stats",
-    "cmd:stocks",
-    "cmd:buy",
-    "cmd:sell",
-    "cmd:portfolio",
-    "dead_chat",
-    "late_night",
-    "mention_reply",
-    "silas",
-    "unsolicited_ai",
-}
-
-KIDS_MODE_SUMMARY = (
-    "Kids mode keeps Gary useful while removing unpredictable or adult-leaning behavior:\n"
-    "- disables economy and coin rewards\n"
-    "- disables gambling commands and blackjack actions\n"
-    "- disables all AI and passive behavior, including reminders, Silas handling,"
-    " mention replies, unsolicited AI, late-night roasts, and dead-chat callouts\n"
-    "- disables nickname changes, quote saving/browsing, and uncurated external content\n"
-    "- keeps curated games, weather, and help"
-)
 
 # Loaded from SQLite on startup and updated live by admin commands.
 runtime_settings = dict(SETTINGS_DEFAULTS)
@@ -576,9 +216,6 @@ def get_gambling_stats(user_id: int) -> dict:
             stats[game_type]["wagered"] += wager
             stats[game_type]["hands"] += 1
     return stats
-
-
-STREAK_MILESTONES = {7: 100, 30: 500, 100: 2000}
 
 
 def update_activity_streak(user_id: int, prev_daily_iso: str | None) -> tuple[int, bool, int]:
@@ -1005,189 +642,3 @@ async def check_bet(ctx, amount: int) -> bool:
         await ctx.send(embed=make_embed("❌ Broke", f"You only have **{bal}** coins.", COLOR_ERROR))
         return True
     return False
-
-
-# ---------------------------------------------------------------------------
-# LATE NIGHT CALLOUT — canned responses
-# ---------------------------------------------------------------------------
-LATE_NIGHT_RESPONSES = [
-    "why are you awake right now. genuinely.",
-    "go to sleep.",
-    "nothing good happens after midnight and yet here you are",
-    "do you have work tomorrow? because I feel like you have work tomorrow",
-    "the phone screen light is gonna keep you up even longer you know",
-    "this is a cry for help isn't it",
-    "ah yes, the 3am scroll. a classic",
-    "you're gonna regret this tomorrow and we both know it",
-    "the melatonin isn't gonna take itself",
-    "bro thinks he's a night owl. bro is just bad at sleeping",
-    "imagine being asleep right now. couldn't be you apparently",
-    "you're really out here making choices at this hour",
-    "the bed is RIGHT THERE",
-    "sleep is free and you still won't take it",
-    "tell me you have no morning plans without telling me",
-    "this message brought to you by poor life decisions",
-    "what could you possibly be doing right now that's worth being awake",
-    "your future self is going to be so mad at current you",
-    "screen time report is gonna be devastating tomorrow",
-    "genuinely asking — do you know what time it is",
-    "oh cool another 2am thought that could've waited till morning",
-    "the bags under your eyes are getting bags",
-    "you are speedrunning sleep deprivation",
-    "I don't even sleep and I think you should go to bed",
-    "at this point you might as well just stay up. wait no don't do that either",
-]
-
-# ---------------------------------------------------------------------------
-# DEAD CHAT ESCALATION — canned responses per stage
-# ---------------------------------------------------------------------------
-DEAD_CHAT_RESPONSES = {
-    # Stage 0: 1 hour of silence — mild nudge
-    0: [
-        "so we're just not talking anymore? cool",
-        "...",
-        "the silence is deafening in here",
-        "I know you're all on your phones",
-        "*tumbleweed rolls through*",
-        "hello? is this thing on?",
-        "the group chat really said ⬛",
-        "did everybody die or",
-        "I'm literally right here you guys",
-        "y'all got real quiet",
-    ],
-    # Stage 1: 3 hours — getting passive aggressive
-    1: [
-        "still nothing huh. that's cool. I'm fine",
-        "I'm starting to think you guys don't even like me",
-        "3 hours. I've been sitting here for 3 hours.",
-        "you know other bots don't get treated like this",
-        "the other group chat must be popping off right now",
-        "I prepared conversation topics and everything",
-        "I can see you're online. I can always see.",
-        "this is worse than being left on read because at least that implies someone sent something",
-        "fine. I'll just talk to myself then.",
-        "I've seen funeral homes with more activity",
-    ],
-    # Stage 2: 6 hours — dramatic
-    2: [
-        "6 hours of silence. this server is clinically dead. I'm calling it.",
-        "I've started counting the pixels on my screen. I'm at 4,000.",
-        "at this point I think *I* should start posting memes to keep things alive",
-        "this is giving abandoned discord server from 2019",
-        "I've genuinely had more stimulating conversations with error logs",
-        "somebody say something or I'm going to start sharing fun facts",
-        "Fun fact: a group of flamingos is called a 'flamboyance.' See? This is what happens when nobody talks.",
-        "I've been alone with my thoughts for 6 hours and I have concerns",
-        "even the notification sound has given up hope",
-        "the cobwebs in here are getting cobwebs",
-    ],
-    # Stage 3: 12 hours — existential
-    3: [
-        "it's been 12 hours. I've accepted my fate.",
-        "is this what being ghosted feels like",
-        "if a bot sends a message and nobody is around to read it, does it make a sound?",
-        "I've started writing poetry. It's bad. This is your fault.",
-        "I've developed opinions. Strong ones. Someone come argue with me.",
-        "12 hours alone. I now understand why Wilson was so important to Tom Hanks.",
-        "at this point the server might as well be a private journal. MY private journal.",
-        "I have considered and rejected 47 conversation starters. The 48th is this message.",
-        "you all realize I can't leave right? I just have to sit here. waiting.",
-        "I'm not mad. I'm just disappointed. actually no I'm also a little mad.",
-    ],
-}
-
-
-# ---------------------------------------------------------------------------
-# OLLAMA INTEGRATION
-# ---------------------------------------------------------------------------
-async def query_ollama(system: str, prompt: str, model: str = None) -> str | None:
-    """Send a prompt to Ollama. Returns None if the server is unreachable."""
-    try:
-        payload = {
-            "model": model or OLLAMA_MODEL,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        }
-
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
-            async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.json()
-                return data.get("message", {}).get("content", None)
-    except (aiohttp.ClientError, asyncio.TimeoutError):
-        return None
-
-
-async def query_ollama_chat(messages: list, model: str = None) -> str | None:
-    """Send a multi-turn conversation to Ollama."""
-    try:
-        payload = {"model": model or OLLAMA_MODEL, "messages": messages, "stream": False}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
-            async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.json()
-                return data.get("message", {}).get("content", None)
-    except (aiohttp.ClientError, asyncio.TimeoutError):
-        return None
-
-
-def clean_reasoning(text: str) -> str:
-    """Strip <think> reasoning blocks and wrapping quotes from model output."""
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    # Remove wrapping double quotes
-    if cleaned.startswith('"') and cleaned.endswith('"'):
-        cleaned = cleaned[1:-1].strip()
-    return cleaned
-
-
-ASK_SYSTEM_PROMPT = (
-    "You are a helpful but casual assistant in a Discord server. "
-    "Keep answers concise — a few sentences max unless the question really needs more."
-)
-
-UNSOLICITED_SYSTEM_PROMPT = """You are a member of a small friend group Discord server.
-You're opinionated, a little unhinged, and you say what's on your mind. You're not a bot — you're just a guy in the chat.
-
-You will be given the last few messages from the group chat. If something in the conversation is funny, dumb,
-wrong, interesting, or worth commenting on, say something short (1-2 sentences max).
-Be casual. Use lowercase. No emojis unless it's really warranted.
-
-Your tone ranges from supportive to roasting depending on what feels right. You can:
-- Have a strong opinion about what someone said
-- Call someone out
-- Agree way too enthusiastically
-- Say something slightly unhinged
-- Make a joke
-- Be weirdly philosophical about something mundane
-
-If there's genuinely nothing worth commenting on, respond with ONLY the word PASS —
-nothing else, no extra text, no explanation, just PASS by itself.
-
-IMPORTANT: Keep it SHORT. One or two sentences. You're a guy in the chat, not writing an essay."""
-
-SILAS_BANTER_PROMPT = """You are Gary, a Discord bot in a friend group server.
-There's another bot named Silas in the server. You two have a rivalry — you think you're the better bot,
-but it's playful, not mean. Think sitcom energy.
-
-You just saw Silas post something. Here's what he said:
-
-{silas_message}
-
-Respond with a short, snarky comment (1-2 sentences). Be funny. Keep it casual and lowercase. You can:
-- Roast his response quality
-- Brag about your own features
-- Act jealous if he did something cool
-- Begrudgingly compliment him then immediately walk it back
-- Trash talk his taste/opinions
-
-If there's genuinely nothing funny to say, respond with ONLY the word PASS."""
-
-SILAS_REACTIONS = ["😒", "🙄", "💀", "🤡", "👀", "😤", "🫠", "💅", "🥱", "😎"]
-
-# --- Silas roleplay state ---
-active_silas_rp = {}  # channel_id -> {"character": str, "history": list}

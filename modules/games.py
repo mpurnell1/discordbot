@@ -6,12 +6,14 @@ from datetime import datetime, timezone
 
 from discord.ext import commands, tasks
 
-from shared import (
-    PREFIX,
+from config import (
     COLOR_DEFAULT,
-    COLOR_SUCCESS,
     COLOR_ERROR,
+    COLOR_SUCCESS,
     COLOR_WARNING,
+    PREFIX,
+)
+from shared import (
     make_embed,
     log_game_win,
     log_game_draw,

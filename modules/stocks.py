@@ -18,14 +18,16 @@ import discord
 from discord.ext import commands, tasks
 
 import shared
-from shared import (
-    PREFIX,
+from config import (
     CENTRAL_TZ,
     COLOR_DEFAULT,
-    COLOR_SUCCESS,
     COLOR_ERROR,
-    COLOR_WARNING,
     COLOR_GOLD,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    PREFIX,
+)
+from shared import (
     get_balance,
     make_embed,
 )

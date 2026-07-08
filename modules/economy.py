@@ -6,18 +6,20 @@ from datetime import datetime
 from discord.ext import commands
 
 import shared
-from shared import (
-    PREFIX,
-    CENTRAL_TZ,
+from config import (
     ADMIN_ID,
-    COLOR_SUCCESS,
+    CENTRAL_TZ,
     COLOR_ERROR,
+    COLOR_SUCCESS,
     COLOR_WARNING,
+    LUCKY_GUESS_MAX_DAILY,
     LUCKY_GUESS_RANGE,
     LUCKY_GUESS_REWARD,
-    LUCKY_GUESS_MAX_DAILY,
-    PUZZLE_REWARD,
+    PREFIX,
     PUZZLE_MAX_ATTEMPTS,
+    PUZZLE_REWARD,
+)
+from shared import (
     get_balance,
     peek_balance,
     update_balance,

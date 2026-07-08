@@ -9,27 +9,29 @@ import discord
 from discord.ext import commands, tasks
 
 import shared
-from shared import (
-    PREFIX,
+from config import (
+    ADMIN_ID,
     CENTRAL_TZ,
-    OLLAMA_REASONING_MODEL,
-    LATE_NIGHT_START,
-    LATE_NIGHT_END,
-    DEAD_CHAT_THRESHOLDS,
     DEAD_CHAT_CHANNEL,
-    LATE_NIGHT_RESPONSES,
-    DEAD_CHAT_RESPONSES,
+    DEAD_CHAT_THRESHOLDS,
+    LATE_NIGHT_END,
+    LATE_NIGHT_START,
+    OLLAMA_REASONING_MODEL,
+    PREFIX,
+)
+from content import (
     ASK_SYSTEM_PROMPT,
-    UNSOLICITED_SYSTEM_PROMPT,
+    DEAD_CHAT_RESPONSES,
+    LATE_NIGHT_RESPONSES,
     SILAS_BANTER_PROMPT,
     SILAS_REACTIONS,
-    ADMIN_ID,
+    UNSOLICITED_SYSTEM_PROMPT,
+)
+from ollama_client import clean_reasoning, query_ollama, query_ollama_chat
+from shared import (
     make_embed,
     is_kids_mode_guild,
     is_feature_allowed,
-    query_ollama,
-    query_ollama_chat,
-    clean_reasoning,
     load_gary_gamble_state,
     save_gary_gamble_state,
     log_gary_session_start,

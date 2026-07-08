@@ -9,26 +9,27 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import shared
-from shared import (
-    PREFIX,
-    CENTRAL_TZ,
+from config import (
     ADMIN_ID,
-    OPENWEATHER_API_KEY,
-    OLLAMA_URL,
-    OLLAMA_MODEL,
-    OLLAMA_REASONING_MODEL,
+    CENTRAL_TZ,
+    COLOR_DEFAULT,
+    COLOR_ERROR,
+    COLOR_GOLD,
+    COLOR_ORANGE,
+    COLOR_PINK,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
     NICKNAME_COST,
     NICKNAME_DURATION_HOURS,
+    OLLAMA_MODEL,
+    OLLAMA_REASONING_MODEL,
+    OLLAMA_URL,
+    OPENWEATHER_API_KEY,
+    PREFIX,
     PUZZLE_REWARD,
-    COLOR_DEFAULT,
-    COLOR_SUCCESS,
-    COLOR_ERROR,
-    COLOR_WARNING,
-    COLOR_PINK,
-    COLOR_ORANGE,
-    COLOR_GOLD,
-    KIDS_MODE_SUMMARY,
-    PROTECTED_ADMIN_COMMANDS,
+)
+from content import KIDS_MODE_SUMMARY, PROTECTED_ADMIN_COMMANDS
+from shared import (
     make_embed,
     get_balance,
     update_balance,
