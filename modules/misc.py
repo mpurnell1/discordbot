@@ -896,386 +896,35 @@ class MiscCog(commands.Cog):
             )
         )
 
+    # ".settings <section>" dispatch table (section name and aliases -> handler).
+    _SETTINGS_SECTIONS = {
+        "kids": "_settings_kids",
+        "kidsmode": "_settings_kids",
+        "passive": "_settings_passive",
+        "gamble": "_settings_gamble",
+        "weather": "_settings_weather",
+        "ticker": "_settings_ticker",
+        "deadchat": "_settings_deadchat",
+        "commands": "_settings_commands",
+        "command": "_settings_commands",
+        "features": "_settings_features",
+        "feature": "_settings_features",
+        "blackjack": "_settings_blackjack",
+        "channels": "_settings_channels",
+        "silas": "_settings_silas",
+        "options": "_settings_options",
+        "opts": "_settings_options",
+    }
+
     @commands.command(aliases=["set"])
     @shared.admin_only
     async def settings(self, ctx, section: str = "", *args):
         """Show runtime settings or manage sections (example: .settings gamble on)."""
-        if section:
-            sec = section.strip().lower()
-            if sec in {"kids", "kidsmode"}:
-                action = args[0] if args else "status"
-                return await self._set_kids_mode(ctx, action)
-
-            if sec == "passive":
-                keys = {
-                    "unsolicited": "unsolicited_chance_pct",
-                    "silasbanter": "silas_banter_chance_pct",
-                    "silasreact": "silas_react_chance_pct",
-                    "latenight": "late_night_chance_pct",
-                }
-                if not args:
-                    lines = [
-                        f"Unsolicited AI: **{shared.runtime_settings.get('unsolicited_chance_pct', 0)}%**",
-                        f"Silas banter: **{shared.runtime_settings.get('silas_banter_chance_pct', 0)}%**",
-                        f"Silas react: **{shared.runtime_settings.get('silas_react_chance_pct', 0)}%**",
-                        f"Late night: **{shared.runtime_settings.get('late_night_chance_pct', 0)}%**",
-                        f"Set: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>`",
-                    ]
-                    return await ctx.send("\n".join(lines))
-                target = args[0].strip().lower()
-                if target not in keys:
-                    return await ctx.send(
-                        f"Usage: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>`"
-                    )
-                if len(args) < 2:
-                    current = shared.runtime_settings.get(keys[target], 0)
-                    return await ctx.send(f"`{target}` is **{current}%**")
-                try:
-                    value = int(args[1])
-                except ValueError:
-                    return await ctx.send("Value must be an integer percent (0-100).")
-                value = shared.set_setting(keys[target], value)
-                return await ctx.send(f"`{target}` is now **{value}%**.")
-
-            if sec == "gamble":
-                if not args:
-                    enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
-                    channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
-                    report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
-                    channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
-                    report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
-                    state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(
-                        f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}\n"
-                        f"Set: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`"
-                    )
-
-                action = args[0].strip().lower()
-                if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
-                    return await ctx.send("Gary autonomous gambling cannot be configured from a kids-mode server.")
-                if action == "on":
-                    shared.set_setting("gary_gamble_enabled", True)
-                    shared.set_setting("gary_gamble_channel_id", ctx.channel.id)
-                    return await ctx.send(f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}.")
-                if action == "off":
-                    shared.set_setting("gary_gamble_enabled", False)
-                    return await ctx.send("Gary autonomous gambling is now **OFF**.")
-                if action == "status":
-                    enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
-                    channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
-                    report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
-                    channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
-                    report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
-                    state_text = "ON" if enabled else "OFF"
-                    return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}")
-                if action == "channel":
-                    target = ctx.channel
-                    if ctx.message.channel_mentions:
-                        target = ctx.message.channel_mentions[0]
-                    shared.set_setting("gary_gamble_channel_id", target.id)
-                    return await ctx.send(f"Gary gambling channel set to {target.mention}.")
-                if action == "now":
-                    ai_cog = self.bot.get_cog("AICog")
-                    if ai_cog is None:
-                        return await ctx.send("AICog is not loaded.")
-                    result = await ai_cog.run_gamble_step(bypass_cooldown=True)
-                    return await ctx.send(f"Gamble action: {result}")
-                if action == "report":
-                    target = ctx.channel
-                    if ctx.message.channel_mentions:
-                        target = ctx.message.channel_mentions[0]
-                    shared.set_setting("gary_gamble_report_channel_id", target.id)
-                    return await ctx.send(f"Gamble report channel set to {target.mention}.")
-                return await ctx.send(f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`")
-
-            if sec == "weather":
-                channel_id = shared.runtime_settings.get("weather_alert_channel_id")
-                city = shared.runtime_settings.get("weather_alert_city", "Champaign")
-                channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
-                if not args:
-                    state = "ON" if channel_id else "OFF"
-                    return await ctx.send(
-                        f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)\n"
-                        f"Set: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
-                    )
-                action = args[0].strip().lower()
-                if action == "on":
-                    target = ctx.channel
-                    if ctx.message.channel_mentions:
-                        target = ctx.message.channel_mentions[0]
-                    shared.set_setting("weather_alert_channel_id", target.id)
-                    return await ctx.send(f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central.")
-                if action == "off":
-                    shared.set_setting("weather_alert_channel_id", None)
-                    return await ctx.send("Daily weather alert is now **OFF**.")
-                if action == "status":
-                    state = "ON" if channel_id else "OFF"
-                    return await ctx.send(f"Daily weather alert: **{state}** in {channel_text} for **{city}**")
-                if action == "city":
-                    if len(args) < 2:
-                        return await ctx.send(f"Usage: `{PREFIX}settings weather city <city name>`")
-                    new_city = " ".join(args[1:]).strip()
-                    shared.set_setting("weather_alert_city", new_city)
-                    return await ctx.send(f"Weather alert city set to **{new_city}**.")
-                return await ctx.send(f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`")
-
-            if sec == "ticker":
-                channel_id = shared.runtime_settings.get("ticker_channel_id")
-                channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
-                if not args:
-                    state = "ON" if channel_id else "OFF"
-                    return await ctx.send(
-                        f"Daily ticker: **{state}** in {channel_text} "
-                        "(prices refresh hourly during NYSE hours; "
-                        "morning post on first weekday tick)\n"
-                        f"Set: `{PREFIX}settings ticker <on [#channel]|off|status|now>`"
-                    )
-                action = args[0].strip().lower()
-                if action == "on":
-                    target = ctx.channel
-                    if ctx.message.channel_mentions:
-                        target = ctx.message.channel_mentions[0]
-                    shared.set_setting("ticker_channel_id", target.id)
-                    return await ctx.send(
-                        f"Daily ticker is now **ON** in {target.mention}. "
-                        "Morning post fires on the first weekday tick after "
-                        "NYSE open (9:30 AM ET / 8:30 AM CT)."
-                    )
-                if action == "off":
-                    shared.set_setting("ticker_channel_id", None)
-                    return await ctx.send("Daily ticker is now **OFF**.")
-                if action == "status":
-                    state = "ON" if channel_id else "OFF"
-                    return await ctx.send(f"Daily ticker: **{state}** in {channel_text}")
-                if action == "now":
-                    stocks_cog = self.bot.get_cog("StocksCog")
-                    if stocks_cog is None:
-                        return await ctx.send("StocksCog is not loaded.")
-                    if not channel_id:
-                        return await ctx.send("Set a ticker channel first with `.settings ticker on [#channel]`.")
-                    await stocks_cog._post_morning_announcement()
-                    return
-                return await ctx.send(f"Usage: `{PREFIX}settings ticker <on [#channel]|off|status|now>`")
-
-            if sec == "deadchat":
-                if not args:
-                    state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
-                    return await ctx.send(f"Dead chat is **{state}**. Set: `{PREFIX}settings deadchat <on|off|status>`")
-                action = args[0].strip().lower()
-                if action == "status":
-                    state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
-                    return await ctx.send(f"Dead chat is **{state}**.")
-                if action not in {"on", "off"}:
-                    return await ctx.send(f"Usage: `{PREFIX}settings deadchat <on|off|status>`")
-                enabled = action == "on"
-                shared.set_setting("dead_chat_enabled", enabled)
-                shared.last_message_time.clear()
-                shared.dead_chat_stage.clear()
-                return await ctx.send(f"Dead chat is now **{action.upper()}**.")
-
-            if sec in {"commands", "command"}:
-                if not args:
-                    toggles = shared.runtime_settings.get("command_toggles", {})
-                    disabled = sorted(name for name, en in toggles.items() if not en)
-                    disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
-                    return await ctx.send(f"Disabled commands: {disabled_str}\nSet: `{PREFIX}settings commands <command> <on|off>`")
-                command_input = args[0].strip().lower()
-                if len(args) < 2:
-                    target = self.bot.get_command(command_input)
-                    if target is None:
-                        return await ctx.send(f"Unknown command: `{command_input}`")
-                    canonical_name = target.name.lower()
-                    toggles = shared.runtime_settings.get("command_toggles", {})
-                    state = "ON" if toggles.get(canonical_name, True) else "OFF"
-                    return await ctx.send(f"`{PREFIX}{canonical_name}` is **{state}**.")
-                state_arg = args[1].strip().lower()
-                if state_arg not in {"on", "off"}:
-                    return await ctx.send(f"Usage: `{PREFIX}settings commands <command> <on|off>`")
-                target = self.bot.get_command(command_input)
-                if target is None:
-                    return await ctx.send(f"Unknown command: `{command_input}`")
-                canonical_name = target.name.lower()
-                if canonical_name in PROTECTED_ADMIN_COMMANDS:
-                    return await ctx.send("That command cannot be disabled.")
-                toggles = shared.runtime_settings.get("command_toggles", {})
-                toggles[canonical_name] = state_arg == "on"
-                shared.set_setting("command_toggles", toggles)
-                return await ctx.send(f"`{PREFIX}{canonical_name}` is now **{state_arg.upper()}**.")
-
-            if sec in {"features", "feature"}:
-                rules = shared.runtime_settings.get("feature_channel_rules", {})
-                if not args:
-                    set_hint = (
-                        f"Set: `{PREFIX}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>`"
-                    )
-                    if not rules:
-                        return await ctx.send(f"No feature channel rules set.\n{set_hint}")
-                    lines = []
-                    for feat, rule in sorted(rules.items()):
-                        mode = rule.get("mode", "all")
-                        ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
-                        lines.append(f"`{feat}`: **{mode}** {ch_str}")
-                    lines.append(set_hint)
-                    return await ctx.send("\n".join(lines))
-                feat = normalize_feature_name(args[0])
-                if len(args) < 2:
-                    rule = rules.get(feat)
-                    if not rule:
-                        return await ctx.send(f"`{feat}`: **all** (no rule set)")
-                    mode = rule.get("mode", "all")
-                    ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
-                    return await ctx.send(f"`{feat}`: **{mode}** {ch_str}")
-                action = args[1].strip().lower()
-                if action in {"all", "off", "whitelist", "blacklist"}:
-                    existing = rules.get(feat, {"channels": []})
-                    existing["mode"] = action
-                    existing["channels"] = [int(c) for c in existing.get("channels", [])]
-                    rules[feat] = existing
-                    shared.set_setting("feature_channel_rules", rules)
-                    return await ctx.send(f"`{feat}` mode is now **{action}**.")
-                if action in {"add", "remove", "clear"}:
-                    rule = rules.get(feat, {"mode": "all", "channels": []})
-                    channels = {int(c) for c in rule.get("channels", [])}
-                    if action == "clear":
-                        channels.clear()
-                    else:
-                        mentioned = ctx.message.channel_mentions
-                        if not mentioned:
-                            return await ctx.send(
-                                f"Mention one or more channels. Example: `{PREFIX}settings features {feat} {action} #general`"
-                            )
-                        ids = {c.id for c in mentioned}
-                        channels = channels | ids if action == "add" else channels - ids
-                    rule["channels"] = sorted(channels)
-                    rules[feat] = rule
-                    shared.set_setting("feature_channel_rules", rules)
-                    ch_str = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
-                    return await ctx.send(f"`{feat}` channels: {ch_str}")
-                return await ctx.send(
-                    f"Usage: `{PREFIX}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>`"
-                )
-
-            if sec == "blackjack":
-                economy_cog = self.bot.get_cog("EconomyCog")
-                if economy_cog is None:
-                    return await ctx.send("Economy cog is not loaded.")
-                if not args:
-                    ruleset = str(shared.runtime_settings.get("bj_ruleset", "realistic")).upper()
-                    hint = "ON" if shared.runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
-                    return await ctx.send(
-                        f"BJ Ruleset: **{ruleset}** | Hints: **{hint}**\nSet: `{PREFIX}settings blackjack <ruleset|hint> [value]`"
-                    )
-                sub = args[0].strip().lower()
-                rest = args[1].strip().lower() if len(args) > 1 else "status"
-                if sub in {"ruleset", "rules"}:
-                    return await economy_cog.bjruleset(ctx, rest)
-                if sub == "hint":
-                    return await economy_cog.bjhint(ctx, rest)
-                return await ctx.send(f"Usage: `{PREFIX}settings blackjack <ruleset|hint> [value]`")
-
-            if sec == "channels":
-                _CHANNEL_KEYS = {
-                    "guildjoin": "guild_join_report_channel_id",
-                    "kidslog": "kids_interaction_log_channel_id",
-                    "bugreport": "bug_report_channel_id",
-                    "featurerequest": "feature_request_channel_id",
-                    "tracking": "request_tracking_channel_id",
-                }
-                if not args:
-                    lines = []
-                    for name, key in _CHANNEL_KEYS.items():
-                        val = shared.runtime_settings.get(key)
-                        lines.append(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
-                    lines.append(f"Set: `{PREFIX}settings channels <name> [#channel|off]`")
-                    return await ctx.send("\n".join(lines))
-                name = args[0].strip().lower()
-                if name not in _CHANNEL_KEYS:
-                    opts = ", ".join(f"`{k}`" for k in _CHANNEL_KEYS)
-                    return await ctx.send(f"Unknown channel: `{name}`. Options: {opts}")
-                key = _CHANNEL_KEYS[name]
-                if len(args) < 2:
-                    val = shared.runtime_settings.get(key)
-                    return await ctx.send(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
-                if args[1].strip().lower() == "off":
-                    shared.set_setting(key, None)
-                    return await ctx.send(f"`{name}` channel cleared.")
-                mentioned = ctx.message.channel_mentions
-                if not mentioned:
-                    return await ctx.send(f"Mention a channel or use `off`. Example: `{PREFIX}settings channels {name} #general`")
-                shared.set_setting(key, mentioned[0].id)
-                return await ctx.send(f"`{name}` channel set to {mentioned[0].mention}.")
-
-            if sec == "silas":
-                silas_id = shared.runtime_settings.get("silas_bot_id")
-                banter = shared.runtime_settings.get("silas_banter_chance_pct", 0)
-                react = shared.runtime_settings.get("silas_react_chance_pct", 0)
-                if not args:
-                    id_text = f"`{silas_id}`" if silas_id else "(not set)"
-                    return await ctx.send(
-                        f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**\n"
-                        f"Set: `{PREFIX}settings silas <id|banter|react> [value]`"
-                    )
-                sub = args[0].strip().lower()
-                if sub == "id":
-                    if len(args) < 2:
-                        id_text = f"`{silas_id}`" if silas_id else "(not set)"
-                        return await ctx.send(f"Silas bot ID: {id_text}")
-                    try:
-                        new_id = int(args[1].strip())
-                    except ValueError:
-                        return await ctx.send("Bot ID must be an integer.")
-                    shared.set_setting("silas_bot_id", new_id)
-                    return await ctx.send(f"Silas bot ID set to `{new_id}`.")
-                if sub in {"banter", "react"}:
-                    key = f"silas_{sub}_chance_pct"
-                    if len(args) < 2:
-                        val = shared.runtime_settings.get(key, 0)
-                        return await ctx.send(f"Silas {sub}: **{val}%**")
-                    try:
-                        value = max(0, min(100, int(args[1])))
-                    except ValueError:
-                        return await ctx.send("Value must be an integer (0-100).")
-                    shared.set_setting(key, value)
-                    return await ctx.send(f"Silas {sub} is now **{value}%**.")
-                return await ctx.send(f"Usage: `{PREFIX}settings silas <id|banter|react> [value]`")
-
-            if sec in {"options", "opts"}:
-                # Premium-pricing knobs for the .call/.put options game.
-                # (key, type, low, high, formatter)
-                _OPT_KNOBS = {
-                    "vol": ("options_vol", float, 0.005, 1.0),
-                    "floor": ("options_premium_floor", float, 0.0005, 0.5),
-                    "expiry": ("options_expiry_hours", int, 1, 720),
-                }
-
-                def _fmt_opt(name: str) -> str:
-                    key = _OPT_KNOBS[name][0]
-                    val = shared.runtime_settings.get(key, shared.SETTINGS_DEFAULTS[key])
-                    return f"`{val}h`" if name == "expiry" else f"`{val}`"
-
-                if not args:
-                    return await ctx.send(
-                        f"Options pricing — vol: {_fmt_opt('vol')} (ATM premium) | "
-                        f"floor: {_fmt_opt('floor')} (max far-OTM leverage) | "
-                        f"expiry: {_fmt_opt('expiry')}\n"
-                        f"Set with `{PREFIX}settings options <vol|floor|expiry> <value>`."
-                    )
-                target = args[0].strip().lower()
-                if target not in _OPT_KNOBS:
-                    return await ctx.send(f"Usage: `{PREFIX}settings options <vol|floor|expiry> <value>`")
-                key, caster, lo, hi = _OPT_KNOBS[target]
-                if len(args) < 2:
-                    return await ctx.send(f"`{target}` is {_fmt_opt(target)}.")
-                try:
-                    value = caster(args[1])
-                except (TypeError, ValueError):
-                    kind = "an integer" if caster is int else "a number"
-                    return await ctx.send(f"Value must be {kind} between {lo} and {hi}.")
-                if not lo <= value <= hi:
-                    return await ctx.send(f"`{target}` must be between {lo} and {hi}.")
-                shared.set_setting(key, value)
-                return await ctx.send(f"`{target}` is now {_fmt_opt(target)}.")
-
+        if not section:
+            return await self._settings_overview(ctx)
+        sec = section.strip().lower()
+        handler_name = self._SETTINGS_SECTIONS.get(sec)
+        if handler_name is None:
             _SECTIONS = (
                 "kids",
                 "deadchat",
@@ -1294,7 +943,379 @@ class MiscCog(commands.Cog):
             return await ctx.send(
                 f"Unknown settings section: `{sec}`.\nSections: {section_list}\nSee `{PREFIX}adminhelp` for full syntax."
             )
+        return await getattr(self, handler_name)(ctx, *args)
 
+    async def _settings_kids(self, ctx, *args):
+        action = args[0] if args else "status"
+        return await self._set_kids_mode(ctx, action)
+
+    async def _settings_passive(self, ctx, *args):
+        keys = {
+            "unsolicited": "unsolicited_chance_pct",
+            "silasbanter": "silas_banter_chance_pct",
+            "silasreact": "silas_react_chance_pct",
+            "latenight": "late_night_chance_pct",
+        }
+        if not args:
+            lines = [
+                f"Unsolicited AI: **{shared.runtime_settings.get('unsolicited_chance_pct', 0)}%**",
+                f"Silas banter: **{shared.runtime_settings.get('silas_banter_chance_pct', 0)}%**",
+                f"Silas react: **{shared.runtime_settings.get('silas_react_chance_pct', 0)}%**",
+                f"Late night: **{shared.runtime_settings.get('late_night_chance_pct', 0)}%**",
+                f"Set: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>`",
+            ]
+            return await ctx.send("\n".join(lines))
+        target = args[0].strip().lower()
+        if target not in keys:
+            return await ctx.send(f"Usage: `{PREFIX}settings passive <unsolicited|silasbanter|silasreact|latenight> <0-100>`")
+        if len(args) < 2:
+            current = shared.runtime_settings.get(keys[target], 0)
+            return await ctx.send(f"`{target}` is **{current}%**")
+        try:
+            value = int(args[1])
+        except ValueError:
+            return await ctx.send("Value must be an integer percent (0-100).")
+        value = shared.set_setting(keys[target], value)
+        return await ctx.send(f"`{target}` is now **{value}%**.")
+
+    async def _settings_gamble(self, ctx, *args):
+        if not args:
+            enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
+            channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
+            report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
+            channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+            report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
+            state_text = "ON" if enabled else "OFF"
+            return await ctx.send(
+                f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}\n"
+                f"Set: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`"
+            )
+
+        action = args[0].strip().lower()
+        if ctx.guild and is_kids_mode_guild(ctx.guild.id) and action not in {"off", "status"}:
+            return await ctx.send("Gary autonomous gambling cannot be configured from a kids-mode server.")
+        if action == "on":
+            shared.set_setting("gary_gamble_enabled", True)
+            shared.set_setting("gary_gamble_channel_id", ctx.channel.id)
+            return await ctx.send(f"Gary autonomous gambling is now **ON** in {ctx.channel.mention}.")
+        if action == "off":
+            shared.set_setting("gary_gamble_enabled", False)
+            return await ctx.send("Gary autonomous gambling is now **OFF**.")
+        if action == "status":
+            enabled = shared.runtime_settings.get("gary_gamble_enabled", False)
+            channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
+            report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
+            channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+            report_text = f"<#{int(report_id)}>" if report_id else "(fallback)"
+            state_text = "ON" if enabled else "OFF"
+            return await ctx.send(f"Gary gambling: **{state_text}** | Channel: {channel_text} | Report: {report_text}")
+        if action == "channel":
+            target = ctx.channel
+            if ctx.message.channel_mentions:
+                target = ctx.message.channel_mentions[0]
+            shared.set_setting("gary_gamble_channel_id", target.id)
+            return await ctx.send(f"Gary gambling channel set to {target.mention}.")
+        if action == "now":
+            ai_cog = self.bot.get_cog("AICog")
+            if ai_cog is None:
+                return await ctx.send("AICog is not loaded.")
+            result = await ai_cog.run_gamble_step(bypass_cooldown=True)
+            return await ctx.send(f"Gamble action: {result}")
+        if action == "report":
+            target = ctx.channel
+            if ctx.message.channel_mentions:
+                target = ctx.message.channel_mentions[0]
+            shared.set_setting("gary_gamble_report_channel_id", target.id)
+            return await ctx.send(f"Gamble report channel set to {target.mention}.")
+        return await ctx.send(f"Usage: `{PREFIX}settings gamble <on|off|status|now|channel|report [#channel]>`")
+
+    async def _settings_weather(self, ctx, *args):
+        channel_id = shared.runtime_settings.get("weather_alert_channel_id")
+        city = shared.runtime_settings.get("weather_alert_city", "Champaign")
+        channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+        if not args:
+            state = "ON" if channel_id else "OFF"
+            return await ctx.send(
+                f"Daily weather alert: **{state}** in {channel_text} for **{city}** (8 AM Central)\n"
+                f"Set: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`"
+            )
+        action = args[0].strip().lower()
+        if action == "on":
+            target = ctx.channel
+            if ctx.message.channel_mentions:
+                target = ctx.message.channel_mentions[0]
+            shared.set_setting("weather_alert_channel_id", target.id)
+            return await ctx.send(f"Daily weather alert is now **ON** in {target.mention} for **{city}** at 8 AM Central.")
+        if action == "off":
+            shared.set_setting("weather_alert_channel_id", None)
+            return await ctx.send("Daily weather alert is now **OFF**.")
+        if action == "status":
+            state = "ON" if channel_id else "OFF"
+            return await ctx.send(f"Daily weather alert: **{state}** in {channel_text} for **{city}**")
+        if action == "city":
+            if len(args) < 2:
+                return await ctx.send(f"Usage: `{PREFIX}settings weather city <city name>`")
+            new_city = " ".join(args[1:]).strip()
+            shared.set_setting("weather_alert_city", new_city)
+            return await ctx.send(f"Weather alert city set to **{new_city}**.")
+        return await ctx.send(f"Usage: `{PREFIX}settings weather <on [#channel]|off|status|city <name>>`")
+
+    async def _settings_ticker(self, ctx, *args):
+        channel_id = shared.runtime_settings.get("ticker_channel_id")
+        channel_text = f"<#{int(channel_id)}>" if channel_id else "(not set)"
+        if not args:
+            state = "ON" if channel_id else "OFF"
+            return await ctx.send(
+                f"Daily ticker: **{state}** in {channel_text} "
+                "(prices refresh hourly during NYSE hours; "
+                "morning post on first weekday tick)\n"
+                f"Set: `{PREFIX}settings ticker <on [#channel]|off|status|now>`"
+            )
+        action = args[0].strip().lower()
+        if action == "on":
+            target = ctx.channel
+            if ctx.message.channel_mentions:
+                target = ctx.message.channel_mentions[0]
+            shared.set_setting("ticker_channel_id", target.id)
+            return await ctx.send(
+                f"Daily ticker is now **ON** in {target.mention}. "
+                "Morning post fires on the first weekday tick after "
+                "NYSE open (9:30 AM ET / 8:30 AM CT)."
+            )
+        if action == "off":
+            shared.set_setting("ticker_channel_id", None)
+            return await ctx.send("Daily ticker is now **OFF**.")
+        if action == "status":
+            state = "ON" if channel_id else "OFF"
+            return await ctx.send(f"Daily ticker: **{state}** in {channel_text}")
+        if action == "now":
+            stocks_cog = self.bot.get_cog("StocksCog")
+            if stocks_cog is None:
+                return await ctx.send("StocksCog is not loaded.")
+            if not channel_id:
+                return await ctx.send("Set a ticker channel first with `.settings ticker on [#channel]`.")
+            await stocks_cog._post_morning_announcement()
+            return
+        return await ctx.send(f"Usage: `{PREFIX}settings ticker <on [#channel]|off|status|now>`")
+
+    async def _settings_deadchat(self, ctx, *args):
+        if not args:
+            state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
+            return await ctx.send(f"Dead chat is **{state}**. Set: `{PREFIX}settings deadchat <on|off|status>`")
+        action = args[0].strip().lower()
+        if action == "status":
+            state = "ON" if shared.runtime_settings.get("dead_chat_enabled", False) else "OFF"
+            return await ctx.send(f"Dead chat is **{state}**.")
+        if action not in {"on", "off"}:
+            return await ctx.send(f"Usage: `{PREFIX}settings deadchat <on|off|status>`")
+        enabled = action == "on"
+        shared.set_setting("dead_chat_enabled", enabled)
+        shared.last_message_time.clear()
+        shared.dead_chat_stage.clear()
+        return await ctx.send(f"Dead chat is now **{action.upper()}**.")
+
+    async def _settings_commands(self, ctx, *args):
+        if not args:
+            toggles = shared.runtime_settings.get("command_toggles", {})
+            disabled = sorted(name for name, en in toggles.items() if not en)
+            disabled_str = ", ".join(f"`{PREFIX}{c}`" for c in disabled) if disabled else "None"
+            return await ctx.send(f"Disabled commands: {disabled_str}\nSet: `{PREFIX}settings commands <command> <on|off>`")
+        command_input = args[0].strip().lower()
+        if len(args) < 2:
+            target = self.bot.get_command(command_input)
+            if target is None:
+                return await ctx.send(f"Unknown command: `{command_input}`")
+            canonical_name = target.name.lower()
+            toggles = shared.runtime_settings.get("command_toggles", {})
+            state = "ON" if toggles.get(canonical_name, True) else "OFF"
+            return await ctx.send(f"`{PREFIX}{canonical_name}` is **{state}**.")
+        state_arg = args[1].strip().lower()
+        if state_arg not in {"on", "off"}:
+            return await ctx.send(f"Usage: `{PREFIX}settings commands <command> <on|off>`")
+        target = self.bot.get_command(command_input)
+        if target is None:
+            return await ctx.send(f"Unknown command: `{command_input}`")
+        canonical_name = target.name.lower()
+        if canonical_name in PROTECTED_ADMIN_COMMANDS:
+            return await ctx.send("That command cannot be disabled.")
+        toggles = shared.runtime_settings.get("command_toggles", {})
+        toggles[canonical_name] = state_arg == "on"
+        shared.set_setting("command_toggles", toggles)
+        return await ctx.send(f"`{PREFIX}{canonical_name}` is now **{state_arg.upper()}**.")
+
+    async def _settings_features(self, ctx, *args):
+        rules = shared.runtime_settings.get("feature_channel_rules", {})
+        if not args:
+            set_hint = f"Set: `{PREFIX}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>`"
+            if not rules:
+                return await ctx.send(f"No feature channel rules set.\n{set_hint}")
+            lines = []
+            for feat, rule in sorted(rules.items()):
+                mode = rule.get("mode", "all")
+                ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
+                lines.append(f"`{feat}`: **{mode}** {ch_str}")
+            lines.append(set_hint)
+            return await ctx.send("\n".join(lines))
+        feat = normalize_feature_name(args[0])
+        if len(args) < 2:
+            rule = rules.get(feat)
+            if not rule:
+                return await ctx.send(f"`{feat}`: **all** (no rule set)")
+            mode = rule.get("mode", "all")
+            ch_str = ", ".join(f"<#{cid}>" for cid in rule.get("channels", [])) or "(none)"
+            return await ctx.send(f"`{feat}`: **{mode}** {ch_str}")
+        action = args[1].strip().lower()
+        if action in {"all", "off", "whitelist", "blacklist"}:
+            existing = rules.get(feat, {"channels": []})
+            existing["mode"] = action
+            existing["channels"] = [int(c) for c in existing.get("channels", [])]
+            rules[feat] = existing
+            shared.set_setting("feature_channel_rules", rules)
+            return await ctx.send(f"`{feat}` mode is now **{action}**.")
+        if action in {"add", "remove", "clear"}:
+            rule = rules.get(feat, {"mode": "all", "channels": []})
+            channels = {int(c) for c in rule.get("channels", [])}
+            if action == "clear":
+                channels.clear()
+            else:
+                mentioned = ctx.message.channel_mentions
+                if not mentioned:
+                    return await ctx.send(
+                        f"Mention one or more channels. Example: `{PREFIX}settings features {feat} {action} #general`"
+                    )
+                ids = {c.id for c in mentioned}
+                channels = channels | ids if action == "add" else channels - ids
+            rule["channels"] = sorted(channels)
+            rules[feat] = rule
+            shared.set_setting("feature_channel_rules", rules)
+            ch_str = ", ".join(f"<#{cid}>" for cid in rule["channels"]) or "(none)"
+            return await ctx.send(f"`{feat}` channels: {ch_str}")
+        return await ctx.send(
+            f"Usage: `{PREFIX}settings features <feature> <all|off|whitelist|blacklist|add|remove|clear [#channels]>`"
+        )
+
+    async def _settings_blackjack(self, ctx, *args):
+        economy_cog = self.bot.get_cog("EconomyCog")
+        if economy_cog is None:
+            return await ctx.send("Economy cog is not loaded.")
+        if not args:
+            ruleset = str(shared.runtime_settings.get("bj_ruleset", "realistic")).upper()
+            hint = "ON" if shared.runtime_settings.get("bj_basic_hint_enabled", True) else "OFF"
+            return await ctx.send(
+                f"BJ Ruleset: **{ruleset}** | Hints: **{hint}**\nSet: `{PREFIX}settings blackjack <ruleset|hint> [value]`"
+            )
+        sub = args[0].strip().lower()
+        rest = args[1].strip().lower() if len(args) > 1 else "status"
+        if sub in {"ruleset", "rules"}:
+            return await economy_cog.bjruleset(ctx, rest)
+        if sub == "hint":
+            return await economy_cog.bjhint(ctx, rest)
+        return await ctx.send(f"Usage: `{PREFIX}settings blackjack <ruleset|hint> [value]`")
+
+    async def _settings_channels(self, ctx, *args):
+        _CHANNEL_KEYS = {
+            "guildjoin": "guild_join_report_channel_id",
+            "kidslog": "kids_interaction_log_channel_id",
+            "bugreport": "bug_report_channel_id",
+            "featurerequest": "feature_request_channel_id",
+            "tracking": "request_tracking_channel_id",
+        }
+        if not args:
+            lines = []
+            for name, key in _CHANNEL_KEYS.items():
+                val = shared.runtime_settings.get(key)
+                lines.append(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
+            lines.append(f"Set: `{PREFIX}settings channels <name> [#channel|off]`")
+            return await ctx.send("\n".join(lines))
+        name = args[0].strip().lower()
+        if name not in _CHANNEL_KEYS:
+            opts = ", ".join(f"`{k}`" for k in _CHANNEL_KEYS)
+            return await ctx.send(f"Unknown channel: `{name}`. Options: {opts}")
+        key = _CHANNEL_KEYS[name]
+        if len(args) < 2:
+            val = shared.runtime_settings.get(key)
+            return await ctx.send(f"`{name}`: {f'<#{val}>' if val else '(not set)'}")
+        if args[1].strip().lower() == "off":
+            shared.set_setting(key, None)
+            return await ctx.send(f"`{name}` channel cleared.")
+        mentioned = ctx.message.channel_mentions
+        if not mentioned:
+            return await ctx.send(f"Mention a channel or use `off`. Example: `{PREFIX}settings channels {name} #general`")
+        shared.set_setting(key, mentioned[0].id)
+        return await ctx.send(f"`{name}` channel set to {mentioned[0].mention}.")
+
+    async def _settings_silas(self, ctx, *args):
+        silas_id = shared.runtime_settings.get("silas_bot_id")
+        banter = shared.runtime_settings.get("silas_banter_chance_pct", 0)
+        react = shared.runtime_settings.get("silas_react_chance_pct", 0)
+        if not args:
+            id_text = f"`{silas_id}`" if silas_id else "(not set)"
+            return await ctx.send(
+                f"Silas bot ID: {id_text}\nBanter: **{banter}%** | React: **{react}%**\n"
+                f"Set: `{PREFIX}settings silas <id|banter|react> [value]`"
+            )
+        sub = args[0].strip().lower()
+        if sub == "id":
+            if len(args) < 2:
+                id_text = f"`{silas_id}`" if silas_id else "(not set)"
+                return await ctx.send(f"Silas bot ID: {id_text}")
+            try:
+                new_id = int(args[1].strip())
+            except ValueError:
+                return await ctx.send("Bot ID must be an integer.")
+            shared.set_setting("silas_bot_id", new_id)
+            return await ctx.send(f"Silas bot ID set to `{new_id}`.")
+        if sub in {"banter", "react"}:
+            key = f"silas_{sub}_chance_pct"
+            if len(args) < 2:
+                val = shared.runtime_settings.get(key, 0)
+                return await ctx.send(f"Silas {sub}: **{val}%**")
+            try:
+                value = max(0, min(100, int(args[1])))
+            except ValueError:
+                return await ctx.send("Value must be an integer (0-100).")
+            shared.set_setting(key, value)
+            return await ctx.send(f"Silas {sub} is now **{value}%**.")
+        return await ctx.send(f"Usage: `{PREFIX}settings silas <id|banter|react> [value]`")
+
+    async def _settings_options(self, ctx, *args):
+        # Premium-pricing knobs for the .call/.put options game.
+        # (key, type, low, high, formatter)
+        _OPT_KNOBS = {
+            "vol": ("options_vol", float, 0.005, 1.0),
+            "floor": ("options_premium_floor", float, 0.0005, 0.5),
+            "expiry": ("options_expiry_hours", int, 1, 720),
+        }
+
+        def _fmt_opt(name: str) -> str:
+            key = _OPT_KNOBS[name][0]
+            val = shared.runtime_settings.get(key, shared.SETTINGS_DEFAULTS[key])
+            return f"`{val}h`" if name == "expiry" else f"`{val}`"
+
+        if not args:
+            return await ctx.send(
+                f"Options pricing — vol: {_fmt_opt('vol')} (ATM premium) | "
+                f"floor: {_fmt_opt('floor')} (max far-OTM leverage) | "
+                f"expiry: {_fmt_opt('expiry')}\n"
+                f"Set with `{PREFIX}settings options <vol|floor|expiry> <value>`."
+            )
+        target = args[0].strip().lower()
+        if target not in _OPT_KNOBS:
+            return await ctx.send(f"Usage: `{PREFIX}settings options <vol|floor|expiry> <value>`")
+        key, caster, lo, hi = _OPT_KNOBS[target]
+        if len(args) < 2:
+            return await ctx.send(f"`{target}` is {_fmt_opt(target)}.")
+        try:
+            value = caster(args[1])
+        except (TypeError, ValueError):
+            kind = "an integer" if caster is int else "a number"
+            return await ctx.send(f"Value must be {kind} between {lo} and {hi}.")
+        if not lo <= value <= hi:
+            return await ctx.send(f"`{target}` must be between {lo} and {hi}.")
+        shared.set_setting(key, value)
+        return await ctx.send(f"`{target}` is now {_fmt_opt(target)}.")
+
+    async def _settings_overview(self, ctx):
         dead_chat_state = "ON" if shared.runtime_settings.get("dead_chat_enabled", True) else "OFF"
         kids_mode_state = "ON" if ctx.guild and is_kids_mode_guild(ctx.guild.id) else "OFF"
         gary_gamble_state = "ON" if shared.runtime_settings.get("gary_gamble_enabled", False) else "OFF"
