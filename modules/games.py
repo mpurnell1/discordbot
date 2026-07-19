@@ -1,8 +1,10 @@
 import discord
 import asyncio
+import json
 import random
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 
 from discord.ext import commands, tasks
 
@@ -146,60 +148,14 @@ def start_c4(host, opponent):
 active_hangman = {}  # channel_id -> game state
 hangman_msg = {}  # channel_id -> Message to edit in place
 
-HANGMAN_WORDS = [
-    "python",
-    "discord",
-    "hangman",
-    "keyboard",
-    "monitor",
-    "algorithm",
-    "function",
-    "variable",
-    "database",
-    "network",
-    "browser",
-    "terminal",
-    "computer",
-    "program",
-    "internet",
-    "software",
-    "hardware",
-    "graphics",
-    "security",
-    "download",
-    "elephant",
-    "giraffe",
-    "penguin",
-    "dolphin",
-    "octopus",
-    "butterfly",
-    "squirrel",
-    "mushroom",
-    "sandwich",
-    "umbrella",
-    "airplane",
-    "mountain",
-    "treasure",
-    "volcano",
-    "dinosaur",
-    "astronaut",
-    "chocolate",
-    "pineapple",
-    "strawberry",
-    "watermelon",
-    "adventure",
-    "birthday",
-    "carnival",
-    "dominoes",
-    "firework",
-    "galaxies",
-    "harmonica",
-    "illusion",
-    "jukebox",
-    "kangaroo",
-    "labyrinth",
-    "macaroni",
-]
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def _load_wordlist(filename: str) -> list[str]:
+    return [w.strip() for w in (_DATA_DIR / filename).read_text(encoding="utf-8").splitlines() if w.strip()]
+
+
+HANGMAN_WORDS = _load_wordlist("hangman_words.txt")
 
 HANGMAN_STAGES = [
     "```\n  +---+\n      |\n      |\n      |\n      |\n=========```",
@@ -215,89 +171,9 @@ LETTER_PRIORITY = "etaoinshrdlucmfwypvbgkjqxz"
 
 MEMORY_SYMBOLS = ["cat", "dog", "sun", "moon", "star", "tree", "fish", "book", "ball", "kite"]
 
-SCRAMBLE_WORDS = [
-    "apple",
-    "banana",
-    "basket",
-    "butter",
-    "castle",
-    "circle",
-    "dragon",
-    "flower",
-    "forest",
-    "garden",
-    "guitar",
-    "island",
-    "jacket",
-    "kitten",
-    "ladder",
-    "magnet",
-    "monkey",
-    "orange",
-    "pencil",
-    "planet",
-    "pocket",
-    "rabbit",
-    "rocket",
-    "school",
-    "silver",
-    "soccer",
-    "summer",
-    "turtle",
-    "window",
-    "yellow",
-]
+SCRAMBLE_WORDS = _load_wordlist("scramble_words.txt")
 
-TRIVIA_QUESTIONS = [
-    {
-        "question": "Which planet is known as the Red Planet?",
-        "choices": ["Mars", "Venus", "Jupiter", "Neptune"],
-        "answer": "A",
-        "explanation": "Mars is called the Red Planet because of iron oxide on its surface.",
-    },
-    {
-        "question": "How many sides does a triangle have?",
-        "choices": ["2", "3", "4", "5"],
-        "answer": "B",
-        "explanation": "A triangle has 3 sides.",
-    },
-    {
-        "question": "What do bees make?",
-        "choices": ["Milk", "Honey", "Bread", "Cheese"],
-        "answer": "B",
-        "explanation": "Bees make honey.",
-    },
-    {
-        "question": "Which animal is the largest land animal?",
-        "choices": ["Giraffe", "Elephant", "Horse", "Bear"],
-        "answer": "B",
-        "explanation": "Elephants are the largest land animals.",
-    },
-    {
-        "question": "What is H2O commonly called?",
-        "choices": ["Salt", "Water", "Oxygen", "Sugar"],
-        "answer": "B",
-        "explanation": "H2O is water.",
-    },
-    {
-        "question": "Which direction does the sun rise from?",
-        "choices": ["North", "South", "East", "West"],
-        "answer": "C",
-        "explanation": "The sun rises in the east.",
-    },
-    {
-        "question": "How many continents are there?",
-        "choices": ["5", "6", "7", "8"],
-        "answer": "C",
-        "explanation": "There are 7 continents.",
-    },
-    {
-        "question": "What is the first letter of the alphabet?",
-        "choices": ["A", "B", "C", "D"],
-        "answer": "A",
-        "explanation": "A is the first letter of the alphabet.",
-    },
-]
+TRIVIA_QUESTIONS = json.loads((_DATA_DIR / "trivia_questions.json").read_text(encoding="utf-8"))
 
 
 def hangman_render(game):

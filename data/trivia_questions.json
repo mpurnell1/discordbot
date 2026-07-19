@@ -1,0 +1,90 @@
+[
+  {
+    "question": "Which planet is known as the Red Planet?",
+    "choices": [
+      "Mars",
+      "Venus",
+      "Jupiter",
+      "Neptune"
+    ],
+    "answer": "A",
+    "explanation": "Mars is called the Red Planet because of iron oxide on its surface."
+  },
+  {
+    "question": "How many sides does a triangle have?",
+    "choices": [
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "answer": "B",
+    "explanation": "A triangle has 3 sides."
+  },
+  {
+    "question": "What do bees make?",
+    "choices": [
+      "Milk",
+      "Honey",
+      "Bread",
+      "Cheese"
+    ],
+    "answer": "B",
+    "explanation": "Bees make honey."
+  },
+  {
+    "question": "Which animal is the largest land animal?",
+    "choices": [
+      "Giraffe",
+      "Elephant",
+      "Horse",
+      "Bear"
+    ],
+    "answer": "B",
+    "explanation": "Elephants are the largest land animals."
+  },
+  {
+    "question": "What is H2O commonly called?",
+    "choices": [
+      "Salt",
+      "Water",
+      "Oxygen",
+      "Sugar"
+    ],
+    "answer": "B",
+    "explanation": "H2O is water."
+  },
+  {
+    "question": "Which direction does the sun rise from?",
+    "choices": [
+      "North",
+      "South",
+      "East",
+      "West"
+    ],
+    "answer": "C",
+    "explanation": "The sun rises in the east."
+  },
+  {
+    "question": "How many continents are there?",
+    "choices": [
+      "5",
+      "6",
+      "7",
+      "8"
+    ],
+    "answer": "C",
+    "explanation": "There are 7 continents."
+  },
+  {
+    "question": "What is the first letter of the alphabet?",
+    "choices": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "answer": "A",
+    "explanation": "A is the first letter of the alphabet."
+  }
+]
