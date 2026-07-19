@@ -76,7 +76,9 @@ Rotation policy:
 - `db.py`: SQLite connection, schema, versioned migrations (`PRAGMA user_version`)
 - `ollama_client.py`: Ollama chat API client
 - `shared.py`: runtime state, settings registry/persistence (`set_setting`), shared DB helpers
+- `data/`: word lists, trivia questions, and puzzle sets loaded at startup
 - `modules/ai.py`: AI listeners/tasks and AI commands
+- `modules/blackjack_core.py`: blackjack rules, card math, and basic strategy shared by economy and the Silas gambler
 - `modules/reminders.py`: interactive reminder cards, repeating schedules, background delivery
 - `modules/economy.py`: economy, puzzle, and gambling commands
 - `modules/games.py`: ttt/c4/hangman game commands and listeners
