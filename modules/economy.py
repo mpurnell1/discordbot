@@ -1753,9 +1753,13 @@ class EconomyCog(commands.Cog):
         if "double" not in available_actions(game, hand):
             return await ctx.send("You cannot double this hand right now.")
 
+        # Bets aren't escrowed until settlement, so the balance has to cover the
+        # total committed across all hands plus this increment — otherwise a
+        # split-and-double round could lose more coins than the player has.
         extra = hand["bet"]
-        if get_balance(ctx.author.id) < extra:
-            return await ctx.send(f"You need at least **{extra}** coins available to double.")
+        committed = sum(h["bet"] for h in game["hands"])
+        if get_balance(ctx.author.id) < committed + extra:
+            return await ctx.send(f"You need at least **{committed + extra}** coins available to double.")
 
         hand["bet"] += extra
         hand["doubled"] = True
@@ -1783,9 +1787,12 @@ class EconomyCog(commands.Cog):
         if "split" not in available_actions(game, hand):
             return await ctx.send("You cannot split this hand right now.")
 
+        # Same exposure rule as double: total committed bets (including the new
+        # split hand's bet) must be coverable by the current balance.
         extra = hand["bet"]
-        if get_balance(ctx.author.id) < extra:
-            return await ctx.send(f"You need at least **{extra}** coins available to split.")
+        committed = sum(h["bet"] for h in game["hands"])
+        if get_balance(ctx.author.id) < committed + extra:
+            return await ctx.send(f"You need at least **{committed + extra}** coins available to split.")
 
         c1, c2 = hand["cards"]
         pair_key = split_rank_key(c1)

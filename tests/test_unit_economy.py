@@ -570,6 +570,35 @@ class TestDoubleCommand:
         # if the message says "need ... coins" or game still active → rejection
         assert "coins" in content.lower() or uid in active_blackjack
 
+    async def test_double_rejected_when_total_exposure_exceeds_balance(self, econ_cog):
+        # Balance exactly covers the opening bet — doubling would create 2x
+        # exposure with nothing escrowed, so it must be rejected.
+        uid = 8033
+        _set_balance(uid, 50)
+        game = _bj_game([("5", "♠"), ("6", "♥")], bet=50)
+        active_blackjack[uid] = game
+        ctx = FakeContext(author=FakeAuthor(user_id=uid))
+        await econ_cog.double.callback(econ_cog, ctx)
+        content = ctx.sent[0].get("content") or ""
+        assert "100" in content and "coins" in content.lower()
+        assert uid in active_blackjack
+        assert active_blackjack[uid]["hands"][0]["bet"] == 50
+        assert not active_blackjack[uid]["hands"][0]["doubled"]
+
+    async def test_double_counts_all_committed_hands(self, econ_cog):
+        # Two 50-coin hands already committed (100 total); doubling the current
+        # hand needs 150 coverable — 149 balance must be rejected.
+        uid = 8034
+        _set_balance(uid, 149)
+        game = _bj_game([("5", "♠"), ("6", "♥")], bet=50)
+        game["hands"].append(make_player_hand([("9", "♠"), ("9", "♥")], 50))
+        active_blackjack[uid] = game
+        ctx = FakeContext(author=FakeAuthor(user_id=uid))
+        await econ_cog.double.callback(econ_cog, ctx)
+        content = ctx.sent[0].get("content") or ""
+        assert "150" in content and "coins" in content.lower()
+        assert active_blackjack[uid]["hands"][0]["bet"] == 50
+
 
 class TestSurrenderCommand:
     async def test_no_active_game_sends_error(self, econ_cog):
@@ -817,6 +846,19 @@ class TestSplitCommand:
         await econ_cog.split.callback(econ_cog, ctx)
         assert ctx.sent
         assert "coins" in (ctx.sent[0].get("content") or "").lower()
+
+    async def test_split_rejected_when_total_exposure_exceeds_balance(self, econ_cog):
+        # Balance exactly covers the opening bet — splitting adds a second
+        # 50-coin hand (100 total exposure), so it must be rejected.
+        uid = 9114
+        _set_balance(uid, 50)
+        game = _bj_game([("8", "♠"), ("8", "♥")], bet=50)
+        active_blackjack[uid] = game
+        ctx = FakeContext(author=FakeAuthor(user_id=uid))
+        await econ_cog.split.callback(econ_cog, ctx)
+        content = ctx.sent[0].get("content") or ""
+        assert "100" in content and "coins" in content.lower()
+        assert len(active_blackjack[uid]["hands"]) == 1
 
 
 # ---------------------------------------------------------------------------
