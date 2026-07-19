@@ -110,6 +110,109 @@ class TestIsFeatureAllowed:
 
 
 # ---------------------------------------------------------------------------
+# load_runtime_settings — persisted values survive a reload (restart)
+# ---------------------------------------------------------------------------
+class TestRuntimeSettingsReload:
+    @pytest.mark.parametrize(
+        "key",
+        ["unsolicited_chance_pct", "silas_banter_chance_pct", "silas_react_chance_pct", "late_night_chance_pct"],
+    )
+    def test_passive_pct_survives_reload(self, key):
+        shared._save_json_setting(key, 40)
+        shared.runtime_settings[key] = 0  # simulate a fresh process
+        shared.load_runtime_settings()
+        assert shared.runtime_settings[key] == 40
+
+    def test_passive_pct_clamped_on_load(self):
+        shared._save_json_setting("late_night_chance_pct", 250)
+        shared.load_runtime_settings()
+        assert shared.runtime_settings["late_night_chance_pct"] == 100
+
+
+# ---------------------------------------------------------------------------
+# GambleState — persisted JSON shape stays byte-compatible with the old dicts
+# ---------------------------------------------------------------------------
+class TestGambleState:
+    _LEGACY_KEYS = [
+        "day",
+        "scratchoffs_used",
+        "blackjack_active",
+        "last_action_at",
+        "blackjack_started_at",
+        "hangman_active",
+        "hangman_started_at",
+        "hangman_ended_at",
+        "last_report_key",
+        "last_known_balance",
+        "session_anchor_balance",
+        "morning_hangman_done",
+        "session_id",
+    ]
+
+    def test_json_dict_keys_match_legacy_shape(self):
+        assert list(shared.GambleState().to_json_dict().keys()) == self._LEGACY_KEYS
+
+    def test_round_trip_through_settings(self):
+        from datetime import datetime, timezone
+
+        state = shared.load_gary_gamble_state()
+        state["day"] = "2026-07-06"
+        state["scratchoffs_used"] = 3
+        state["blackjack_active"] = True
+        state["last_action_at"] = datetime(2026, 7, 6, 12, 0, tzinfo=timezone.utc)
+        state["last_known_balance"] = 4200
+        shared.save_gary_gamble_state(state)
+
+        loaded = shared.load_gary_gamble_state()
+        assert loaded["day"] == "2026-07-06"
+        assert loaded["scratchoffs_used"] == 3
+        assert loaded["blackjack_active"] is True
+        assert loaded["last_action_at"] == datetime(2026, 7, 6, 12, 0, tzinfo=timezone.utc)
+        assert loaded["last_known_balance"] == 4200
+        assert loaded["session_id"] is None
+
+    def test_naive_datetime_string_assumed_utc(self):
+        from datetime import timezone
+
+        state = shared.GambleState.from_json_dict({"last_action_at": "2026-07-06T12:00:00"})
+        assert state.last_action_at.tzinfo == timezone.utc
+
+    def test_unknown_key_assignment_rejected(self):
+        with pytest.raises(KeyError):
+            shared.GambleState()["not_a_field"] = 1
+
+
+# ---------------------------------------------------------------------------
+# extract_message_text
+# ---------------------------------------------------------------------------
+class TestExtractMessageText:
+    def _msg(self, content="", embeds=()):
+        class _E:
+            def __init__(self, title, description):
+                self.title = title
+                self.description = description
+
+        class _M:
+            pass
+
+        m = _M()
+        m.content = content
+        m.embeds = [_E(t, d) for t, d in embeds]
+        return m
+
+    def test_content_only(self):
+        assert shared.extract_message_text(self._msg("hello")) == "hello"
+
+    def test_content_and_embed_parts(self):
+        m = self._msg("body", embeds=[("Title", "Desc")])
+        assert shared.extract_message_text(m) == "body\nTitle\nDesc"
+
+    def test_empty_parts_skipped(self):
+        m = self._msg("", embeds=[("", "only desc")])
+        assert shared.extract_message_text(m) == "only desc"
+
+
+# ---------------------------------------------------------------------------
 # is_kids_mode_guild
 # ---------------------------------------------------------------------------
 class TestKidsModeGuild:

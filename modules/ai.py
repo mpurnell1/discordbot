@@ -29,6 +29,7 @@ from content import (
 from ollama_client import clean_reasoning, query_ollama, query_ollama_chat
 from shared import (
     make_embed,
+    extract_message_text,
     is_kids_mode_guild,
     is_feature_allowed,
     load_gary_gamble_state,
@@ -68,64 +69,13 @@ class AICog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        loaded = load_gary_gamble_state()
-        # Parse datetime fields from persisted state
-        dt_fields = {
-            "last_action_at": loaded.get("last_action_at"),
-            "blackjack_started_at": loaded.get("blackjack_started_at"),
-            "hangman_started_at": loaded.get("hangman_started_at"),
-            "hangman_ended_at": loaded.get("hangman_ended_at"),
-        }
-        parsed_dts = {}
-        for key, raw in dt_fields.items():
-            dt = None
-            if isinstance(raw, str) and raw:
-                try:
-                    dt = datetime.fromisoformat(raw)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                except ValueError:
-                    pass
-            parsed_dts[key] = dt
-        self.gamble_state = {
-            "day": loaded.get("day", ""),
-            "scratchoffs_used": loaded.get("scratchoffs_used", 0),
-            "blackjack_active": loaded.get("blackjack_active", False),
-            "last_action_at": parsed_dts["last_action_at"],
-            "blackjack_started_at": parsed_dts["blackjack_started_at"],
-            "hangman_active": loaded.get("hangman_active", False),
-            "hangman_started_at": parsed_dts["hangman_started_at"],
-            "hangman_ended_at": parsed_dts["hangman_ended_at"],
-            "last_known_balance": loaded.get("last_known_balance"),
-            "session_anchor_balance": loaded.get("session_anchor_balance"),
-            "morning_hangman_done": loaded.get("morning_hangman_done", False),
-            "session_id": loaded.get("session_id"),
-        }
+        # GambleState parses the persisted ISO datetimes into aware datetimes.
+        self.gamble_state = load_gary_gamble_state()
         self._last_gamble_report_at = None
         self._last_gamble_result = self.gamble_state.get("last_report_key")
 
     def _persist_gamble_state(self):
-        def _iso(key):
-            v = self.gamble_state.get(key)
-            return v.isoformat() if isinstance(v, datetime) else None
-
-        save_gary_gamble_state(
-            {
-                "day": self.gamble_state.get("day", ""),
-                "scratchoffs_used": self.gamble_state.get("scratchoffs_used", 0),
-                "blackjack_active": self.gamble_state.get("blackjack_active", False),
-                "last_action_at": _iso("last_action_at"),
-                "blackjack_started_at": _iso("blackjack_started_at"),
-                "hangman_active": self.gamble_state.get("hangman_active", False),
-                "hangman_started_at": _iso("hangman_started_at"),
-                "hangman_ended_at": _iso("hangman_ended_at"),
-                "last_report_key": self.gamble_state.get("last_report_key"),
-                "last_known_balance": self.gamble_state.get("last_known_balance"),
-                "session_anchor_balance": self.gamble_state.get("session_anchor_balance"),
-                "morning_hangman_done": self.gamble_state.get("morning_hangman_done", False),
-                "session_id": self.gamble_state.get("session_id"),
-            }
-        )
+        save_gary_gamble_state(self.gamble_state)
 
     def _extract_balance_from_text(self, text: str):
         patterns = [
@@ -671,16 +621,7 @@ class AICog(commands.Cog):
         silas_id = shared.runtime_settings.get("silas_bot_id")
         if not silas_id or message.author.id != silas_id:
             return
-        parts = []
-        if message.content:
-            parts.append(message.content)
-        if message.embeds:
-            for e in message.embeds:
-                if e.title:
-                    parts.append(e.title)
-                if e.description:
-                    parts.append(e.description)
-        silas_text = "\n".join(parts)
+        silas_text = extract_message_text(message)
         if not silas_text:
             return
         await self._handle_silas_gambling_message(message, silas_text)
@@ -749,16 +690,7 @@ class AICog(commands.Cog):
                         return
 
             # Extract Silas's text from message or embeds
-            parts = []
-            if message.content:
-                parts.append(message.content)
-            if message.embeds:
-                for e in message.embeds:
-                    if e.title:
-                        parts.append(e.title)
-                    if e.description:
-                        parts.append(e.description)
-            silas_text = "\n".join(parts)
+            silas_text = extract_message_text(message)
 
             await self._handle_silas_gambling_message(message, silas_text or "")
 

@@ -13,6 +13,7 @@ them through `shared`.
 import functools
 import json
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -449,6 +450,19 @@ def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
 
 
+def extract_message_text(message) -> str:
+    """Join a message's content with its embeds' titles and descriptions."""
+    parts = []
+    if message.content:
+        parts.append(message.content)
+    for embed in message.embeds:
+        if embed.title:
+            parts.append(embed.title)
+        if embed.description:
+            parts.append(embed.description)
+    return "\n".join(parts)
+
+
 def get_last_daily_time(user_id: int):
     get_balance(user_id)
     row = db.execute("SELECT last_daily FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -594,56 +608,102 @@ def get_feature_rule(feature: str):
     return rules.get(normalize_feature_name(feature))
 
 
-def load_gary_gamble_state():
-    raw = _load_json_setting(
-        "gary_gamble_state",
-        {
-            "day": "",
-            "scratchoffs_used": 0,
-            "blackjack_active": False,
-            "last_action_at": None,
-        },
-    )
-    if not isinstance(raw, dict):
-        raw = {}
-    return {
-        "day": str(raw.get("day", "")),
-        "scratchoffs_used": max(0, int(raw.get("scratchoffs_used", 0))),
-        "blackjack_active": bool(raw.get("blackjack_active", False)),
-        "last_action_at": raw.get("last_action_at"),
-        "blackjack_started_at": raw.get("blackjack_started_at"),
-        "hangman_active": bool(raw.get("hangman_active", False)),
-        "hangman_started_at": raw.get("hangman_started_at"),
-        "hangman_ended_at": raw.get("hangman_ended_at"),
-        "last_report_key": raw.get("last_report_key"),
-        "last_known_balance": (int(raw.get("last_known_balance")) if raw.get("last_known_balance") is not None else None),
-        "session_anchor_balance": (
-            int(raw.get("session_anchor_balance")) if raw.get("session_anchor_balance") is not None else None
-        ),
-        "morning_hangman_done": bool(raw.get("morning_hangman_done", False)),
-        "session_id": (int(raw.get("session_id")) if raw.get("session_id") is not None else None),
-    }
+@dataclass
+class GambleState:
+    """State for Gary's autonomous gambling loop (modules/ai.py).
+
+    Persisted as JSON under the 'gary_gamble_state' settings key: datetimes are
+    ISO strings on disk and aware datetimes (UTC assumed if naive) in memory.
+    Field order matches the historical JSON key order.
+    """
+
+    day: str = ""
+    scratchoffs_used: int = 0
+    blackjack_active: bool = False
+    last_action_at: datetime | None = None
+    blackjack_started_at: datetime | None = None
+    hangman_active: bool = False
+    hangman_started_at: datetime | None = None
+    hangman_ended_at: datetime | None = None
+    last_report_key: str | None = None
+    last_known_balance: int | None = None
+    session_anchor_balance: int | None = None
+    morning_hangman_done: bool = False
+    session_id: int | None = None
+
+    # Dict-style shims so call sites can keep using state["key"] / state.get("key").
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        if not hasattr(self, key):
+            raise KeyError(key)
+        setattr(self, key, value)
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+    @staticmethod
+    def _parse_dt(value) -> datetime | None:
+        if not (isinstance(value, str) and value):
+            return None
+        try:
+            dt = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+    @classmethod
+    def from_json_dict(cls, raw) -> "GambleState":
+        if not isinstance(raw, dict):
+            raw = {}
+
+        def _opt_int(value):
+            return int(value) if value is not None else None
+
+        return cls(
+            day=str(raw.get("day", "")),
+            scratchoffs_used=max(0, int(raw.get("scratchoffs_used", 0))),
+            blackjack_active=bool(raw.get("blackjack_active", False)),
+            last_action_at=cls._parse_dt(raw.get("last_action_at")),
+            blackjack_started_at=cls._parse_dt(raw.get("blackjack_started_at")),
+            hangman_active=bool(raw.get("hangman_active", False)),
+            hangman_started_at=cls._parse_dt(raw.get("hangman_started_at")),
+            hangman_ended_at=cls._parse_dt(raw.get("hangman_ended_at")),
+            last_report_key=raw.get("last_report_key"),
+            last_known_balance=_opt_int(raw.get("last_known_balance")),
+            session_anchor_balance=_opt_int(raw.get("session_anchor_balance")),
+            morning_hangman_done=bool(raw.get("morning_hangman_done", False)),
+            session_id=_opt_int(raw.get("session_id")),
+        )
+
+    def to_json_dict(self) -> dict:
+        def _iso(value):
+            return value.isoformat() if isinstance(value, datetime) else None
+
+        return {
+            "day": str(self.day),
+            "scratchoffs_used": max(0, int(self.scratchoffs_used)),
+            "blackjack_active": bool(self.blackjack_active),
+            "last_action_at": _iso(self.last_action_at),
+            "blackjack_started_at": _iso(self.blackjack_started_at),
+            "hangman_active": bool(self.hangman_active),
+            "hangman_started_at": _iso(self.hangman_started_at),
+            "hangman_ended_at": _iso(self.hangman_ended_at),
+            "last_report_key": self.last_report_key,
+            "last_known_balance": (int(self.last_known_balance) if self.last_known_balance is not None else None),
+            "session_anchor_balance": (int(self.session_anchor_balance) if self.session_anchor_balance is not None else None),
+            "morning_hangman_done": bool(self.morning_hangman_done),
+            "session_id": (int(self.session_id) if self.session_id is not None else None),
+        }
 
 
-def save_gary_gamble_state(state: dict):
-    payload = {
-        "day": str(state.get("day", "")),
-        "scratchoffs_used": max(0, int(state.get("scratchoffs_used", 0))),
-        "blackjack_active": bool(state.get("blackjack_active", False)),
-        "last_action_at": state.get("last_action_at"),
-        "blackjack_started_at": state.get("blackjack_started_at"),
-        "hangman_active": bool(state.get("hangman_active", False)),
-        "hangman_started_at": state.get("hangman_started_at"),
-        "hangman_ended_at": state.get("hangman_ended_at"),
-        "last_report_key": state.get("last_report_key"),
-        "last_known_balance": (int(state.get("last_known_balance")) if state.get("last_known_balance") is not None else None),
-        "session_anchor_balance": (
-            int(state.get("session_anchor_balance")) if state.get("session_anchor_balance") is not None else None
-        ),
-        "morning_hangman_done": bool(state.get("morning_hangman_done", False)),
-        "session_id": (int(state.get("session_id")) if state.get("session_id") is not None else None),
-    }
-    _save_json_setting("gary_gamble_state", payload)
+def load_gary_gamble_state() -> GambleState:
+    return GambleState.from_json_dict(_load_json_setting("gary_gamble_state", {}))
+
+
+def save_gary_gamble_state(state: GambleState):
+    _save_json_setting("gary_gamble_state", state.to_json_dict())
 
 
 load_runtime_settings()
