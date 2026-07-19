@@ -52,43 +52,24 @@ KIDS_MODE_BLOCKED_COMMANDS = {
     "unquote",
     # External uncurated text content is not exposed in kids mode.
     "onthisday",
+    # Reminders are free-form scheduled text; stats surface economy/gambling data.
+    "remindme",
+    "reminders",
+    "stats",
 }
 
-KIDS_MODE_BLOCKED_FEATURES = {
-    "cmd:coinflip",
-    "cmd:slots",
-    "cmd:blackjack",
-    "cmd:hit",
-    "cmd:stand",
-    "cmd:double",
-    "cmd:split",
-    "cmd:surrender",
-    "cmd:bjrules",
-    "cmd:ask",
-    "cmd:rp",
-    "cmd:stoprp",
-    "cmd:changenick",
-    "cmd:quote",
-    "cmd:quotes",
-    "cmd:unquote",
-    "cmd:onthisday",
-    "cmd:guess",
-    "cmd:repuzzle",
-    "cmd:balance",
-    "cmd:leaderboard",
-    "cmd:give",
-    "cmd:invite",
-    "cmd:stats",
-    "cmd:stocks",
-    "cmd:buy",
-    "cmd:sell",
-    "cmd:portfolio",
+# Passive (non-command) behaviors disabled in kids mode.
+KIDS_MODE_BLOCKED_PASSIVE_FEATURES = {
     "dead_chat",
     "late_night",
     "mention_reply",
     "silas",
     "unsolicited_ai",
 }
+
+# Feature gates mirror the blocked commands (as cmd:<name>) plus the passive
+# behaviors, so the two policies can never drift apart.
+KIDS_MODE_BLOCKED_FEATURES = {f"cmd:{name}" for name in KIDS_MODE_BLOCKED_COMMANDS} | KIDS_MODE_BLOCKED_PASSIVE_FEATURES
 
 KIDS_MODE_SUMMARY = (
     "Kids mode keeps Gary useful while removing unpredictable or adult-leaning behavior:\n"

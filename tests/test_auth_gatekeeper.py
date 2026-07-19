@@ -50,6 +50,24 @@ async def test_kids_mode_off_does_not_block_blocked_command():
     assert await bot_module.command_gatekeeper(ctx) is True
 
 
+@pytest.mark.parametrize("command_name", ["remindme", "reminders", "stats"])
+async def test_kids_mode_blocks_reminders_and_stats(command_name):
+    """KIDS_MODE_SUMMARY promises reminders are disabled; stats surfaces economy data."""
+    shared.set_kids_mode_guild(1000, True)
+    ctx = _ctx(command_name=command_name)
+    with pytest.raises(commands.CheckFailure):
+        await bot_module.command_gatekeeper(ctx)
+
+
+def test_blocked_features_mirror_blocked_commands():
+    """The cmd: feature gates are derived from the blocked-command set (plus the
+    passive behaviors) so the two kids-mode policies cannot drift apart."""
+    import content
+
+    expected = {f"cmd:{name}" for name in content.KIDS_MODE_BLOCKED_COMMANDS} | content.KIDS_MODE_BLOCKED_PASSIVE_FEATURES
+    assert content.KIDS_MODE_BLOCKED_FEATURES == expected
+
+
 # ---------------------------------------------------------------------------
 # disabled-command toggle
 # ---------------------------------------------------------------------------
