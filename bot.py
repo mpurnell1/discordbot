@@ -239,14 +239,12 @@ async def log_kids_interactions(message):
     )
 
 
-@bot.before_invoke
 async def log_command_use(ctx):
     guild_id = ctx.guild.id if ctx.guild else None
     shared.log_command(ctx.author.id, ctx.command.name, guild_id)
     shared.command_usage[ctx.command.name] += 1
 
 
-@bot.before_invoke
 async def auto_daily_award(ctx):
     guild_id = ctx.guild.id if ctx.guild else None
     if is_kids_mode_guild(guild_id):
@@ -273,6 +271,15 @@ async def auto_daily_award(ctx):
         else:
             desc = f"You got **{DAILY_AMOUNT}** coins!\nBalance: **{bal:,}**"
         await ctx.send(embed=make_embed("💰 Daily Reward!", desc, COLOR_SUCCESS))
+
+
+@bot.before_invoke
+async def pre_invoke_hooks(ctx):
+    # discord.py keeps only ONE before_invoke hook per bot — a second
+    # @bot.before_invoke registration silently replaces the first — so every
+    # pre-invoke step must be chained through this single hook.
+    await log_command_use(ctx)
+    await auto_daily_award(ctx)
 
 
 @bot.check
