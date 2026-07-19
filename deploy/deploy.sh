@@ -30,6 +30,22 @@ mkdir -p "$(dirname "$LOG_FILE")"
   git checkout "$DEPLOY_BRANCH"
   git reset --hard "$DEPLOY_REMOTE/$DEPLOY_BRANCH"
 
+  # Self-heal: if this deployer was created with the pre-fix /repo mount, its
+  # compose calls can't work (the host daemon resolves paths host-side). A
+  # detached helper container — unaffected by this container being replaced —
+  # recreates the stack at the canonical path, then the next push deploys
+  # normally through the new deployer.
+  CANONICAL_DIR="/volume1/homes/ratthew/projects/discordbot"
+  if [ "$REPO_DIR" != "$CANONICAL_DIR" ]; then
+    echo "[$(date -Iseconds)] legacy mount detected (REPO_DIR=$REPO_DIR); spawning self-heal helper"
+    docker run -d --rm \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v "$CANONICAL_DIR:$CANONICAL_DIR" -w "$CANONICAL_DIR" \
+      docker:cli sh -c "sleep 3 && docker compose up -d --build deployer bot >>$CANONICAL_DIR/deploy/deploy.log 2>&1"
+    echo "[$(date -Iseconds)] self-heal helper started; deployer will be recreated"
+    exit 0
+  fi
+
   docker compose build bot
   # Sanity gate before swapping the running container.
   docker compose run --rm --no-deps --entrypoint python bot -m py_compile bot.py
