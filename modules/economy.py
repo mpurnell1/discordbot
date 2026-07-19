@@ -30,6 +30,27 @@ from shared import (
     log_gambling,
 )
 
+# Some names are unused here but re-exported so tests and older call sites can
+# keep importing the blackjack toolkit from modules.economy.
+from modules.blackjack_core import (
+    BLACKJACK_RANKS,
+    BLACKJACK_RULE_PRESETS,
+    BLACKJACK_RULES,
+    BLACKJACK_SUITS,
+    apply_blackjack_ruleset,
+    blackjack_recommendation,
+    can_split_cards,
+    card_points,  # noqa: F401
+    dealer_should_hit,
+    dealer_up_value,  # noqa: F401
+    get_blackjack_ruleset_name,
+    hand_total_and_soft,  # noqa: F401
+    hand_value,
+    is_blackjack,
+    is_soft_hand,  # noqa: F401
+    split_rank_key,
+)
+
 active_puzzles = {}  # (scope, user_id) -> {"answer": str, "type": str, "display": str}
 
 
@@ -229,58 +250,7 @@ PUZZLE_TITLES = {
 SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
 active_blackjack = {}
 BLACKJACK_RAW_ACTIONS = {"hit", "stand", "double", "split", "surrender"}
-BLACKJACK_RULE_PRESETS = {
-    "realistic": {
-        "decks": 6,
-        "reshuffle_at_cards": 78,
-        "blackjack_payout": 1.5,  # 3:2
-        "dealer_hits_soft_17": False,
-        "double_any_two": True,
-        "double_after_split": True,
-        "allow_split": True,
-        "allow_ten_value_split": True,
-        "max_hands": 4,
-        "resplit_aces": False,
-        "draw_to_split_aces": False,
-        "late_surrender": True,
-        "five_card_charlie": False,
-    },
-    "arcade": {
-        "decks": 6,
-        "reshuffle_at_cards": 78,
-        "blackjack_payout": 2.0,  # player-favorable: 2:1 blackjack payout
-        "dealer_hits_soft_17": False,
-        "double_any_two": True,
-        "double_after_split": True,
-        "allow_split": True,
-        "allow_ten_value_split": True,
-        "max_hands": 4,
-        "resplit_aces": True,
-        "draw_to_split_aces": True,
-        "late_surrender": True,
-        "five_card_charlie": True,
-    },
-}
-BLACKJACK_RULES = {}
-
-BLACKJACK_SUITS = ["♠", "♥", "♦", "♣"]
-BLACKJACK_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
 blackjack_shoe = []
-
-
-def get_blackjack_ruleset_name():
-    raw = shared.runtime_settings.get("bj_ruleset", "realistic")
-    name = str(raw).strip().lower()
-    return name if name in BLACKJACK_RULE_PRESETS else "realistic"
-
-
-def apply_blackjack_ruleset(name: str):
-    selected = str(name).strip().lower()
-    if selected not in BLACKJACK_RULE_PRESETS:
-        selected = "realistic"
-    BLACKJACK_RULES.clear()
-    BLACKJACK_RULES.update(BLACKJACK_RULE_PRESETS[selected])
-    return selected
 
 
 def make_shoe():
@@ -302,69 +272,8 @@ def draw_from_shoe():
     return blackjack_shoe.pop()
 
 
-def card_points(rank):
-    if rank in ("J", "Q", "K"):
-        return 10
-    if rank == "A":
-        return 11
-    return int(rank)
-
-
-def hand_total_and_soft(hand):
-    total = 0
-    aces_as_eleven = 0
-    for rank, _ in hand:
-        total += card_points(rank)
-        if rank == "A":
-            aces_as_eleven += 1
-    while total > 21 and aces_as_eleven:
-        total -= 10
-        aces_as_eleven -= 1
-    return total, aces_as_eleven > 0
-
-
-def hand_value(hand):
-    total, _ = hand_total_and_soft(hand)
-    return total
-
-
-def is_soft_hand(hand):
-    _, soft = hand_total_and_soft(hand)
-    return soft
-
-
-def is_blackjack(hand):
-    return len(hand) == 2 and hand_value(hand) == 21
-
-
 def display_hand(hand):
     return " ".join(f"`{r}{s}`" for r, s in hand)
-
-
-def dealer_up_value(card):
-    return card_points(card[0])
-
-
-def split_rank_key(card):
-    rank = card[0]
-    if rank in ("10", "J", "Q", "K") and BLACKJACK_RULES["allow_ten_value_split"]:
-        return "10"
-    return rank
-
-
-def can_split_cards(hand):
-    if len(hand) != 2:
-        return False
-    return split_rank_key(hand[0]) == split_rank_key(hand[1])
-
-
-def dealer_should_hit(dealer_hand):
-    total, soft = hand_total_and_soft(dealer_hand)
-    if total < 17:
-        return True
-    if total == 17 and soft and BLACKJACK_RULES["dealer_hits_soft_17"]:
-        return True
-    return False
 
 
 def make_player_hand(cards, bet, from_split=False, split_aces=False):
@@ -409,75 +318,6 @@ def advance_to_next_hand(game):
     return game["current_hand"] >= len(game["hands"])
 
 
-def blackjack_recommendation(player_hand, dealer_up_card):
-    total = hand_value(player_hand)
-    up = dealer_up_value(dealer_up_card)
-    soft = is_soft_hand(player_hand)
-
-    if can_split_cards(player_hand):
-        pair = split_rank_key(player_hand[0])
-        if pair in ("A", "8"):
-            return "split", f"pair of {pair}s"
-        if pair in ("10", "5"):
-            pass
-        elif pair == "9":
-            if up in (7, 10, 11):
-                return "stand", "9,9 vs 7/10/A"
-            return "split", "9,9 vs 2-6/8-9"
-        elif pair == "7":
-            if 2 <= up <= 7:
-                return "split", "7,7 vs 2-7"
-        elif pair == "6":
-            if 2 <= up <= 6:
-                return "split", "6,6 vs 2-6"
-        elif pair in ("2", "3"):
-            if 2 <= up <= 7:
-                return "split", f"{pair},{pair} vs 2-7"
-        elif pair == "4":
-            if 5 <= up <= 6:
-                return "split", "4,4 vs 5-6"
-
-    if soft:
-        if total >= 19:
-            return "stand", "soft 19+"
-        if total == 18:
-            if up in (3, 4, 5, 6):
-                return "double", "soft 18 vs 3-6"
-            if up in (9, 10, 11):
-                return "hit", "soft 18 vs 9/10/A"
-            return "stand", "soft 18 vs 2/7/8"
-        if total == 17 and up in (3, 4, 5, 6):
-            return "double", "soft 17 vs 3-6"
-        if total in (15, 16) and up in (4, 5, 6):
-            return "double", f"soft {total} vs 4-6"
-        if total in (13, 14) and up in (5, 6):
-            return "double", f"soft {total} vs 5-6"
-        return "hit", "soft 17 or less"
-
-    if total >= 17:
-        return "stand", "hard 17+"
-    if total == 16 and up in (9, 10, 11):
-        return "surrender", "hard 16 vs 9/10/A"
-    if total == 15 and up == 10:
-        return "surrender", "hard 15 vs 10"
-    if total in (9, 10, 11):
-        if total == 9 and 3 <= up <= 6:
-            return "double", "hard 9 vs 3-6"
-        if total == 10 and 2 <= up <= 9:
-            return "double", "hard 10 vs 2-9"
-        if total == 11 and 2 <= up <= 10:
-            return "double", "hard 11 vs 2-10"
-    if 13 <= total <= 16:
-        if 2 <= up <= 6:
-            return "stand", "hard 13-16 vs 2-6"
-        return "hit", "hard 13-16 vs 7-A"
-    if total == 12:
-        if 4 <= up <= 6:
-            return "stand", "hard 12 vs 4-6"
-        return "hit", "hard 12 vs 2-3/7-A"
-    return "hit", "hard 11 or less"
-
-
 def best_legal_blackjack_recommendation(game, hand, dealer_up_card):
     base_action, base_reason = blackjack_recommendation(hand["cards"], dealer_up_card)
     legal = set(available_actions(game, hand))
@@ -499,9 +339,6 @@ def best_legal_blackjack_recommendation(game, hand, dealer_up_card):
 
     # Shouldn't happen, but avoid impossible guidance.
     return next(iter(legal)), f"{base_reason}; adjusted to available action"
-
-
-apply_blackjack_ruleset(get_blackjack_ruleset_name())
 
 
 class EconomyCog(commands.Cog):
