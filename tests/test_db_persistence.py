@@ -3,6 +3,7 @@
 import sqlite3
 
 
+import db as db_module
 import shared
 
 
@@ -128,4 +129,84 @@ class TestInitDbIdempotent:
         # Existing data preserved.
         bal = migrated.execute("SELECT balance FROM users WHERE user_id = 1").fetchone()
         assert bal[0] == 500
+        migrated.close()
+
+
+# ---------------------------------------------------------------------------
+# init_db — versioned migration runner (PRAGMA user_version)
+# ---------------------------------------------------------------------------
+EXPECTED_TABLES = {
+    "users",
+    "nick_changes",
+    "quotes",
+    "settings",
+    "guild_settings",
+    "command_log",
+    "balance_history",
+    "puzzle_history",
+    "game_results",
+    "gambling_log",
+    "gary_sessions",
+    "stock_prices",
+    "stock_holdings",
+    "stock_trades",
+    "stock_tickers",
+    "options",
+    "reminders",
+}
+
+
+class TestSchemaVersioning:
+    def test_fresh_db_is_stamped_with_latest_version(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DISCORDBOT_DB_PATH", str(tmp_path / "fresh.db"))
+        db = shared.init_db()
+        (version,) = db.execute("PRAGMA user_version").fetchone()
+        assert version == len(db_module.MIGRATIONS)
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert EXPECTED_TABLES <= tables
+        db.close()
+
+    def test_applied_migrations_are_skipped_on_reopen(self, tmp_path, monkeypatch):
+        path = tmp_path / "versioned.db"
+        monkeypatch.setenv("DISCORDBOT_DB_PATH", str(path))
+        first = shared.init_db()
+        first.execute("INSERT INTO users (user_id, balance) VALUES (7, 250)")
+        first.commit()
+        first.close()
+
+        calls = []
+
+        def spy(db, _baseline=db_module._migration_1_backfill_pre_versioning_columns):
+            calls.append(1)
+            _baseline(db)
+
+        # init_db reads the migration list from the db module, so patch it there.
+        monkeypatch.setattr(db_module, "MIGRATIONS", [spy])
+        second = shared.init_db()
+        (version,) = second.execute("PRAGMA user_version").fetchone()
+        assert version == len(db_module.MIGRATIONS)
+        assert calls == []  # already at version 1 — nothing re-runs
+        bal = second.execute("SELECT balance FROM users WHERE user_id = 7").fetchone()
+        assert bal[0] == 250
+        second.close()
+
+    def test_legacy_unversioned_db_is_baselined(self, tmp_path, monkeypatch):
+        """A pre-versioning DB (tables exist, user_version = 0) gets the baseline
+        applied safely: missing columns appear and the version is stamped."""
+        path = tmp_path / "legacy.db"
+        legacy = sqlite3.connect(path)
+        legacy.execute("CREATE TABLE users (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0, last_daily TEXT DEFAULT '')")
+        legacy.execute("INSERT INTO users (user_id, balance) VALUES (1, 500)")
+        legacy.commit()
+        (version,) = legacy.execute("PRAGMA user_version").fetchone()
+        assert version == 0
+        legacy.close()
+
+        monkeypatch.setenv("DISCORDBOT_DB_PATH", str(path))
+        migrated = shared.init_db()
+        (version,) = migrated.execute("PRAGMA user_version").fetchone()
+        assert version == len(db_module.MIGRATIONS)
+        cols = {row[1] for row in migrated.execute("PRAGMA table_info(users)").fetchall()}
+        assert "activity_streak" in cols
+        assert migrated.execute("SELECT balance FROM users WHERE user_id = 1").fetchone()[0] == 500
         migrated.close()

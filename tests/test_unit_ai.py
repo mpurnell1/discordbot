@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.ai import AICog
+from modules.ai import AICog, is_pass_reply
 from modules.blackjack_core import (
     blackjack_recommendation,
     card_points,
@@ -22,6 +22,30 @@ from modules.blackjack_core import (
 @pytest.fixture()
 def cog():
     return AICog(MagicMock())
+
+
+# ---------------------------------------------------------------------------
+# is_pass_reply — the model's decline-to-comment sentinel
+# ---------------------------------------------------------------------------
+
+
+class TestIsPassReply:
+    @pytest.mark.parametrize("text", ["PASS", "pass", " Pass ", '"PASS"', "*pass*", "PASS.", "`pass`"])
+    def test_bare_pass_is_filtered(self, text):
+        assert is_pass_reply(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "I'll pass on that one",
+            "the password is wrong",
+            "passing thoughts only",
+            "hard pass, that idea is terrible",
+            "not a sentinel",
+        ],
+    )
+    def test_real_replies_are_not_filtered(self, text):
+        assert is_pass_reply(text) is False
 
 
 # ---------------------------------------------------------------------------

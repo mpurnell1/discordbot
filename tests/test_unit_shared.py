@@ -130,6 +130,32 @@ class TestRuntimeSettingsReload:
 
 
 # ---------------------------------------------------------------------------
+# set_setting — single write path: parse, apply, persist
+# ---------------------------------------------------------------------------
+class TestSetSetting:
+    def test_unknown_key_raises(self):
+        with pytest.raises(KeyError):
+            shared.set_setting("not_a_real_setting", 1)
+
+    def test_parse_and_clamp_applied(self):
+        assert shared.set_setting("unsolicited_chance_pct", 250) == 100
+        assert shared.runtime_settings["unsolicited_chance_pct"] == 100
+
+    def test_value_persists_across_reload(self):
+        shared.set_setting("weather_alert_city", "Mattoon")
+        shared.runtime_settings["weather_alert_city"] = "Champaign"  # simulate restart
+        shared.load_runtime_settings()
+        assert shared.runtime_settings["weather_alert_city"] == "Mattoon"
+
+    def test_channel_id_coerced_to_optional_int(self):
+        assert shared.set_setting("ticker_channel_id", "12345") == 12345
+        assert shared.set_setting("ticker_channel_id", None) is None
+
+    def test_registry_covers_all_defaults(self):
+        assert set(shared.SETTINGS_REGISTRY) == set(shared.SETTINGS_DEFAULTS)
+
+
+# ---------------------------------------------------------------------------
 # GambleState — persisted JSON shape stays byte-compatible with the old dicts
 # ---------------------------------------------------------------------------
 class TestGambleState:
