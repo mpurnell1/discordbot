@@ -19,7 +19,10 @@ git push nas main
 - `../docker-compose.yml` — `bot` (python:3.13 image) + `deployer` (this listener)
 - `../Dockerfile` — the bot image; DB/logs live on the `runtime/` bind mount
 - `Dockerfile` — deployer image (docker CLI + python; socket-mounted, so deploys
-  never need sudo after first bring-up)
+  never need sudo after first bring-up). Docker-out-of-docker gotcha: the repo is
+  mounted at its canonical host path inside the deployer and the compose project
+  name is pinned, because bind mounts and project identity are resolved by the
+  HOST daemon, not the container's filesystem.
 - `webhook_listener.py` — verifies `X-Gitea-Signature`, filters ref, runs deploy.sh
 - `deploy.sh` — the redeploy itself; logs to `deploy.log`
 - `nas-setup.sh` — one-time idempotent bootstrap (Gitea, admin/token/repo/webhook,

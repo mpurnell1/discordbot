@@ -131,6 +131,11 @@ if [ ! -d "$BOT_DIR/.git" ]; then
   git -C "$BOT_DIR" remote set-url origin "http://$GITEA_ADMIN:$API_TOKEN@$NAS_IP:3000/$GITEA_ADMIN/$REPO_NAME.git"
 fi
 
+# Clean up artifacts from the pre-fix deployer that ran compose under the
+# wrong project name ("repo").
+docker ps -aq --filter "name=repo-bot-run" | xargs -r docker rm -f >/dev/null 2>&1 || true
+docker network rm repo_default >/dev/null 2>&1 || true
+
 mkdir -p "$BOT_DIR/runtime/logs"
 if [ ! -f "$BOT_DIR/.env" ]; then
   cat > "$BOT_DIR/.env" <<EOF

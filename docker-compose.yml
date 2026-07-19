@@ -6,9 +6,16 @@
 #            grants it root-equivalent on the NAS, which is accepted for this
 #            single-admin LAN box.
 #
+# Docker-out-of-docker rules both quirks below: compose inside the deployer
+# talks to the HOST daemon, so (a) the repo must be mounted at its canonical
+# host path (bind mounts are resolved host-side), and (b) the project name is
+# pinned so host- and container-side invocations manage the same containers.
+#
 # First start (and deployer-image changes) need sudo:
 #   sudo docker compose up -d --build
 # Everything after that is hands-off via `git push nas main`.
+
+name: discordbot
 
 services:
   bot:
@@ -30,8 +37,8 @@ services:
       - "9000:9000"
     env_file: .env # WEBHOOK_SECRET
     environment:
-      REPO_DIR: /repo
-    working_dir: /repo
+      REPO_DIR: /volume1/homes/ratthew/projects/discordbot
+    working_dir: /volume1/homes/ratthew/projects/discordbot
     volumes:
-      - .:/repo
+      - .:/volume1/homes/ratthew/projects/discordbot
       - /var/run/docker.sock:/var/run/docker.sock
