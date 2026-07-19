@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
+# Redeploy the bot from the local Gitea remote. Runs inside the deployer
+# container (repo bind-mounted at /repo, docker socket mounted), triggered by
+# webhook_listener.py on a push to the deploy branch.
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-/opt/discordbot}"
+REPO_DIR="${REPO_DIR:-/repo}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
 DEPLOY_REMOTE="${DEPLOY_REMOTE:-origin}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-VENV_DIR="${VENV_DIR:-$REPO_DIR/venv}"
-SERVICE_NAME="${SERVICE_NAME:-discord-bot.service}"
-RESTART_TRIGGER_FILE="${RESTART_TRIGGER_FILE:-$REPO_DIR/.deploy-restart}"
 LOCK_FILE="${LOCK_FILE:-/tmp/discordbot-deploy.lock}"
 LOG_FILE="${LOG_FILE:-$REPO_DIR/deploy/deploy.log}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
 {
-  echo "[$(date -Iseconds)] deploy start ref=${GITHUB_REF:-unknown} sha=${GITHUB_AFTER_SHA:-unknown}"
+  echo "[$(date -Iseconds)] deploy start ref=${DEPLOY_REF:-unknown} sha=${DEPLOY_AFTER_SHA:-unknown}"
 
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
@@ -24,22 +23,17 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
   cd "$REPO_DIR"
 
+  # The repo is owned by the NAS user but this container runs as root.
+  git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+
   git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
   git checkout "$DEPLOY_BRANCH"
   git reset --hard "$DEPLOY_REMOTE/$DEPLOY_BRANCH"
 
-  if [[ -x "$VENV_DIR/bin/pip" ]]; then
-    "$VENV_DIR/bin/pip" install -r requirements.txt
-  else
-    "$PYTHON_BIN" -m pip install -r requirements.txt
-  fi
+  docker compose build bot
+  # Sanity gate before swapping the running container.
+  docker compose run --rm --no-deps --entrypoint python bot -m py_compile bot.py
+  docker compose up -d bot
 
-  if [[ -x "$VENV_DIR/bin/python" ]]; then
-    "$VENV_DIR/bin/python" -m py_compile bot.py
-  else
-    "$PYTHON_BIN" -m py_compile bot.py
-  fi
-
-  touch "$RESTART_TRIGGER_FILE"
   echo "[$(date -Iseconds)] deploy success"
 } >>"$LOG_FILE" 2>&1

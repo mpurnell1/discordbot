@@ -1,0 +1,37 @@
+# Gary's production stack on the NAS (~/projects/discordbot).
+#
+# bot      — the Discord bot itself (image built from ./Dockerfile)
+# deployer — Gitea-webhook listener that redeploys the bot on push to main.
+#            It mounts the docker socket so deploys never need sudo; that
+#            grants it root-equivalent on the NAS, which is accepted for this
+#            single-admin LAN box.
+#
+# First start (and deployer-image changes) need sudo:
+#   sudo docker compose up -d --build
+# Everything after that is hands-off via `git push nas main`.
+
+services:
+  bot:
+    build: .
+    image: discordbot-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DISCORDBOT_DB_PATH: /data/bot.db
+    volumes:
+      - ./runtime:/data
+      - ./runtime/logs:/app/logs
+
+  deployer:
+    build: deploy
+    image: discordbot-deployer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    env_file: .env # WEBHOOK_SECRET
+    environment:
+      REPO_DIR: /repo
+    working_dir: /repo
+    volumes:
+      - .:/repo
+      - /var/run/docker.sock:/var/run/docker.sock

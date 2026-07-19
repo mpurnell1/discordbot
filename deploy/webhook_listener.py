@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Minimal GitHub webhook listener for Discord bot auto-deploys.
+"""Minimal Gitea webhook listener for Discord bot auto-deploys.
 
-This service verifies X-Hub-Signature-256, checks branch/repo, and triggers
-the deploy script. Keep this behind HTTPS/tunnel and a strong WEBHOOK_SECRET.
+Runs inside the deployer container (see deploy/Dockerfile). Verifies
+X-Gitea-Signature (HMAC-SHA256 of the raw body with WEBHOOK_SECRET), checks
+the pushed ref is the deploy branch, and runs deploy/deploy.sh in the
+background. LAN-only: the port is published on the NAS, never forwarded.
 """
 
 from __future__ import annotations
@@ -18,22 +20,20 @@ from pathlib import Path
 from threading import Thread
 from typing import Any
 
-
 LISTEN_HOST = os.getenv("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("LISTEN_PORT", "9000"))
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 DEPLOY_BRANCH = os.getenv("DEPLOY_BRANCH", "main")
-EXPECTED_REPO = os.getenv("GITHUB_REPO", "")  # example: "owner/repo"
+EXPECTED_REPO = os.getenv("DEPLOY_REPO", "")  # example: "ratthew/discordbot"
 REPO_DIR = Path(os.getenv("REPO_DIR", str(Path(__file__).resolve().parents[1]))).resolve()
 DEPLOY_SCRIPT = Path(os.getenv("DEPLOY_SCRIPT", str(REPO_DIR / "deploy" / "deploy.sh"))).resolve()
 
 
 def _verify_signature(secret: str, payload: bytes, header_value: str | None) -> bool:
-    if not header_value or not header_value.startswith("sha256="):
+    if not header_value:
         return False
     digest = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-    expected = f"sha256={digest}"
-    return hmac.compare_digest(expected, header_value)
+    return hmac.compare_digest(digest, header_value)
 
 
 def _deploy_in_background(context: dict[str, str]) -> None:
@@ -45,14 +45,14 @@ def _deploy_in_background(context: dict[str, str]) -> None:
             cwd=str(REPO_DIR),
             env=env,
             check=True,
-            timeout=600,
+            timeout=900,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[webhook] deploy failed: {exc}")
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "discordbot-webhook/1.0"
+    server_version = "discordbot-webhook/2.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[webhook] {self.address_string()} - {fmt % args}")
@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/github-webhook":
+        if self.path != "/webhook":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
 
@@ -78,12 +78,11 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         payload = self.rfile.read(length)
 
-        sig_header = self.headers.get("X-Hub-Signature-256")
-        if not _verify_signature(WEBHOOK_SECRET, payload, sig_header):
+        if not _verify_signature(WEBHOOK_SECRET, payload, self.headers.get("X-Gitea-Signature")):
             self.send_error(HTTPStatus.FORBIDDEN, "signature check failed")
             return
 
-        event = self.headers.get("X-GitHub-Event", "")
+        event = self.headers.get("X-Gitea-Event", "")
         if event != "push":
             self.send_response(HTTPStatus.ACCEPTED)
             self.end_headers()
@@ -97,8 +96,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         ref = body.get("ref", "")
-        expected_ref = f"refs/heads/{DEPLOY_BRANCH}"
-        if ref != expected_ref:
+        if ref != f"refs/heads/{DEPLOY_BRANCH}":
             self.send_response(HTTPStatus.ACCEPTED)
             self.end_headers()
             self.wfile.write(f"ignored ref {ref}\n".encode("utf-8"))
@@ -110,10 +108,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.FORBIDDEN, "repo mismatch")
                 return
 
-        after_sha = body.get("after", "")
         context = {
-            "GITHUB_AFTER_SHA": str(after_sha),
-            "GITHUB_REF": str(ref),
+            "DEPLOY_AFTER_SHA": str(body.get("after", "")),
+            "DEPLOY_REF": str(ref),
         }
         Thread(target=_deploy_in_background, args=(context,), daemon=True).start()
 

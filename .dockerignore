@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+logs
+runtime
+__pycache__
+**/__pycache__
+.pytest_cache
+.coverage
+htmlcov
+bot.db
+*.db
+.env
+deploy/deploy.log
