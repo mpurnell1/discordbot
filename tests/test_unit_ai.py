@@ -11,6 +11,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.ai import AICog
+from modules.blackjack_core import (
+    blackjack_recommendation,
+    card_points,
+    is_soft_shown_total,
+    recommend_hit_stand,
+)
 
 
 @pytest.fixture()
@@ -73,63 +79,87 @@ class TestComputeBlackjackBet:
 
 
 # ---------------------------------------------------------------------------
-# _bj_rank_value
+# blackjack_core helpers used by the Silas gambler
 # ---------------------------------------------------------------------------
 
 
 class TestBjRankValue:
     @pytest.mark.parametrize("rank,expected", [("J", 10), ("Q", 10), ("K", 10), ("A", 11), ("2", 2), ("10", 10)])
-    def test_rank_values(self, cog, rank, expected):
-        assert cog._bj_rank_value(rank) == expected
+    def test_rank_values(self, rank, expected):
+        assert card_points(rank) == expected
 
-    def test_case_insensitive(self, cog):
-        assert cog._bj_rank_value("j") == 10
-
-
-# ---------------------------------------------------------------------------
-# _bj_is_soft
-# ---------------------------------------------------------------------------
+    def test_case_insensitive(self):
+        assert card_points("j") == 10
 
 
 class TestBjIsSoft:
-    def test_ace_six_is_soft_17(self, cog):
-        assert cog._bj_is_soft(["A", "6"], 17) is True
+    def test_ace_six_is_soft_17(self):
+        assert is_soft_shown_total(["A", "6"], 17) is True
 
-    def test_ace_six_ten_is_hard_17(self, cog):
+    def test_ace_six_ten_is_hard_17(self):
         # ace forced to count as 1 to avoid bust
-        assert cog._bj_is_soft(["A", "6", "10"], 17) is False
+        assert is_soft_shown_total(["A", "6", "10"], 17) is False
 
-    def test_no_ace_never_soft(self, cog):
-        assert cog._bj_is_soft(["10", "7"], 17) is False
+    def test_no_ace_never_soft(self):
+        assert is_soft_shown_total(["10", "7"], 17) is False
 
-    def test_two_aces_twelve_is_soft(self, cog):
-        assert cog._bj_is_soft(["A", "A"], 12) is True
-
-
-# ---------------------------------------------------------------------------
-# _recommend_blackjack_action
-# ---------------------------------------------------------------------------
+    def test_two_aces_twelve_is_soft(self):
+        assert is_soft_shown_total(["A", "A"], 12) is True
 
 
 class TestRecommendBlackjackAction:
-    def test_stands_on_hard_17_plus(self, cog):
-        assert cog._recommend_blackjack_action(17, 6, False) == "stand"
-        assert cog._recommend_blackjack_action(20, 10, False) == "stand"
+    def test_stands_on_hard_17_plus(self):
+        assert recommend_hit_stand(17, 6, False) == "stand"
+        assert recommend_hit_stand(20, 10, False) == "stand"
 
-    def test_hits_hard_16_vs_9(self, cog):
-        assert cog._recommend_blackjack_action(16, 9, False) == "hit"
+    def test_hits_hard_16_vs_9(self):
+        assert recommend_hit_stand(16, 9, False) == "hit"
 
-    def test_stands_hard_13_vs_5(self, cog):
-        assert cog._recommend_blackjack_action(13, 5, False) == "stand"
+    def test_stands_hard_13_vs_5(self):
+        assert recommend_hit_stand(13, 5, False) == "stand"
 
-    def test_hits_soft_18_vs_9(self, cog):
-        assert cog._recommend_blackjack_action(18, 9, True) == "hit"
+    def test_hits_soft_18_vs_9(self):
+        assert recommend_hit_stand(18, 9, True) == "hit"
 
-    def test_stands_soft_19(self, cog):
-        assert cog._recommend_blackjack_action(19, 6, True) == "stand"
+    def test_stands_soft_19(self):
+        assert recommend_hit_stand(19, 6, True) == "stand"
 
-    def test_hits_hard_8(self, cog):
-        assert cog._recommend_blackjack_action(8, 7, False) == "hit"
+    def test_hits_hard_8(self):
+        assert recommend_hit_stand(8, 7, False) == "hit"
+
+
+class TestSharedBlackjackCore:
+    """Both cogs must draw their blackjack knowledge from blackjack_core."""
+
+    def test_economy_reexports_are_core_objects(self):
+        from modules import blackjack_core, economy
+
+        assert economy.card_points is blackjack_core.card_points
+        assert economy.blackjack_recommendation is blackjack_core.blackjack_recommendation
+        assert economy.BLACKJACK_RULES is blackjack_core.BLACKJACK_RULES
+
+    def test_ai_cog_no_longer_defines_private_copies(self, cog):
+        for name in ("_bj_rank_value", "_bj_is_soft", "_recommend_blackjack_action"):
+            assert not hasattr(cog, name)
+
+    @pytest.mark.parametrize(
+        "total,dealer_up,soft",
+        [(17, 6, False), (16, 9, False), (13, 5, False), (18, 9, True), (19, 6, True), (12, 4, False), (12, 3, False)],
+    )
+    def test_hit_stand_table_agrees_with_full_strategy_when_restricted(self, total, dealer_up, soft):
+        # Wherever the full table already answers hit/stand, the restricted
+        # table must give the same answer (spot checks, not exhaustive).
+        hands = {
+            (17, False): [("10", "♠"), ("7", "♥")],
+            (16, False): [("10", "♠"), ("6", "♥")],
+            (13, False): [("10", "♠"), ("3", "♥")],
+            (12, False): [("10", "♠"), ("2", "♥")],
+            (18, True): [("A", "♠"), ("7", "♥")],
+            (19, True): [("A", "♠"), ("8", "♥")],
+        }
+        full_action, _ = blackjack_recommendation(hands[(total, soft)], (str(dealer_up), "♣"))
+        if full_action in ("hit", "stand"):
+            assert recommend_hit_stand(total, dealer_up, soft) == full_action
 
 
 # ---------------------------------------------------------------------------

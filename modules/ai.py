@@ -38,6 +38,7 @@ from shared import (
     log_gary_session_end,
     get_gary_gamble_stats,
 )
+from modules.blackjack_core import card_points, is_soft_shown_total, recommend_hit_stand
 
 logger = logging.getLogger("garybot")
 
@@ -206,44 +207,6 @@ class AICog(commands.Cog):
             now_central -= timedelta(days=1)
         return now_central.strftime("%Y-%m-%d")
 
-    def _bj_rank_value(self, rank: str) -> int:
-        rank = rank.upper()
-        if rank in {"J", "Q", "K"}:
-            return 10
-        if rank == "A":
-            return 11
-        return int(rank)
-
-    def _bj_is_soft(self, ranks: list[str], total: int) -> bool:
-        # Soft if at least one ace is effectively counted as 11 in the shown total.
-        hard_total = 0
-        aces = 0
-        for rank in ranks:
-            if rank == "A":
-                hard_total += 1
-                aces += 1
-            else:
-                hard_total += self._bj_rank_value(rank)
-        if aces == 0:
-            return False
-        return total <= 21 and (hard_total + 10 == total)
-
-    def _recommend_blackjack_action(self, total: int, dealer_up: int, soft: bool) -> str:
-        if soft:
-            if total >= 19:
-                return "stand"
-            if total == 18:
-                return "hit" if dealer_up in (9, 10, 11) else "stand"
-            return "hit"
-
-        if total >= 17:
-            return "stand"
-        if 13 <= total <= 16:
-            return "stand" if 2 <= dealer_up <= 6 else "hit"
-        if total == 12:
-            return "stand" if 4 <= dealer_up <= 6 else "hit"
-        return "hit"
-
     def _extract_card_ranks(self, segment: str) -> list[str]:
         """Extract card ranks from a blackjack line segment.
 
@@ -277,7 +240,7 @@ class AICog(commands.Cog):
         if dealer_m:
             dealer_ranks = self._extract_card_ranks(dealer_m.group(1))
             if dealer_ranks:
-                dealer_up = self._bj_rank_value(dealer_ranks[0])
+                dealer_up = card_points(dealer_ranks[0])
 
         hand_m = re.search(r"Gary\s*\(\d+\)\s*:\s*([^\n]+)", text, flags=re.IGNORECASE)
         if hand_m:
@@ -285,7 +248,7 @@ class AICog(commands.Cog):
 
         if total is None or dealer_up is None:
             return None
-        soft = self._bj_is_soft(ranks, total)
+        soft = is_soft_shown_total(ranks, total)
         return total, dealer_up, soft
 
     def _parse_silas_hangman(self, text: str):
@@ -441,7 +404,7 @@ class AICog(commands.Cog):
                 await message.channel.send("stand")
                 return
             total, dealer_up, soft = parsed
-            action = self._recommend_blackjack_action(total, dealer_up, soft)
+            action = recommend_hit_stand(total, dealer_up, soft)
             await message.channel.send(action)
             return
 
