@@ -1079,7 +1079,7 @@ class EconomyCog(commands.Cog):
             return
         await ctx.invoke(command)
 
-    @commands.command()
+    @commands.command(usage="<number 1-10>")
     async def guess(self, ctx, number: int):
         """Guess a number 1-{LUCKY_GUESS_RANGE} for a free coin (up to {LUCKY_GUESS_MAX_DAILY}x/day)."""
         user_id = ctx.author.id

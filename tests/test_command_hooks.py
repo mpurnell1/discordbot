@@ -78,3 +78,40 @@ async def test_check_failures_send_their_message():
     await bot_module.on_command_error(ctx, commands.CheckFailure("That command is currently disabled by an admin."))
 
     assert ctx.sent[0]["content"] == "That command is currently disabled by an admin."
+
+
+async def test_bad_argument_sends_usage_derived_from_signature():
+    """Usage messages come from the command's own signature, not a
+    hand-maintained table that can drift from the code."""
+    from modules.games import GamesCog
+
+    ctx = FakeContext(guild=FakeGuild())
+    ctx.command = GamesCog.mathanswer
+
+    await bot_module.on_command_error(ctx, commands.BadArgument("not a number"))
+
+    assert ctx.sent[0]["content"] == "Usage: `.mathanswer <answer>`"
+
+
+async def test_bad_argument_prefers_curated_usage_string():
+    """Commands with an explicit usage= keep hints a bare signature can't
+    express (valid ranges, enums, subcommand trees)."""
+    from modules.economy import EconomyCog
+
+    ctx = FakeContext(guild=FakeGuild())
+    ctx.command = EconomyCog.guess
+
+    await bot_module.on_command_error(ctx, commands.BadArgument("not a number"))
+
+    assert ctx.sent[0]["content"] == "Usage: `.guess <number 1-10>`"
+
+
+async def test_bad_argument_on_no_arg_command_points_at_help():
+    from modules.games import GamesCog
+
+    ctx = FakeContext(guild=FakeGuild())
+    ctx.command = GamesCog.trivia
+
+    await bot_module.on_command_error(ctx, commands.BadArgument("stray input"))
+
+    assert ctx.sent[0]["content"] == "Check `.help` for usage."

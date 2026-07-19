@@ -728,7 +728,7 @@ class MiscCog(commands.Cog):
     # NICKNAME CHANGE
     # ---------------------------------------------------------------------------
 
-    @commands.command()
+    @commands.command(usage="@user <nickname>")
     @commands.guild_only()
     async def changenick(self, ctx, member: discord.Member, *, new_nick: str):
         """Pay coins to change someone's nickname for 24 hours."""
@@ -916,7 +916,14 @@ class MiscCog(commands.Cog):
         "opts": "_settings_options",
     }
 
-    @commands.command(aliases=["set"])
+    @commands.command(
+        aliases=["set"],
+        usage=(
+            "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]>"
+            " | passive <unsolicited|silasbanter|silasreact> <0-100>"
+            " | ticker <on [#channel]|off|status>]"
+        ),
+    )
     @shared.admin_only
     async def settings(self, ctx, section: str = "", *args):
         """Show runtime settings or manage sections (example: .settings gamble on)."""
@@ -1513,7 +1520,7 @@ class MiscCog(commands.Cog):
         embed.set_footer(text=f"Latency: {self.bot.latency * 1000:.0f}ms")
         await ctx.send(embed=embed)
 
-    @commands.command()
+    @commands.command(usage="[kids]")
     async def invite(self, ctx, mode: str = ""):
         """Generate an invite link with the permissions the bot needs."""
         kids_invite = mode.strip().lower() in {"kid", "kids", "kidsmode"}
@@ -1537,7 +1544,7 @@ class MiscCog(commands.Cog):
             return await ctx.send(embed=make_embed("Kids Mode Invite", description, COLOR_SUCCESS))
         await ctx.send(embed=make_embed("🔗 Invite Link", f"[Click here to invite me!]({link})"))
 
-    @commands.command()
+    @commands.command(usage="@user <amount>")
     @shared.admin_only
     async def give(self, ctx, member: discord.Member, amount: int):
         """Admin only: add coins to a user."""

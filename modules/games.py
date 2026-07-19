@@ -439,7 +439,7 @@ class GamesCog(commands.Cog):
     # QUICK GAMES
     # ---------------------------------------------------------------------------
 
-    @commands.command()
+    @commands.command(usage="<rock|paper|scissors>")
     async def rps(self, ctx, choice: str):
         """Play rock-paper-scissors against Gary."""
         aliases = {
@@ -536,7 +536,7 @@ class GamesCog(commands.Cog):
             )
         )
 
-    @commands.command()
+    @commands.command(usage="[level 1-5]")
     async def memory(self, ctx, level: int = 1):
         """Start a channel-wide memory challenge — first to repeat the sequence wins."""
         if ctx.channel.id in active_memory_games:
@@ -613,7 +613,7 @@ class GamesCog(commands.Cog):
             )
         )
 
-    @commands.command(aliases=["ta"])
+    @commands.command(aliases=["ta"], usage="<A|B|C|D>")
     async def triviaanswer(self, ctx, answer: str):
         """Answer the active trivia question."""
         game = active_trivia.get(ctx.channel.id)
@@ -780,7 +780,7 @@ class GamesCog(commands.Cog):
             embed=make_embed("Connect 4", f"{c4_render(game['board'])}\n\n{nxt.mention}'s turn — use `{PREFIX}drop <1-7>`")
         )
 
-    @commands.command()
+    @commands.command(usage="<1-9>")
     async def m(self, ctx, pos: int):
         """Make a move in tic-tac-toe (1-9) or connect 4 (1-7)."""
         ttt_game = active_ttt.get(ctx.channel.id)
@@ -846,7 +846,7 @@ class GamesCog(commands.Cog):
                 "created_at": datetime.now(timezone.utc),
             }
 
-    @commands.command()
+    @commands.command(usage="<1-7>")
     async def drop(self, ctx, col: int):
         """Drop a piece in connect 4 (column 1-7)."""
         game = active_c4.get(ctx.channel.id)

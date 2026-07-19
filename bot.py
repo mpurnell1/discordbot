@@ -297,69 +297,25 @@ async def command_gatekeeper(ctx):
     return True
 
 
-COMMAND_USAGE = {
-    "guess": "<number 1-10>",
-    "solve": "<answer>",
-    "ttt": "[@opponent]",
-    "c4": "[@opponent]",
-    "m": "<1-9>",
-    "drop": "<1-7>",
-    "g": "<guess>",
-    "rps": "<rock|paper|scissors>",
-    "roll": "[sides]",
-    "mathgame": "",
-    "mathanswer": "<answer>",
-    "memory": "[level 1-5]",
-    "memoryanswer": "<sequence>",
-    "trivia": "",
-    "triviaanswer": "<A|B|C|D>",
-    "scramble": "",
-    "unscramble": "<word>",
-    "timer": "<seconds>",
-    "coinflip": "<amount>",
-    "slots": "<amount>",
-    "blackjack": "<amount>",
-    "bjrules": "",
-    "weather": "<city>",
-    "bugreport": "<description>",
-    "featurerequest": "<description>",
-    "changenick": "@user <nickname>",
-    "ask": "<question>",
-    "rp": "<character>",
-    "unquote": "<id>",
-    "give": "@user <amount>",
-    "say": "<text>",
-    "invite": "[kids]",
-    "alias": "",
-    "buy": "<TICKER> <qty|all|$coins>",
-    "sell": "<TICKER> <qty|all|$coins>",
-    "portfolio": "[@user]",
-    "call": "<TICKER> <coins>",
-    "put": "<TICKER> <coins>",
-    "options": "[@user]",
-    "remindme": '"what to be reminded about"',
-    "reminders": "[cancel <id>]",
-    "settings": (
-        "[kids <on|off|status> | gamble <on|off|status|now|channel|report [#channel]>"
-        " | passive <unsolicited|silasbanter|silasreact> <0-100>"
-        " | ticker <on [#channel]|off|status>]"
-    ),
-}
-
-
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
-        command = ctx.command.name
-        args = COMMAND_USAGE.get(command)
+        command = ctx.command
+        # Prefer an explicit `usage=` string where one is set (ranges, enums,
+        # subcommand trees); otherwise discord.py derives the signature from
+        # the callback's parameters, so it can never drift from the code.
+        signature = ((command.usage or command.signature) if command else "").strip()
         logger.warning(
             "Command argument error: %s | user=%s (%s) | error=%s",
-            command,
+            getattr(command, "qualified_name", "unknown"),
             ctx.author,
             ctx.author.id,
             error,
         )
-        await ctx.send(f"Usage: `{PREFIX}{command} {args}`" if args else f"Check `{PREFIX}help` for usage.")
+        if command and signature:
+            await ctx.send(f"Usage: `{PREFIX}{command.qualified_name} {signature}`")
+        else:
+            await ctx.send(f"Check `{PREFIX}help` for usage.")
     elif isinstance(error, commands.CheckFailure):
         logger.warning(
             "Command blocked by check: %s | user=%s (%s) | reason=%s",

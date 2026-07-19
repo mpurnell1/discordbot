@@ -23,13 +23,6 @@ async def test_all_cogs_load(loaded_bot):
     assert cog_names == {"GamesCog", "EconomyCog", "AICog", "MiscCog", "StocksCog", "RemindersCog"}
 
 
-async def test_every_documented_command_is_registered(loaded_bot):
-    """Every key in COMMAND_USAGE must correspond to a registered command."""
-    registered = {c.name for c in loaded_bot.commands}
-    for name in bot_module.COMMAND_USAGE:
-        assert name in registered, f"Command `{name}` documented in COMMAND_USAGE but not registered"
-
-
 async def test_no_command_name_collisions(loaded_bot):
     """A command name should never be registered twice across cogs."""
     names = [c.name for c in loaded_bot.commands]

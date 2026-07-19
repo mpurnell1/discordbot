@@ -582,7 +582,7 @@ class RemindersCog(commands.Cog):
     def cog_unload(self):
         self.reminder_check.cancel()
 
-    @commands.command(name="remindme", aliases=["remind", "reminder"])
+    @commands.command(name="remindme", aliases=["remind", "reminder"], usage='"what to be reminded about"')
     async def remindme(self, ctx, *, text: str = None):
         """Open a card to schedule a reminder: `.remindme "buy milk"`."""
         if not text or not text.strip():
@@ -600,7 +600,7 @@ class RemindersCog(commands.Cog):
         view = ReminderConfigView(self, ctx.author.id, text, ctx.channel.id, guild_id)
         view.message = await ctx.send(embed=view.render_embed(), view=view)
 
-    @commands.command(name="reminders", aliases=["myreminders", "remindlist"])
+    @commands.command(name="reminders", aliases=["myreminders", "remindlist"], usage="[cancel <id>]")
     async def reminders(self, ctx, action: str = None, reminder_id: int = None):
         """List your active reminders, or cancel one: `.reminders cancel <id>`."""
         if action and action.lower() in {"cancel", "delete", "remove", "rm"}:

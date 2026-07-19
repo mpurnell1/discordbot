@@ -1017,7 +1017,7 @@ class StocksCog(commands.Cog):
             return None, f"Quantity must be at least {MIN_SHARES}."
         return qty, None
 
-    @commands.command()
+    @commands.command(usage="<TICKER> <qty|all|$coins>")
     async def buy(self, ctx, ticker: str = None, shares: str = None):
         """Buy shares (fractional allowed). `qty` accepts a number, `all`, or `$<coins>`."""
         if ticker is None or shares is None:
@@ -1058,7 +1058,7 @@ class StocksCog(commands.Cog):
             )
         )
 
-    @commands.command()
+    @commands.command(usage="<TICKER> <qty|all|$coins>")
     async def sell(self, ctx, ticker: str = None, shares: str = None):
         """Sell shares (fractional allowed). `qty` accepts a number, `all`, or `$<coins>` worth."""
         if ticker is None or shares is None:
@@ -1159,13 +1159,13 @@ class StocksCog(commands.Cog):
     # OPTIONS COMMANDS
     # ---------------------------------------------------------------------------
 
-    @commands.command(name="call", aliases=["callopt"])
+    @commands.command(name="call", aliases=["callopt"], usage="<TICKER> <coins> [strike]")
     async def call_option(self, ctx, ticker: str = None, coins: int = None, strike: float = None):
         """Premium-priced call. Positive coins = premium paid (payout scales with how far it ends
         above the strike); negative coins = collateral to sell one and collect a premium."""
         await self._open_option(ctx, "call", ticker, coins, strike)
 
-    @commands.command(name="put", aliases=["putopt"])
+    @commands.command(name="put", aliases=["putopt"], usage="<TICKER> <coins> [strike]")
     async def put_option(self, ctx, ticker: str = None, coins: int = None, strike: float = None):
         """Premium-priced put. Positive coins = premium paid (payout scales with how far it ends
         below the strike); negative coins = collateral to sell one and collect a premium."""
