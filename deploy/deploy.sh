@@ -51,5 +51,13 @@ mkdir -p "$(dirname "$LOG_FILE")"
   docker compose run --rm --no-deps --entrypoint python bot -m py_compile bot.py
   docker compose up -d bot
 
+  # Apply deployer changes too. This container can't recreate itself (the
+  # compose client would die when its own container stops), so a detached
+  # helper does it. No-op when the deployer's image/config is unchanged.
+  docker run -d --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$REPO_DIR:$REPO_DIR" -w "$REPO_DIR" \
+    docker:cli sh -c "sleep 3 && docker compose up -d --build deployer >>$REPO_DIR/deploy/deploy.log 2>&1"
+
   echo "[$(date -Iseconds)] deploy success"
 } >>"$LOG_FILE" 2>&1

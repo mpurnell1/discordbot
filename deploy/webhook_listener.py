@@ -13,7 +13,9 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -40,13 +42,23 @@ def _deploy_in_background(context: dict[str, str]) -> None:
     env = os.environ.copy()
     env.update(context)
     try:
-        subprocess.run(
-            ["/bin/bash", str(DEPLOY_SCRIPT)],
-            cwd=str(REPO_DIR),
-            env=env,
-            check=True,
-            timeout=900,
-        )
+        # Run a private copy: bash reads scripts incrementally, and deploy.sh
+        # git-resets the very checkout it lives in — executing the repo copy
+        # directly means a deploy that changes deploy.sh corrupts itself
+        # mid-run (this happened; see 24ef7ef).
+        with tempfile.NamedTemporaryFile("wb", suffix=".sh", delete=False) as tmp:
+            shutil.copyfileobj(open(DEPLOY_SCRIPT, "rb"), tmp)
+            script_copy = tmp.name
+        try:
+            subprocess.run(
+                ["/bin/bash", script_copy],
+                cwd=str(REPO_DIR),
+                env=env,
+                check=True,
+                timeout=900,
+            )
+        finally:
+            os.unlink(script_copy)
     except Exception as exc:  # noqa: BLE001
         print(f"[webhook] deploy failed: {exc}")
 
