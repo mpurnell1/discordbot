@@ -23,7 +23,7 @@ import shared
 from config import CENTRAL_TZ, COLOR_DEFAULT, COLOR_ERROR, COLOR_SUCCESS, PREFIX
 from shared import make_embed
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("garybot")
 
 MAX_ACTIVE_REMINDERS = 25
 MAX_TEXT_LEN = 500

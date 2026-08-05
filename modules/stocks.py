@@ -32,7 +32,7 @@ from shared import (
     make_embed,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("garybot")
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 
