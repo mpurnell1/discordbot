@@ -476,7 +476,9 @@ class MiscCog(commands.Cog):
             forecast_mode = "multi_day"
         embed = await self._fetch_weather_embed(city, forecast_mode=forecast_mode)
         if embed is None:
-            return await ctx.send(f"Couldn't find weather for **{city}** (or service unavailable).")
+            # Cap the echo: an unbounded one pushes the reply past Discord's
+            # 2000-char limit, and the resulting 400 lands in the bug channel.
+            return await ctx.send(f"Couldn't find weather for **{city[:100]}** (or service unavailable).")
         await ctx.send(embed=embed)
 
     @tasks.loop(minutes=5)
