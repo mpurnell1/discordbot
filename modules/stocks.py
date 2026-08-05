@@ -106,6 +106,23 @@ def _premium_frac(opt_type: str, spot: float, strike: float) -> float:
     return max(floor, intrinsic + extrinsic)
 
 
+def _strike_band(spot: float) -> tuple[float, float]:
+    """(low, high) strike range that _premium_frac actually prices, given `spot`.
+
+    The model only ever sees the distance |spot - strike| / strike, so a single
+    bound covers both sides. Past the distance where the Gaussian extrinsic term
+    drops below the premium floor, the floor — not the model — sets the price,
+    and a short there collects premium for risk that was never priced.
+    """
+    vol = _options_vol()
+    floor = _options_premium_floor()
+    if floor <= 0 or floor >= vol:
+        dist = 0.0
+    else:
+        dist = vol * math.sqrt(2.0 * math.log(vol / floor))
+    return spot / (1.0 + dist), (spot / (1.0 - dist) if dist < 1.0 else math.inf)
+
+
 def _intrinsic_frac(opt_type: str, strike: float, price: float) -> float:
     """Intrinsic value of a long option at `price`, as a fraction of strike (≥ 0)."""
     if strike <= 0:
@@ -1213,6 +1230,19 @@ class StocksCog(commands.Cog):
             return await ctx.send(embed=make_embed("No Price", "Price unavailable right now — try again in a minute.", COLOR_ERROR))
 
         strike_price = strike if strike is not None else price
+        if not strike_price > 0:
+            return await ctx.send(embed=make_embed("Invalid Strike", "Strike must be greater than 0.", COLOR_ERROR))
+        low, high = _strike_band(price)
+        if not low <= strike_price <= high:
+            return await ctx.send(
+                embed=make_embed(
+                    "Invalid Strike",
+                    f"`{ticker}` is at **${price:,.2f}** — strikes have to be between "
+                    f"**${low:,.2f}** and **${high:,.2f}**.\n"
+                    f"Anything further out isn't priced by the premium model.",
+                    COLOR_ERROR,
+                )
+            )
         expiry_dt = datetime.now(timezone.utc) + timedelta(hours=_options_expiry_hours())
         contracts, pf = position_size(opt_type, side, coins_bet, price, strike_price)
         open_option(ctx.author.id, ticker, opt_type, coins_bet, strike_price, side=side, spot=price)
