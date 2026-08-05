@@ -1095,7 +1095,18 @@ class StocksCog(commands.Cog):
                     COLOR_ERROR,
                 )
             )
-        proceeds = max(1, int(round(price * qty)))
+        # No floor here (unlike buy): rounding a sub-coin slice up to 1 coin would
+        # mint coins out of dust. Enforce the "cost at least 1 coin" half of MIN_SHARES.
+        proceeds = int(round(price * qty))
+        if proceeds < 1:
+            return await ctx.send(
+                embed=make_embed(
+                    "Invalid",
+                    f"That'd be worth less than 1 coin. Sell at least "
+                    f"**{_fmt_shares(0.5 / price)}** sh of `{ticker}` at ${price:,.2f}.",
+                    COLOR_ERROR,
+                )
+            )
         result = execute_sell(ctx.author.id, ticker, qty, price, proceeds)
         if result is None:
             return await ctx.send(
