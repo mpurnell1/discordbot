@@ -424,17 +424,19 @@ class MiscCog(commands.Cog):
                 if resp.status != 200:
                     return None
                 data = await resp.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            return None
 
-        today = datetime.now(CENTRAL_TZ).date()
-        entries = [entry for entry in data.get("list", []) if datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ).date() == today]
-        if not entries:
-            return None
+            today = datetime.now(CENTRAL_TZ).date()
+            entries = [
+                entry for entry in data.get("list", []) if datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ).date() == today
+            ]
+            if not entries:
+                return None
 
-        high = max(entry["main"]["temp_max"] for entry in entries)
-        low = min(entry["main"]["temp_min"] for entry in entries)
-        rain_chance = max(float(entry.get("pop", 0.0)) for entry in entries) * 100.0
+            high = max(entry["main"]["temp_max"] for entry in entries)
+            low = min(entry["main"]["temp_min"] for entry in entries)
+            rain_chance = max(float(entry.get("pop", 0.0)) for entry in entries) * 100.0
+        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError, KeyError, TypeError, ValueError):
+            return None
         return {"high": high, "low": low, "rain_chance": rain_chance}
 
     async def _fetch_forecast_days(self, session: aiohttp.ClientSession, lat: float, lon: float):
@@ -446,20 +448,20 @@ class MiscCog(commands.Cog):
                 if resp.status != 200:
                     return None
                 data = await resp.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            return None
 
-        days = {}
-        for entry in data.get("list", []):
-            dt_central = datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ)
-            label = dt_central.strftime("%a %b ") + str(dt_central.day)
-            if label not in days:
-                days[label] = {"high": -999.0, "low": 999.0, "descs": []}
-            days[label]["high"] = max(days[label]["high"], entry["main"]["temp_max"])
-            days[label]["low"] = min(days[label]["low"], entry["main"]["temp_min"])
-            desc = entry["weather"][0]["description"].title()
-            if desc not in days[label]["descs"]:
-                days[label]["descs"].append(desc)
+            days = {}
+            for entry in data.get("list", []):
+                dt_central = datetime.fromtimestamp(entry["dt"], tz=CENTRAL_TZ)
+                label = dt_central.strftime("%a %b ") + str(dt_central.day)
+                if label not in days:
+                    days[label] = {"high": -999.0, "low": 999.0, "descs": []}
+                days[label]["high"] = max(days[label]["high"], entry["main"]["temp_max"])
+                days[label]["low"] = min(days[label]["low"], entry["main"]["temp_min"])
+                desc = entry["weather"][0]["description"].title()
+                if desc not in days[label]["descs"]:
+                    days[label]["descs"].append(desc)
+        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError, IndexError, KeyError, TypeError, ValueError):
+            return None
         return days or None
 
     @commands.command(aliases=["w"])
@@ -496,8 +498,14 @@ class MiscCog(commands.Cog):
         embed = await self._fetch_weather_embed(city, title_prefix="☀️ Good Morning —", forecast_mode="today")
         if embed is None:
             return
-        await channel.send(embed=embed)
+        # Mark the day done first: a send that fails must not leave the alert
+        # unmarked, or the next tick five minutes later posts it again.
         shared.set_setting("weather_alert_last_date", today_key)
+        await channel.send(embed=embed)
+
+    @weather_alert_check.error
+    async def _weather_alert_check_error(self, error):
+        await shared.restart_loop_on_error(self.weather_alert_check, error)
 
     # ---------------------------------------------------------------------------
     # ANIMALS
@@ -806,6 +814,10 @@ class MiscCog(commands.Cog):
                             pass
                 shared.db.execute("DELETE FROM nick_changes WHERE id = ?", (row_id,))
         shared.db.commit()
+
+    @restore_nicknames.error
+    async def _restore_nicknames_error(self, error):
+        await shared.restart_loop_on_error(self.restore_nicknames, error)
 
     # ---------------------------------------------------------------------------
     # QUOTES

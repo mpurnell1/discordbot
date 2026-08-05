@@ -853,6 +853,10 @@ class AICog(commands.Cog):
                     response = random.choice(DEAD_CHAT_RESPONSES[new_stage])
                     await channel.send(response)
 
+    @dead_chat_checker.error
+    async def _dead_chat_checker_error(self, error):
+        await shared.restart_loop_on_error(self.dead_chat_checker, error)
+
     @tasks.loop(seconds=30)
     async def silas_gambler(self):
         """Autonomous gambler for Silas economy (settings-controlled)."""
@@ -894,6 +898,10 @@ class AICog(commands.Cog):
         self._persist_gamble_state()
         if result.startswith(REPORTABLE_PREFIXES):
             await self._send_gamble_report(result, force=True)
+
+    @silas_gambler.error
+    async def _silas_gambler_error(self, error):
+        await shared.restart_loop_on_error(self.silas_gambler, error)
 
     # ---------------------------------------------------------------------------
     # EXPLICIT COMMANDS: !ask (Ollama)

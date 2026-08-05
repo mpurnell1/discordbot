@@ -773,16 +773,19 @@ class StocksCog(commands.Cog):
         except Exception as e:
             logger.warning("Initial stock price fetch failed: %s", e)
 
+    @stock_tick_check.error
+    async def _stock_tick_check_error(self, error):
+        await shared.restart_loop_on_error(self.stock_tick_check, error)
+
     async def _refresh_all(self):
         symbols = list(get_tickers().keys())
         if not symbols:
             return
         try:
             quotes = await asyncio.to_thread(_fetch_quotes, symbols)
+            refresh_prices(quotes)
         except Exception as e:
-            logger.warning("yfinance fetch failed: %s", e)
-            return
-        refresh_prices(quotes)
+            logger.warning("Stock price refresh failed: %s", e)
 
     async def _post_morning_announcement(self):
         channel_id = shared.runtime_settings.get("ticker_channel_id")
@@ -1376,6 +1379,10 @@ class StocksCog(commands.Cog):
     @options_settle_check.before_loop
     async def _wait_until_ready_opts(self):
         await self.bot.wait_until_ready()
+
+    @options_settle_check.error
+    async def _options_settle_check_error(self, error):
+        await shared.restart_loop_on_error(self.options_settle_check, error)
 
 
 async def setup(bot):

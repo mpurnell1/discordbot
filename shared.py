@@ -10,8 +10,10 @@ re-exported here because most of the codebase (and the test suite) reaches
 them through `shared`.
 """
 
+import asyncio
 import functools
 import json
+import logging
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -448,6 +450,28 @@ def get_economy_stats(user_id: int) -> dict:
 
 def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
+
+
+logger = logging.getLogger("garybot")
+
+LOOP_RESTART_DELAY_SECONDS = 60
+
+
+async def restart_loop_on_error(loop, error):
+    """Body of a `@<loop>.error` handler: log the failure and bring the loop back.
+
+    discord.ext.tasks only retries the network errors in its reconnect list —
+    anything else (a sqlite3.OperationalError, a discord.Forbidden, a KeyError
+    of our own) ends the loop for the rest of the process. Restarting from the
+    error callback is the supported way back: the loop's task is still running
+    at this point, so restart() can attach its done callback and cancel it.
+
+    restart() runs the next iteration immediately, so wait first — a fault that
+    never clears then costs one cycle a minute instead of spinning.
+    """
+    logger.error("Task loop %s failed — restarting in %ds", loop.coro.__name__, LOOP_RESTART_DELAY_SECONDS, exc_info=error)
+    await asyncio.sleep(LOOP_RESTART_DELAY_SECONDS)
+    loop.restart()
 
 
 def extract_message_text(message) -> str:
