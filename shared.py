@@ -452,6 +452,34 @@ def make_embed(title, description, color=COLOR_DEFAULT):
     return discord.Embed(title=title, description=description, color=color)
 
 
+EMBED_DESCRIPTION_LIMIT = 4096
+
+
+def join_capped(lines, sep="\n", limit=EMBED_DESCRIPTION_LIMIT):
+    """Join `lines` into an embed description that fits Discord's length limit.
+
+    Discord rejects a description over 4096 characters, so a list that grows
+    without bound (holdings, tickers, open options) eventually 400s the command
+    for everyone. Drop whole lines rather than cutting one mid-way, and say how
+    many were left out.
+    """
+    lines = list(lines)
+    text = sep.join(lines)
+    if len(text) <= limit:
+        return text
+    kept = []
+    used = 0
+    for i, line in enumerate(lines):
+        extra = len(sep) + len(line) if kept else len(line)
+        note_len = len(sep) + len(f"… and {len(lines) - i} more")
+        if used + extra + note_len > limit:
+            break
+        used += extra
+        kept.append(line)
+    kept.append(f"… and {len(lines) - len(kept)} more")
+    return sep.join(kept)
+
+
 logger = logging.getLogger("garybot")
 
 LOOP_RESTART_DELAY_SECONDS = 60

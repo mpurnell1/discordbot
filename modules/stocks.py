@@ -28,7 +28,9 @@ from config import (
     PREFIX,
 )
 from shared import (
+    EMBED_DESCRIPTION_LIMIT,
     get_balance,
+    join_capped,
     make_embed,
 )
 
@@ -159,6 +161,10 @@ NYSE_CLOSE_HOUR = 16  # 4 PM ET
 
 # A trade has to move at least this many shares AND cost at least 1 coin.
 MIN_SHARES = 1e-4
+
+# `.stocks add` is open to everyone, so the shared list needs a ceiling: every
+# entry costs a yfinance quote on the hourly refresh and a line in `.stocks`.
+MAX_TICKERS = 40
 
 SPARK_BLOCKS = "▁▂▃▄▅▆▇█"
 SPARK_DAYS = 7
@@ -845,7 +851,7 @@ class StocksCog(commands.Cog):
             )
         embed = discord.Embed(
             title="📊 US Stock Market",
-            description="\n".join(lines),
+            description=join_capped(lines),
             color=COLOR_DEFAULT,
         )
         market_state = "🟢 Open" if is_market_open() else "🔴 Closed (showing last close)"
@@ -868,6 +874,15 @@ class StocksCog(commands.Cog):
                 embed=make_embed(
                     "Already Listed",
                     f"`{ticker}` is already tradable.",
+                    COLOR_ERROR,
+                )
+            )
+        if len(tickers) >= MAX_TICKERS:
+            return await ctx.send(
+                embed=make_embed(
+                    "Ticker List Full",
+                    f"The list is capped at **{MAX_TICKERS}** tickers and is full. "
+                    f"An admin can free a slot with `{PREFIX}stocks remove <TICKER>`.",
                     COLOR_ERROR,
                 )
             )
@@ -1175,13 +1190,15 @@ class StocksCog(commands.Cog):
         net = total_value - total_cost
         net_arrow = "🟢" if net >= 0 else "🔴"
         net_pct = (net / total_cost * 100) if total_cost else 0.0
-        lines.append("")
-        lines.append(f"**Portfolio value:** ${total_value:,.2f}  (cost ${total_cost:,.2f})")
-        lines.append(f"**Unrealized P/L:** {net_arrow} `{net:+,.2f} ({net_pct:+.1f}%)`")
+        # The totals always show, so the holdings get whatever room is left.
+        summary = (
+            f"\n\n**Portfolio value:** ${total_value:,.2f}  (cost ${total_cost:,.2f})\n"
+            f"**Unrealized P/L:** {net_arrow} `{net:+,.2f} ({net_pct:+.1f}%)`"
+        )
         await ctx.send(
             embed=make_embed(
                 f"📊 {target.display_name}'s Portfolio",
-                "\n".join(lines),
+                join_capped(lines, limit=EMBED_DESCRIPTION_LIMIT - len(summary)) + summary,
                 COLOR_DEFAULT,
             )
         )
@@ -1317,7 +1334,7 @@ class StocksCog(commands.Cog):
             )
         embed = make_embed(
             f"📋 {target.display_name}'s Options",
-            "\n\n".join(lines),
+            join_capped(lines, sep="\n\n"),
             COLOR_DEFAULT,
         )
         embed.set_footer(text=f"Auto-settles after {_options_expiry_hours()}h · {PREFIX}call / {PREFIX}put to open")
