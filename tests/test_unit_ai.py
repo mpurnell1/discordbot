@@ -470,3 +470,36 @@ class TestSilasRefusals:
         await cog._handle_silas_gambling_message(message, "Word: _ _ _ e _\nGuessed: e\nLives left: 5")
         assert len(channel.sent) == 2
         assert channel.sent[1] != probe
+
+
+# ---------------------------------------------------------------------------
+# Take-profit report — the numbers in it must be the ones it just wrote
+# ---------------------------------------------------------------------------
+
+_REPORT_CHANNEL_ID = 100000000000000010
+
+
+class TestTakeProfitReport:
+    def _cog_with_report_channel(self):
+        gamble = FakeGambleChannel()
+        report = FakeGambleChannel(channel_id=_REPORT_CHANNEL_ID)
+        shared.runtime_settings["gary_gamble_enabled"] = True
+        shared.runtime_settings["gary_gamble_channel_id"] = gamble.id
+        shared.runtime_settings["gary_gamble_report_channel_id"] = report.id
+        bot = MagicMock()
+        bot.get_channel.side_effect = lambda cid: report if int(cid) == report.id else gamble
+        return AICog(bot), report
+
+    async def test_report_shows_the_new_anchor_not_the_one_it_replaced(self):
+        cog, report = self._cog_with_report_channel()
+        _ready_to_gamble(cog, balance=24072)
+        # The numbers from the filed bug report: 24072 is past 1.5x of 15571.
+        cog.gamble_state["session_anchor_balance"] = 15571
+        cog.gamble_state["morning_hangman_done"] = True
+
+        await cog.run_gamble_step(bypass_cooldown=True)
+
+        summary = next(m for m in report.sent if "Take-profit" in m)
+        assert "Anchor: 24072" in summary
+        assert "15571" not in summary
+        assert cog.gamble_state["session_anchor_balance"] == 24072

@@ -587,7 +587,6 @@ class AICog(commands.Cog):
             return f"BJ stop-loss at {balance}; started hangman."
 
         if take_profit_hit:
-            await self._send_gamble_report(f"Take-profit hit at **{balance}**! Resetting anchor and riding again.", force=True)
             sid = self.gamble_state.get("session_id")
             if sid is not None:
                 log_gary_session_end(sid, balance, "take_profit")
@@ -595,6 +594,13 @@ class AICog(commands.Cog):
             anchor = balance
             self.gamble_state["session_id"] = log_gary_session_start(balance)
             self._persist_gamble_state()
+            # Announced after the reset, not before. _send_gamble_report reads
+            # the anchor out of state when it renders, so a message about
+            # resetting the anchor sent first printed the anchor it was about
+            # to replace — "Resetting anchor" next to the old number.
+            await self._send_gamble_report(
+                f"Take-profit hit at **{balance}**! Resetting anchor and riding again.", force=True
+            )
 
         # Play hangman opportunistically whenever the cooldown resets, between BJ hands.
         if not self.gamble_state["blackjack_active"] and not self.gamble_state.get("hangman_active"):
