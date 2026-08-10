@@ -65,6 +65,10 @@ class AICog(commands.Cog):
     BJ_ACTIVE_TIMEOUT = timedelta(minutes=5)
     HM_ACTIVE_TIMEOUT = timedelta(minutes=3)
     HM_COOLDOWN = timedelta(hours=6)
+    # Floor for a refusal's own number. Silas rounds his countdown to whole
+    # minutes, so a refusal can read "0h 0m" and still be a refusal; without a
+    # floor that parses as "ready now" and `!hm` goes straight back out.
+    HM_COOLDOWN_MIN_BACKOFF = timedelta(minutes=5)
     GAMBLE_REPORT_INTERVAL = timedelta(minutes=5)
 
     def __init__(self, bot):
@@ -233,6 +237,66 @@ class AICog(commands.Cog):
 
         return {"status": "active", "word_pattern": word_pattern, "guessed": guessed, "lives": lives}
 
+    def _parse_silas_hangman_cooldown(self, text: str):
+        """Silas's own "in 5h 54m" countdown as a timedelta, or None.
+
+        Believing his number beats re-deriving one from when we think the last
+        game ended: our clock only moves when we *see* a game finish, and a
+        game we never saw start (see `_resume_silas_hangman`) leaves it wrong
+        for hours."""
+        m = re.search(r"in\s+(\d+)\s*h\w*\s+(\d+)\s*m", text, flags=re.IGNORECASE)
+        if m:
+            return timedelta(hours=int(m.group(1)), minutes=int(m.group(2)))
+        m = re.search(r"in\s+(\d+)\s*m", text, flags=re.IGNORECASE)
+        if m:
+            return timedelta(minutes=int(m.group(1)))
+        m = re.search(r"in\s+(\d+)\s*h", text, flags=re.IGNORECASE)
+        if m:
+            return timedelta(hours=int(m.group(1)))
+        return None
+
+    def _hangman_cooldown_left(self, now: datetime) -> timedelta:
+        """How long until Silas will accept another `!hm`; zero when ready.
+
+        The one gate every `!hm` site asks. Each site used to re-derive
+        readiness from hangman_ended_at on its own, so the three could — and
+        did — disagree about whether a `!hm` was allowed.
+
+        Both clocks are consulted and the longer wins: a refusal's countdown
+        can outlive the last game we watched end, and a game that ended after
+        the refusal was issued can outlive the countdown."""
+        left = timedelta(0)
+        until = self.gamble_state.get("hangman_cooldown_until")
+        if isinstance(until, datetime) and until > now:
+            left = until - now
+        ended = self.gamble_state.get("hangman_ended_at")
+        if isinstance(ended, datetime) and now - ended < self.HM_COOLDOWN:
+            left = max(left, self.HM_COOLDOWN - (now - ended))
+        return left
+
+    @staticmethod
+    def _format_cooldown(remaining: timedelta) -> str:
+        h, m = divmod(int(remaining.total_seconds()) // 60, 60)
+        return f"{h}h {m}m"
+
+    async def _resume_silas_hangman(self, message):
+        """Adopt a hangman game Silas says is already open.
+
+        We never saw this board: the `!hm` that would have printed it is the
+        command he just refused, so there is nothing to solve from. Marking it
+        active is what stops the tick loop sending `!hm` again, and one probe
+        letter makes Silas render the board — which arrives as an ordinary
+        message and gets played as an ordinary turn."""
+        from modules.games import LETTER_PRIORITY
+
+        now = datetime.now(timezone.utc)
+        self.gamble_state["hangman_active"] = True
+        if self.gamble_state.get("hangman_started_at") is None:
+            self.gamble_state["hangman_started_at"] = now
+        self.gamble_state["last_action_at"] = now
+        self._persist_gamble_state()
+        await message.channel.send(LETTER_PRIORITY[0])
+
     _silas_wordlist = None
 
     @classmethod
@@ -338,9 +402,16 @@ class AICog(commands.Cog):
             self._persist_gamble_state()
             return
 
-        # "Already Playing" — Silas has a game open we can't inspect; stand to resolve it.
+        # "Already Playing" — Silas has a game open we can't inspect. Both of
+        # his games send it, and only the text says which: the hangman one
+        # tells us to guess directly. Treating every one of them as blackjack
+        # put "stand" into a hangman board, left hangman_active false, and so
+        # the next tick sent `!hm` into the same refusal, forever.
         if "already playing" in lower:
-            await message.channel.send("stand")
+            if "guess" in lower or "hangman" in lower:
+                await self._resume_silas_hangman(message)
+            else:
+                await message.channel.send("stand")
             return
 
         if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"]:
@@ -360,10 +431,21 @@ class AICog(commands.Cog):
 
         # --- Silas hangman cooldown detection ---
         if "cooldown" in lower and "hangman" in lower:
+            now = datetime.now(timezone.utc)
             self.gamble_state["hangman_active"] = False
             self.gamble_state["hangman_started_at"] = None
-            if self.gamble_state.get("hangman_ended_at") is None:
-                self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+            # A refusal has to move the clock. This used to stamp
+            # hangman_ended_at only when it was unset — so once it held any
+            # value, every refusal left it untouched, the next tick read the
+            # cooldown as long expired, and `!hm` went straight back out to be
+            # refused again. Silas's own countdown is what we record now.
+            # `is None`, not `or`: a parsed "0h 0m" is falsy, and treating that
+            # as "no countdown found" would swap Silas's own answer for the
+            # full six hours.
+            remaining = self._parse_silas_hangman_cooldown(silas_text)
+            if remaining is None:
+                remaining = self.HM_COOLDOWN
+            self.gamble_state["hangman_cooldown_until"] = now + max(remaining, self.HM_COOLDOWN_MIN_BACKOFF)
             self._persist_gamble_state()
             return
 
@@ -374,6 +456,9 @@ class AICog(commands.Cog):
                 self.gamble_state["hangman_active"] = False
                 self.gamble_state["hangman_started_at"] = None
                 self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+                # A finished game re-anchors the wait on hangman_ended_at, so
+                # any countdown left over from an earlier refusal is spent.
+                self.gamble_state["hangman_cooldown_until"] = None
                 self.gamble_state["morning_hangman_done"] = True
                 self._persist_gamble_state()
                 return
@@ -462,8 +547,7 @@ class AICog(commands.Cog):
         if not self.gamble_state.get("morning_hangman_done"):
             if self.gamble_state.get("hangman_active"):
                 return "Morning hangman in progress; waiting for Silas."
-            hm_ended = self.gamble_state.get("hangman_ended_at")
-            if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
+            if self._hangman_cooldown_left(now):
                 # Previous hangman too recent — skip morning hangman and head straight to BJ.
                 self.gamble_state["morning_hangman_done"] = True
                 self._persist_gamble_state()
@@ -487,16 +571,18 @@ class AICog(commands.Cog):
             if self.gamble_state.get("hangman_active"):
                 self._persist_gamble_state()
                 return f"BJ stop-loss at {balance}; hangman in progress."
-            # Respect Silas's 6-hour hangman cooldown
-            hm_ended = self.gamble_state.get("hangman_ended_at")
-            if isinstance(hm_ended, datetime) and now - hm_ended < self.HM_COOLDOWN:
-                remaining = self.HM_COOLDOWN - (now - hm_ended)
-                h, m = divmod(int(remaining.total_seconds()) // 60, 60)
+            # Respect Silas's hangman cooldown
+            remaining = self._hangman_cooldown_left(now)
+            if remaining:
                 self._persist_gamble_state()
-                return f"BJ stop-loss at {balance}; hangman on cooldown ({h}h {m}m left)."
+                return f"BJ stop-loss at {balance}; hangman on cooldown ({self._format_cooldown(remaining)} left)."
             await channel.send("!hm")
             self.gamble_state["hangman_active"] = True
             self.gamble_state["hangman_started_at"] = now
+            # Stamped so GAMBLE_ACTION_COOLDOWN rate-limits this branch too.
+            # Without it a refused `!hm` here came straight back on the next
+            # 30-second tick instead of waiting out the action cooldown.
+            self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
             return f"BJ stop-loss at {balance}; started hangman."
 
@@ -512,8 +598,10 @@ class AICog(commands.Cog):
 
         # Play hangman opportunistically whenever the cooldown resets, between BJ hands.
         if not self.gamble_state["blackjack_active"] and not self.gamble_state.get("hangman_active"):
+            # Only opportunistic once a game has actually been played — a first
+            # hangman of the day belongs to the morning branch above.
             hm_ended = self.gamble_state.get("hangman_ended_at")
-            if isinstance(hm_ended, datetime) and now - hm_ended >= self.HM_COOLDOWN:
+            if isinstance(hm_ended, datetime) and not self._hangman_cooldown_left(now):
                 await channel.send("!hm")
                 self.gamble_state["hangman_active"] = True
                 self.gamble_state["hangman_started_at"] = now

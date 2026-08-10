@@ -236,4 +236,10 @@ Fractional shares are supported (minimum trade size 0.0001 shares). Coin balance
 - Feature gating is channel-aware via `feature_channel_rules`.
 - Some AI/passive features depend on Ollama availability.
 - Gary's autonomous gamble opener uses Silas `!scratches` before low-stakes blackjack.
+- Silas can refuse `!hm` two ways, and both are handled as refusals rather than as
+  boards: a **Cooldown** reply records his own "in 5h 54m" countdown (with a 5-minute
+  floor, since he rounds down to "0h 0m" and still refuses), and an **Already Playing**
+  reply adopts the open game and sends one probe letter to make him render the board.
+  Every `!hm` site asks `_hangman_cooldown_left()` before sending, so they cannot
+  disagree about whether the cooldown has expired.
 - Passive AI chances (unsolicited, Silas banter/react) default to 0% and must be enabled via `.settings passive`.

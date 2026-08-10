@@ -175,8 +175,24 @@ class TestGambleState:
         "session_id",
     ]
 
-    def test_json_dict_keys_match_legacy_shape(self):
-        assert list(shared.GambleState().to_json_dict().keys()) == self._LEGACY_KEYS
+    def test_json_dict_keeps_legacy_keys_in_order(self):
+        # New fields append. The historical keys keep their names and order, so
+        # state written by an older build still loads unchanged.
+        keys = list(shared.GambleState().to_json_dict().keys())
+        assert keys[: len(self._LEGACY_KEYS)] == self._LEGACY_KEYS
+
+    def test_hangman_cooldown_survives_a_round_trip(self):
+        from datetime import datetime, timezone
+
+        until = datetime(2026, 8, 7, 22, 18, tzinfo=timezone.utc)
+        state = shared.GambleState()
+        state["hangman_cooldown_until"] = until
+        assert shared.GambleState.from_json_dict(state.to_json_dict())["hangman_cooldown_until"] == until
+
+    def test_state_written_before_the_cooldown_field_still_loads(self):
+        state = shared.GambleState.from_json_dict({"day": "2026-08-07", "session_id": 161752})
+        assert state["hangman_cooldown_until"] is None
+        assert state["day"] == "2026-08-07"
 
     def test_round_trip_through_settings(self):
         from datetime import datetime, timezone

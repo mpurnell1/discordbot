@@ -6,10 +6,13 @@ Gary autonomous-gambling math that can be exercised in isolation.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+import shared
 from modules.ai import AICog, is_pass_reply
 from modules.blackjack_core import (
     blackjack_recommendation,
@@ -305,3 +308,165 @@ class TestPickHangmanLetter:
         # "apple" with a revealed
         letter = cog._pick_hangman_letter(["a", "_", "_", "_", "_"], {"a"})
         assert letter != "a"
+
+
+# ---------------------------------------------------------------------------
+# Silas hangman refusals — cooldown and "Already Playing"
+#
+# Both of these are messages Silas sends INSTEAD of a board, and both used to
+# leave Gary's state saying "no hangman running, cooldown long expired" — so
+# the next tick sent `!hm` into the same refusal, every tick, for days.
+# ---------------------------------------------------------------------------
+
+_GAMBLE_CHANNEL_ID = 100000000000000009
+
+# Exactly as Silas sends them: an embed title plus description, which
+# extract_message_text() joins with a newline before the handler sees it.
+COOLDOWN_TEXT = "Cooldown\nYou can start another hangman in 5h 54m."
+COOLDOWN_ZERO_TEXT = "Cooldown\nYou can start another hangman in 0h 0m."
+HANGMAN_BUSY_TEXT = "Already Playing\nJust type your guess directly!"
+BLACKJACK_BUSY_TEXT = "Already Playing\nFinish your current blackjack hand first."
+
+
+class FakeGambleChannel:
+    def __init__(self, channel_id=_GAMBLE_CHANNEL_ID, guild_id=555):
+        self.id = channel_id
+        self.guild = SimpleNamespace(id=guild_id)
+        self.sent = []
+
+    async def send(self, content=None, **kwargs):
+        self.sent.append(content)
+        return MagicMock()
+
+
+def _gamble_cog(channel=None):
+    """An AICog wired to a fake gamble channel, with the feature enabled."""
+    channel = channel or FakeGambleChannel()
+    shared.runtime_settings["gary_gamble_enabled"] = True
+    shared.runtime_settings["gary_gamble_channel_id"] = channel.id
+    bot = MagicMock()
+    bot.get_channel.return_value = channel
+    cog = AICog(bot)
+    return cog, channel
+
+
+def _silas_message(channel):
+    return SimpleNamespace(channel=channel, guild=SimpleNamespace(id=channel.guild.id))
+
+
+def _ready_to_gamble(cog, *, balance=10029):
+    """Skip past scratch-offs and balance discovery to the hangman branches."""
+    now = datetime.now(timezone.utc)
+    cog.gamble_state["day"] = cog._scratch_reset_key(now)
+    cog.gamble_state["scratchoffs_used"] = 3
+    cog.gamble_state["last_known_balance"] = balance
+    cog.gamble_state["session_anchor_balance"] = balance
+    cog.gamble_state["session_id"] = 1
+
+
+class TestParseSilasHangmanCooldown:
+    def test_hours_and_minutes(self, cog):
+        assert cog._parse_silas_hangman_cooldown(COOLDOWN_TEXT) == timedelta(hours=5, minutes=54)
+
+    def test_zero_parses_as_zero(self, cog):
+        assert cog._parse_silas_hangman_cooldown(COOLDOWN_ZERO_TEXT) == timedelta(0)
+
+    def test_minutes_only(self, cog):
+        assert cog._parse_silas_hangman_cooldown("You can start another hangman in 45m.") == timedelta(minutes=45)
+
+    def test_hours_only(self, cog):
+        assert cog._parse_silas_hangman_cooldown("You can start another hangman in 2h.") == timedelta(hours=2)
+
+    def test_no_countdown_returns_none(self, cog):
+        assert cog._parse_silas_hangman_cooldown("Cooldown") is None
+
+
+class TestHangmanCooldownLeft:
+    def test_ready_when_nothing_recorded(self, cog):
+        assert cog._hangman_cooldown_left(datetime.now(timezone.utc)) == timedelta(0)
+
+    def test_refusal_countdown_is_respected(self, cog):
+        now = datetime.now(timezone.utc)
+        cog.gamble_state["hangman_cooldown_until"] = now + timedelta(hours=5)
+        assert cog._hangman_cooldown_left(now) > timedelta(hours=4)
+
+    def test_stale_end_time_alone_reads_ready(self, cog):
+        now = datetime.now(timezone.utc)
+        cog.gamble_state["hangman_ended_at"] = now - timedelta(days=3)
+        assert cog._hangman_cooldown_left(now) == timedelta(0)
+
+    def test_takes_the_longer_of_the_two_clocks(self, cog):
+        now = datetime.now(timezone.utc)
+        # A game finished 10 minutes ago, so ~5h50m of the 6h wait is left;
+        # an older refusal only claimed 1h. The finished game must win.
+        cog.gamble_state["hangman_ended_at"] = now - timedelta(minutes=10)
+        cog.gamble_state["hangman_cooldown_until"] = now + timedelta(hours=1)
+        assert cog._hangman_cooldown_left(now) > timedelta(hours=5)
+
+
+class TestSilasRefusals:
+    async def test_cooldown_records_silas_countdown(self):
+        cog, channel = _gamble_cog()
+        cog.gamble_state["hangman_active"] = True
+        await cog._handle_silas_gambling_message(_silas_message(channel), COOLDOWN_TEXT)
+
+        assert channel.sent == []
+        assert cog.gamble_state["hangman_active"] is False
+        left = cog._hangman_cooldown_left(datetime.now(timezone.utc))
+        assert timedelta(hours=5) < left <= timedelta(hours=5, minutes=54)
+
+    async def test_zero_countdown_backs_off_by_the_floor_not_six_hours(self):
+        cog, channel = _gamble_cog()
+        await cog._handle_silas_gambling_message(_silas_message(channel), COOLDOWN_ZERO_TEXT)
+        left = cog._hangman_cooldown_left(datetime.now(timezone.utc))
+        # "0h 0m" is a rounded-down refusal, not permission to retry now — but
+        # it is still Silas's answer, so it must not be read as "no countdown
+        # here" and replaced with the full six hours.
+        assert timedelta(minutes=4) < left <= AICog.HM_COOLDOWN_MIN_BACKOFF
+
+    async def test_refusal_stops_the_next_tick_resending_hm(self):
+        """The production loop, end to end: three days of `!hm` every tick."""
+        cog, channel = _gamble_cog()
+        _ready_to_gamble(cog)
+        cog.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc) - timedelta(days=3)
+
+        assert await cog.run_gamble_step(bypass_cooldown=True)
+        assert channel.sent == ["!hm"]
+
+        await cog._handle_silas_gambling_message(_silas_message(channel), COOLDOWN_TEXT)
+        await cog.run_gamble_step(bypass_cooldown=True)
+        assert channel.sent.count("!hm") == 1
+
+    async def test_hangman_busy_is_adopted_not_stood_on(self):
+        cog, channel = _gamble_cog()
+        await cog._handle_silas_gambling_message(_silas_message(channel), HANGMAN_BUSY_TEXT)
+
+        assert "stand" not in channel.sent
+        assert len(channel.sent) == 1
+        assert channel.sent[0].isalpha() and len(channel.sent[0]) == 1
+        assert cog.gamble_state["hangman_active"] is True
+
+    async def test_adopted_game_stops_the_next_tick_resending_hm(self):
+        cog, channel = _gamble_cog()
+        _ready_to_gamble(cog)
+        cog.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc) - timedelta(days=3)
+
+        await cog._handle_silas_gambling_message(_silas_message(channel), HANGMAN_BUSY_TEXT)
+        await cog.run_gamble_step(bypass_cooldown=True)
+        assert "!hm" not in channel.sent
+
+    async def test_blackjack_busy_still_stands(self):
+        cog, channel = _gamble_cog()
+        await cog._handle_silas_gambling_message(_silas_message(channel), BLACKJACK_BUSY_TEXT)
+        assert channel.sent == ["stand"]
+        assert cog.gamble_state["hangman_active"] is False
+
+    async def test_adopted_game_plays_on_from_the_board_silas_renders(self):
+        cog, channel = _gamble_cog()
+        message = _silas_message(channel)
+        await cog._handle_silas_gambling_message(message, HANGMAN_BUSY_TEXT)
+        probe = channel.sent[0]
+
+        await cog._handle_silas_gambling_message(message, "Word: _ _ _ e _\nGuessed: e\nLives left: 5")
+        assert len(channel.sent) == 2
+        assert channel.sent[1] != probe

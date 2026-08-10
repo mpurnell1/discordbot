@@ -682,6 +682,10 @@ class GambleState:
     session_anchor_balance: int | None = None
     morning_hangman_done: bool = False
     session_id: int | None = None
+    # Appended after the historical keys above: when Silas will next accept
+    # `!hm`, taken from the refusal he sends rather than inferred from when we
+    # think the last game ended.
+    hangman_cooldown_until: datetime | None = None
 
     # Dict-style shims so call sites can keep using state["key"] / state.get("key").
     def __getitem__(self, key):
@@ -727,6 +731,7 @@ class GambleState:
             session_anchor_balance=_opt_int(raw.get("session_anchor_balance")),
             morning_hangman_done=bool(raw.get("morning_hangman_done", False)),
             session_id=_opt_int(raw.get("session_id")),
+            hangman_cooldown_until=cls._parse_dt(raw.get("hangman_cooldown_until")),
         )
 
     def to_json_dict(self) -> dict:
@@ -747,6 +752,7 @@ class GambleState:
             "session_anchor_balance": (int(self.session_anchor_balance) if self.session_anchor_balance is not None else None),
             "morning_hangman_done": bool(self.morning_hangman_done),
             "session_id": (int(self.session_id) if self.session_id is not None else None),
+            "hangman_cooldown_until": _iso(self.hangman_cooldown_until),
         }
 
 
