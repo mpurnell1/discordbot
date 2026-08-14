@@ -284,6 +284,32 @@ class TestParseSilasHangman:
         assert result is not None
         assert result["guessed"] == set()
 
+    # Silas wraps the board in inline code so Discord doesn't eat the blanks as
+    # italics. Splitting that on whitespace hands back "`n" and "_`" at the
+    # ends — tokens that are neither a letter nor a blank.
+    @pytest.mark.parametrize(
+        "word_line",
+        [
+            "Word: `n a _ _ h t _`",  # inline code, as Silas sends it
+            "Word: n a \\_ \\_ h t \\_",  # backslash-escaped blanks
+            "Word: **n** **a** _ _ **h** **t** _",  # bolded reveals
+            "Word: N A _ _ H T _",  # upper case
+        ],
+    )
+    def test_markdown_is_stripped_from_the_board(self, cog, word_line):
+        result = cog._parse_silas_hangman(f"{word_line}\nGuessed: a, h, n, t\nLives left: 3")
+        assert result is not None
+        assert result["word_pattern"] == ["n", "a", "_", "_", "h", "t", "_"]
+
+    def test_guessed_letters_survive_their_separators(self, cog):
+        result = cog._parse_silas_hangman("Word: _ _ _ _ _\nGuessed: a, d, e, h, i\nLives left: 3")
+        assert result["guessed"] == {"a", "d", "e", "h", "i"}
+
+    def test_unreadable_token_rejects_the_whole_board(self, cog):
+        # Dropping the bad token instead would shorten the pattern by one and
+        # match the solver against words of the wrong length.
+        assert cog._parse_silas_hangman("Word: n a ?? h t _\nGuessed: a\nLives left: 3") is None
+
 
 # ---------------------------------------------------------------------------
 # _pick_hangman_letter
@@ -308,6 +334,29 @@ class TestPickHangmanLetter:
         # "apple" with a revealed
         letter = cog._pick_hangman_letter(["a", "_", "_", "_", "_"], {"a"})
         assert letter != "a"
+
+    def test_solves_the_board_it_lost(self, cog):
+        # The game Gary actually lost: "naughty", down to `n a _ _ h t _` with
+        # e/i/o/r/s spent. Only one 7-letter word in the 10k list fits, so the
+        # next guess has to come out of it — Gary guessed "d" and died.
+        letter = cog._pick_hangman_letter(
+            ["n", "a", "_", "_", "h", "t", "_"],
+            {"a", "e", "h", "i", "n", "o", "r", "s", "t"},
+        )
+        assert letter in {"u", "g", "y"}
+
+    def test_a_wrapped_board_plays_the_same_as_a_bare_one(self, cog):
+        """The regression itself: markdown must not change a single guess.
+
+        With the wrappers left on, no candidate could match, the solver fell
+        through to fixed letter-frequency order, and Gary lost all but ~6 % of
+        his games instead of winning ~95 % of them."""
+        bare = cog._parse_silas_hangman("Word: n a _ _ h t _\nGuessed: a, e, h, i, n, o, r, s, t\nLives left: 1")
+        wrapped = cog._parse_silas_hangman("Word: `n a _ _ h t _`\nGuessed: a, e, h, i, n, o, r, s, t\nLives left: 1")
+        assert bare == wrapped
+        pick = cog._pick_hangman_letter
+        assert pick(wrapped["word_pattern"], wrapped["guessed"]) == pick(bare["word_pattern"], bare["guessed"])
+        assert pick(bare["word_pattern"], bare["guessed"]) in {"u", "g", "y"}
 
 
 # ---------------------------------------------------------------------------
@@ -503,3 +552,47 @@ class TestTakeProfitReport:
         assert "Anchor: 24072" in summary
         assert "15571" not in summary
         assert cog.gamble_state["session_anchor_balance"] == 24072
+
+
+# ---------------------------------------------------------------------------
+# Sessions logged while stopped out
+#
+# A stop-loss clears session_id, and the anchor survives it on purpose — it is
+# the line the balance has to climb back over. But "no session yet" alone used
+# to be enough to open one, and the stop-loss below closed it again before the
+# same tick returned. Every 30 seconds, for three months: 170,348 of the
+# 170,485 rows in the live `gary_sessions` table were that one zero-delta row.
+# ---------------------------------------------------------------------------
+
+
+class TestStoppedOutSessionChurn:
+    def _stopped_out(self, balance=22719, anchor=30373):
+        """Gary's live state when this was found: 22719 against a 22779 line."""
+        cog, channel = _gamble_cog()
+        _ready_to_gamble(cog, balance=balance)
+        cog.gamble_state["session_anchor_balance"] = anchor
+        cog.gamble_state["session_id"] = None
+        cog.gamble_state["morning_hangman_done"] = True
+        cog.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+        return cog, channel
+
+    async def test_a_tick_under_the_line_logs_no_session(self):
+        cog, _ = self._stopped_out()
+        before = shared.get_gary_gamble_stats()["total_sessions"]
+
+        for _ in range(5):
+            result = await cog.run_gamble_step(bypass_cooldown=True)
+            assert result.startswith("BJ stop-loss")
+
+        assert shared.get_gary_gamble_stats()["total_sessions"] == before
+        assert cog.gamble_state["session_id"] is None
+
+    async def test_a_recovered_balance_still_opens_one(self):
+        # 22780 clears the 22779 line by a coin — a hangman win is all it takes.
+        cog, _ = self._stopped_out(balance=22780)
+        before = shared.get_gary_gamble_stats()["total_sessions"]
+
+        await cog.run_gamble_step(bypass_cooldown=True)
+
+        assert shared.get_gary_gamble_stats()["total_sessions"] == before + 1
+        assert cog.gamble_state["session_id"] is not None

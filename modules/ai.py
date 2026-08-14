@@ -119,6 +119,12 @@ class AICog(commands.Cog):
         pct = self.BJ_BET_PCT_BASE + t * (self.BJ_BET_PCT_MAX - self.BJ_BET_PCT_BASE)
         return max(self.BJ_BET_PCT_MIN, min(self.BJ_BET_PCT_MAX, round(pct)))
 
+    def _stop_loss_limit(self, anchor: int) -> int:
+        """Balance at or below which the session is over. One definition, two
+        readers: the stop-loss test itself and the recovery test that decides
+        a new session may start."""
+        return int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT))
+
     async def _send_gamble_report(self, summary: str, force: bool = False):
         report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
         if not report_id:
@@ -205,6 +211,22 @@ class AICog(commands.Cog):
         soft = is_soft_shown_total(ranks, total)
         return total, dealer_up, soft
 
+    @staticmethod
+    def _clean_board_token(token: str) -> str:
+        """One token of a word display, stripped of markdown; "" if unusable.
+
+        Silas wraps the board in inline code — "Word: `n a _ _ h t _`" — so a
+        naive split hands back "`n" and "_`" at the ends. Neither equals a
+        letter or a blank, so every 10k-list candidate was rejected on the
+        first position and the solver fell through to blind letter-frequency
+        order for the whole game: e, t, a, o, i, n, s, h, r, d and dead. Also
+        unescapes "\\_", which is how a board avoids Discord's italics.
+        """
+        cleaned = token.replace("\\", "").strip().strip("`*~|,.;:()[]{}\"'").strip()
+        if len(cleaned) == 1 and (cleaned.isalpha() or cleaned == "_"):
+            return cleaned.lower()
+        return ""
+
     def _parse_silas_hangman(self, text: str):
         """Parse Silas's hangman message. Returns dict or None."""
         lower = text.lower()
@@ -223,8 +245,11 @@ class AICog(commands.Cog):
 
         # "Word: _ _ _ e _" -> ['_', '_', '_', 'e', '_']
         word_raw = word_match.group(1).strip()
-        word_pattern = [ch for ch in word_raw.split() if ch]
-        if not word_pattern:
+        word_pattern = [self._clean_board_token(tok) for tok in word_raw.split()]
+        # All or nothing: a token we can't read is a position we'd guess at,
+        # and a pattern one slot short matches the wrong words. Bail instead —
+        # the caller leaves the board alone and HM_ACTIVE_TIMEOUT recovers.
+        if not word_pattern or not all(word_pattern):
             return None
 
         lives = int(lives_match.group(1))
@@ -233,7 +258,7 @@ class AICog(commands.Cog):
         if guessed_raw.lower() == "none":
             guessed = set()
         else:
-            guessed = {ch.strip().lower() for ch in guessed_raw.split(",") if ch.strip().isalpha() and len(ch.strip()) == 1}
+            guessed = {c for c in (self._clean_board_token(ch) for ch in guessed_raw.split(",")) if c.isalpha()}
 
         return {"status": "active", "word_pattern": word_pattern, "guessed": guessed, "lives": lives}
 
@@ -539,8 +564,13 @@ class AICog(commands.Cog):
             anchor = balance
             self.gamble_state["session_id"] = log_gary_session_start(balance)
             self._persist_gamble_state()
-        elif self.gamble_state.get("session_id") is None:
+        elif self.gamble_state.get("session_id") is None and balance > self._stop_loss_limit(anchor):
             # Anchor persists from before a stop-loss; balance recovered — start fresh session.
+            # The recovery test is the whole point of this branch. Without it a tick under
+            # the stop-loss line opened a session and the stop-loss below closed it again
+            # before returning, so every 30-second tick wrote a zero-delta `stop_loss` row:
+            # 170,348 of the 170,485 rows in `gary_sessions` were that, and `!garystats`
+            # read them as real sessions.
             self.gamble_state["session_id"] = log_gary_session_start(balance)
             self._persist_gamble_state()
 
@@ -559,7 +589,7 @@ class AICog(commands.Cog):
                 self._persist_gamble_state()
                 return "Morning hangman started."
 
-        stop_loss_limit = int(anchor * (1.0 - self.BJ_STOP_LOSS_PCT))
+        stop_loss_limit = self._stop_loss_limit(anchor)
         take_profit_limit = int(anchor * (1.0 + self.BJ_TAKE_PROFIT_PCT))
         stop_loss_hit = balance <= stop_loss_limit
         take_profit_hit = balance >= take_profit_limit
