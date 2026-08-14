@@ -249,7 +249,10 @@ class AICog(commands.Cog):
         # All or nothing: a token we can't read is a position we'd guess at,
         # and a pattern one slot short matches the wrong words. Bail instead —
         # the caller leaves the board alone and HM_ACTIVE_TIMEOUT recovers.
+        # Logged because bailing is silent from Discord's side, and a board
+        # Silas has restyled would otherwise look like Gary going quiet.
         if not word_pattern or not all(word_pattern):
+            logger.warning("Unreadable hangman board, skipping turn: %r", word_raw[:120])
             return None
 
         lives = int(lives_match.group(1))
