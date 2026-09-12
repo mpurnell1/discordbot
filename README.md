@@ -179,7 +179,7 @@ Gary infers a kids invite from the low-permission shape: no Manage Messages and 
 - `.settings gamble on` -> enable and bind gambling to current channel
 - `.settings gamble off` -> disable
 - `.settings gamble status` -> show state + bound channel
-- `.settings gamble now` -> force one immediate gambling step
+- `.settings gamble now` -> force one immediate gambling step (result goes to the report channel when one is set; the command gets a ✅)
 - `.settings gamble channel [#channel]` -> set channel (current if omitted)
 - `.settings gamble report [#channel]` -> set telemetry report channel (current if omitted)
 

@@ -1041,6 +1041,19 @@ class MiscCog(commands.Cog):
             if ai_cog is None:
                 return await ctx.send("AICog is not loaded.")
             result = await ai_cog.run_gamble_step(bypass_cooldown=True)
+            # The outcome is telemetry, and telemetry goes to the report
+            # channel: typed in the gamble channel, the reply landed between
+            # Gary's `!hm` and Silas's board. Reply in place only when there
+            # is no report channel to use (or this already is it).
+            report_id = shared.runtime_settings.get("gary_gamble_report_channel_id")
+            report_channel = self.bot.get_channel(int(report_id)) if report_id else None
+            if report_channel is not None and int(report_id) != ctx.channel.id:
+                await ai_cog._send_gamble_report(f"Manual step: {result}", force=True)
+                try:
+                    await ctx.message.add_reaction("✅")
+                except (discord.HTTPException, AttributeError):
+                    pass
+                return
             return await ctx.send(f"Gamble action: {result}")
         if action == "report":
             target = ctx.channel

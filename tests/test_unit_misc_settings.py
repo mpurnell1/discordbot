@@ -232,6 +232,48 @@ class TestSettingsGamble:
         await misc_cog.settings.callback(misc_cog, ctx, "gamble", "status")
         assert ctx.sent
 
+    async def test_gamble_now_reports_to_the_report_channel(self, misc_cog):
+        # Typed in the gamble channel, the result used to land between Gary's
+        # `!hm` and Silas's board. With a report channel set it goes there.
+        ai_cog = MagicMock()
+        ai_cog.run_gamble_step = AsyncMock(return_value="Morning hangman started.")
+        ai_cog._send_gamble_report = AsyncMock()
+        misc_cog.bot.get_cog.return_value = ai_cog
+        ctx = _admin_ctx()
+        shared.runtime_settings["gary_gamble_report_channel_id"] = ctx.channel.id + 1
+
+        await misc_cog.settings.callback(misc_cog, ctx, "gamble", "now")
+
+        assert ctx.sent == []
+        ai_cog._send_gamble_report.assert_awaited_once_with("Manual step: Morning hangman started.", force=True)
+        assert ctx.message.reactions_added == ["✅"]
+
+    async def test_gamble_now_replies_in_place_without_a_report_channel(self, misc_cog):
+        ai_cog = MagicMock()
+        ai_cog.run_gamble_step = AsyncMock(return_value="Sent `!scratches`.")
+        ai_cog._send_gamble_report = AsyncMock()
+        misc_cog.bot.get_cog.return_value = ai_cog
+        ctx = _admin_ctx()
+        shared.runtime_settings["gary_gamble_report_channel_id"] = None
+
+        await misc_cog.settings.callback(misc_cog, ctx, "gamble", "now")
+
+        assert "Sent `!scratches`." in (ctx.sent[0].get("content") or "")
+        ai_cog._send_gamble_report.assert_not_awaited()
+
+    async def test_gamble_now_in_the_report_channel_replies_there(self, misc_cog):
+        ai_cog = MagicMock()
+        ai_cog.run_gamble_step = AsyncMock(return_value="Cooldown active; next action will happen automatically.")
+        ai_cog._send_gamble_report = AsyncMock()
+        misc_cog.bot.get_cog.return_value = ai_cog
+        ctx = _admin_ctx()
+        shared.runtime_settings["gary_gamble_report_channel_id"] = ctx.channel.id
+
+        await misc_cog.settings.callback(misc_cog, ctx, "gamble", "now")
+
+        assert ctx.sent and "Gamble action" in (ctx.sent[0].get("content") or "")
+        ai_cog._send_gamble_report.assert_not_awaited()
+
     async def test_gamble_invalid_action_sends_usage(self, misc_cog):
         ctx = _admin_ctx()
         await misc_cog.settings.callback(misc_cog, ctx, "gamble", "blah")

@@ -195,9 +195,13 @@ class FakeMessage:
         self.content = content
         self.reference = None
         self.channel_mentions: list[Any] = []
+        self.reactions_added: list[str] = []
 
     async def delete(self):
         pass
+
+    async def add_reaction(self, emoji):
+        self.reactions_added.append(emoji)
 
 
 class FakeContext:
