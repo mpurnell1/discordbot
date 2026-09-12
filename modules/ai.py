@@ -272,13 +272,15 @@ class AICog(commands.Cog):
         game ended: our clock only moves when we *see* a game finish, and a
         game we never saw start (see `_resume_silas_hangman`) leaves it wrong
         for hours."""
-        m = re.search(r"in\s+(\d+)\s*h\w*\s+(\d+)\s*m", text, flags=re.IGNORECASE)
+        # Silas bolds the countdown ("in **5h 54m**"); the markdown survives
+        # extract_message_text, so allow it between "in" and the number.
+        m = re.search(r"in\s+[*_`]*(\d+)\s*h\w*\s+(\d+)\s*m", text, flags=re.IGNORECASE)
         if m:
             return timedelta(hours=int(m.group(1)), minutes=int(m.group(2)))
-        m = re.search(r"in\s+(\d+)\s*m", text, flags=re.IGNORECASE)
+        m = re.search(r"in\s+[*_`]*(\d+)\s*m", text, flags=re.IGNORECASE)
         if m:
             return timedelta(minutes=int(m.group(1)))
-        m = re.search(r"in\s+(\d+)\s*h", text, flags=re.IGNORECASE)
+        m = re.search(r"in\s+[*_`]*(\d+)\s*h", text, flags=re.IGNORECASE)
         if m:
             return timedelta(hours=int(m.group(1)))
         return None
@@ -391,14 +393,92 @@ class AICog(commands.Cog):
                 return ch
         return None
 
+    @staticmethod
+    def _thread_parent_id(channel):
+        """The parent channel of a thread, else None.
+
+        Silas plays every hangman in a public thread under the channel the
+        `!hm` was typed in, so a thread inherits the gamble channel's status
+        the same way it does on his side (`gate_channel_ids`). A plain
+        channel has no parent_id; a thread's is the channel it hangs off."""
+        parent = getattr(channel, "parent_id", None)
+        # A real id only: a MagicMock channel in tests answers every getattr
+        # with another mock, and int() of that is 1.
+        return parent if isinstance(parent, int) and parent > 0 else None
+
+    def _gamble_scope(self, channel) -> str | None:
+        """'channel' for the gamble channel itself, 'thread' for a thread
+        under it, None for anywhere else."""
+        channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
+        if not channel_id:
+            return None
+        channel_id = int(channel_id)
+        if channel.id == channel_id:
+            return "channel"
+        if self._thread_parent_id(channel) == channel_id:
+            return "thread"
+        return None
+
+    def _my_display_names(self, guild) -> set[str]:
+        """Names Silas might put in a thread title for Gary: the guild nick
+        (what his `display_name` shows) and the account name. Empty when
+        neither is known, which the caller treats as "don't check"."""
+        names = set()
+        me = getattr(guild, "me", None)
+        for who in (me, getattr(self.bot, "user", None)):
+            for attr in ("display_name", "name"):
+                value = getattr(who, attr, None)
+                if isinstance(value, str) and value:
+                    names.add(value.lower())
+        return names
+
+    def _adopt_hangman_thread(self, thread) -> bool:
+        """True if `thread` is (or becomes) the hangman Gary is playing.
+
+        Silas names the thread after its players ("🔤 Hangman: Gary"), so a
+        thread under the gamble channel that carries Gary's name while a
+        `!hm` is outstanding is his game. The first such board binds the
+        thread; from then on only that thread is played, so a neighbour's
+        game in the same channel is never guessed into. Nothing binds while
+        no hangman is active — a stray thread can't wake the solver."""
+        bound = self.gamble_state.get("hangman_thread_id")
+        if bound is not None:
+            return thread.id == bound
+        if not self.gamble_state.get("hangman_active"):
+            return False
+        names = self._my_display_names(getattr(thread, "guild", None))
+        title = getattr(thread, "name", None)
+        if names and isinstance(title, str) and not any(n in title.lower() for n in names):
+            return False
+        self.gamble_state["hangman_thread_id"] = thread.id
+        self._persist_gamble_state()
+        return True
+
+    def _end_hangman(self, *, ended_at=None):
+        """Forget the running hangman: no game, no thread. `ended_at` stamps
+        a game that actually finished (the cooldown anchor); a refusal or a
+        stale-game clear passes nothing."""
+        self.gamble_state["hangman_active"] = False
+        self.gamble_state["hangman_started_at"] = None
+        self.gamble_state["hangman_thread_id"] = None
+        if ended_at is not None:
+            self.gamble_state["hangman_ended_at"] = ended_at
+
     async def _handle_silas_gambling_message(self, message, silas_text: str):
         guild_id = message.guild.id if message.guild else None
         if is_kids_mode_guild(guild_id):
             return
-        channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
         if not shared.runtime_settings.get("gary_gamble_enabled", False):
             return
-        if not channel_id or message.channel.id != int(channel_id):
+        scope = self._gamble_scope(message.channel)
+        if scope is None:
+            return
+        # A thread under the gamble channel carries exactly one thing Gary
+        # cares about: his own hangman board. Every other thread (someone
+        # else's game, a `!session` table) is ignored, and blackjack never
+        # happens in one — Gary deals in the channel.
+        in_thread = scope == "thread"
+        if in_thread and not self._adopt_hangman_thread(message.channel):
             return
 
         lower = silas_text.lower()
@@ -419,7 +499,7 @@ class AICog(commands.Cog):
             or "push" in lower
             or "bust" in lower
         )
-        if resolved_blackjack:
+        if resolved_blackjack and not in_thread:
             self.gamble_state["blackjack_active"] = False
             self.gamble_state["blackjack_started_at"] = None
             # If result text didn't expose a parseable balance, request a refresh
@@ -435,14 +515,14 @@ class AICog(commands.Cog):
         # tells us to guess directly. Treating every one of them as blackjack
         # put "stand" into a hangman board, left hangman_active false, and so
         # the next tick sent `!hm` into the same refusal, forever.
-        if "already playing" in lower:
+        if "already playing" in lower and not in_thread:
             if "guess" in lower or "hangman" in lower:
                 await self._resume_silas_hangman(message)
             else:
                 await message.channel.send("stand")
             return
 
-        if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"]:
+        if "hit" in lower and "stand" in lower and self.gamble_state["blackjack_active"] and not in_thread:
             if self.gamble_state.get("blackjack_started_at") is None:
                 self.gamble_state["blackjack_started_at"] = datetime.now(timezone.utc)
             self.gamble_state["last_action_at"] = datetime.now(timezone.utc)
@@ -460,8 +540,7 @@ class AICog(commands.Cog):
         # --- Silas hangman cooldown detection ---
         if "cooldown" in lower and "hangman" in lower:
             now = datetime.now(timezone.utc)
-            self.gamble_state["hangman_active"] = False
-            self.gamble_state["hangman_started_at"] = None
+            self._end_hangman()
             # A refusal has to move the clock. This used to stamp
             # hangman_ended_at only when it was unset — so once it held any
             # value, every refusal left it untouched, the next tick read the
@@ -481,9 +560,7 @@ class AICog(commands.Cog):
         hangman = self._parse_silas_hangman(silas_text)
         if hangman and self.gamble_state.get("hangman_active"):
             if hangman["status"] in ("won", "lost"):
-                self.gamble_state["hangman_active"] = False
-                self.gamble_state["hangman_started_at"] = None
-                self.gamble_state["hangman_ended_at"] = datetime.now(timezone.utc)
+                self._end_hangman(ended_at=datetime.now(timezone.utc))
                 # A finished game re-anchors the wait on hangman_ended_at, so
                 # any countdown left over from an earlier refusal is spent.
                 self.gamble_state["hangman_cooldown_until"] = None
@@ -525,8 +602,7 @@ class AICog(commands.Cog):
             self.gamble_state["scratchoffs_used"] = 0
             self.gamble_state["blackjack_active"] = False
             self.gamble_state["blackjack_started_at"] = None
-            self.gamble_state["hangman_active"] = False
-            self.gamble_state["hangman_started_at"] = None
+            self._end_hangman()
             self.gamble_state["session_anchor_balance"] = None
             self.gamble_state["session_id"] = None
             self.gamble_state["morning_hangman_done"] = False
@@ -538,8 +614,7 @@ class AICog(commands.Cog):
         ]:
             started_at = self.gamble_state.get(started_key)
             if self.gamble_state.get(game) and isinstance(started_at, datetime) and now - started_at > timeout:
-                self.gamble_state[game] = False
-                self.gamble_state[started_key] = None
+                self._end_hangman()
                 self._persist_gamble_state()
                 return f"Cleared stale {game} after timeout."
 
@@ -734,12 +809,17 @@ class AICog(commands.Cog):
         """Handle Silas editing his hangman message in place."""
         if not self.gamble_state.get("hangman_active"):
             return
-        channel_id = shared.runtime_settings.get("gary_gamble_channel_id")
-        if not channel_id or payload.channel_id != int(channel_id):
-            return
-        # Fetch the full message to get author and content
+        # The board lives in the hangman's thread now, so the edit arrives
+        # from the thread's id, not the gamble channel's. Resolve the channel
+        # first and let the scope check decide; a thread that isn't in the
+        # cache yet (opened while Gary was busy) is fetched.
         channel = self.bot.get_channel(payload.channel_id)
         if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(payload.channel_id)
+            except discord.HTTPException:
+                return
+        if channel is None or self._gamble_scope(channel) is None:
             return
         try:
             message = await channel.fetch_message(payload.message_id)
@@ -767,7 +847,11 @@ class AICog(commands.Cog):
         silas_id = shared.runtime_settings.get("silas_bot_id")
         if silas_id and message.author.id == silas_id:
             channel_id = message.channel.id
-            if not is_feature_allowed("silas", channel_id, guild_id):
+            # A thread is gated by the channel it hangs off — a "silas"
+            # whitelist naming the gamble channel must still let the hangman
+            # thread under it through, or Gary never sees his board.
+            gate_channel_id = self._thread_parent_id(message.channel) or channel_id
+            if not is_feature_allowed("silas", gate_channel_id, guild_id):
                 return
 
             # Auto-accept roleplay invites from Silas

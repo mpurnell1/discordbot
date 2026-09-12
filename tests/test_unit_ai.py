@@ -426,6 +426,11 @@ class TestParseSilasHangmanCooldown:
     def test_hours_only(self, cog):
         assert cog._parse_silas_hangman_cooldown("You can start another hangman in 2h.") == timedelta(hours=2)
 
+    def test_bolded_countdown_as_silas_sends_it(self, cog):
+        # The real refusal is "in **5h 54m**"; the bold reaches the parser.
+        assert cog._parse_silas_hangman_cooldown("🔤 Cooldown\nYou can start another hangman in **5h 54m**.") == timedelta(hours=5, minutes=54)
+        assert cog._parse_silas_hangman_cooldown("in **0h 0m**") == timedelta(0)
+
     def test_no_countdown_returns_none(self, cog):
         assert cog._parse_silas_hangman_cooldown("Cooldown") is None
 
@@ -519,6 +524,173 @@ class TestSilasRefusals:
         await cog._handle_silas_gambling_message(message, "Word: _ _ _ e _\nGuessed: e\nLives left: 5")
         assert len(channel.sent) == 2
         assert channel.sent[1] != probe
+
+
+# ---------------------------------------------------------------------------
+# Hangman threads — Silas plays each game in a public thread under the
+# channel `!hm` was typed in. The board, its edits and the guesses all live
+# there; the gamble channel sees nothing. Before this, Gary waited on the
+# channel, guessed into it, and timed the game out every morning.
+# ---------------------------------------------------------------------------
+
+_THREAD_ID = 100000000000000011
+
+# The board exactly as Silas opens it: title, art, board, hint, last move.
+HANGMAN_BOARD_TEXT = (
+    "🔤 Hangman\n```\n  +---+\n  |   |\n      |\n      |\n      |\n      |\n=========```\n"
+    "Word: `_ _ _ _ _`\nGuessed: none\nLives left: 6\n\n"
+    "Just type a letter or use `!guess`/`!g` to guess the full word!\n\n**Last move:** Game started!"
+)
+HANGMAN_WON_TEXT = (
+    "🎉 You Got It!\n```\n  +---+\n  |   |\n      |\n      |\n      |\n      |\n=========```\n"
+    "Word: `a p p l e`\nGuessed: a, e, l, p\nLives left: 6\n\n"
+    "The word was `apple`!\n\n**Gary**: +102 🪙 | Balance: 10,131 🪙\n\n"
+    "**Last move:** Gary guessed `l` ✅ — word complete! 🎉"
+)
+
+
+class FakeGambleThread(FakeGambleChannel):
+    """A public thread under the gamble channel, named the way Silas names
+    his hangman threads."""
+
+    def __init__(self, name="🔤 Hangman: Gary", thread_id=_THREAD_ID, parent_id=_GAMBLE_CHANNEL_ID, guild_id=555):
+        super().__init__(channel_id=thread_id, guild_id=guild_id)
+        self.name = name
+        self.parent_id = parent_id
+        self.guild = SimpleNamespace(id=guild_id, me=SimpleNamespace(display_name="Gary", name="gary-bot"))
+
+
+def _hangman_pending(cog):
+    """State right after the tick sent `!hm`: a game is expected, none bound."""
+    cog.gamble_state["hangman_active"] = True
+    cog.gamble_state["hangman_started_at"] = datetime.now(timezone.utc)
+    cog.gamble_state["hangman_thread_id"] = None
+
+
+class TestHangmanThreads:
+    def test_thread_scope_follows_the_parent_channel(self):
+        cog, channel = _gamble_cog()
+        assert cog._gamble_scope(channel) == "channel"
+        assert cog._gamble_scope(FakeGambleThread()) == "thread"
+        assert cog._gamble_scope(FakeGambleThread(parent_id=_GAMBLE_CHANNEL_ID + 1)) is None
+        assert cog._gamble_scope(FakeGambleChannel(channel_id=_GAMBLE_CHANNEL_ID + 1)) is None
+
+    async def test_board_in_garys_thread_is_played_there(self):
+        cog, channel = _gamble_cog()
+        _hangman_pending(cog)
+        thread = FakeGambleThread()
+
+        await cog._handle_silas_gambling_message(_silas_message(thread), HANGMAN_BOARD_TEXT)
+
+        assert channel.sent == []
+        assert len(thread.sent) == 1 and thread.sent[0].isalpha() and len(thread.sent[0]) == 1
+        assert cog.gamble_state["hangman_thread_id"] == thread.id
+
+    async def test_someone_elses_thread_is_left_alone(self):
+        cog, channel = _gamble_cog()
+        _hangman_pending(cog)
+        thread = FakeGambleThread(name="🔤 Hangman: Bob")
+
+        await cog._handle_silas_gambling_message(_silas_message(thread), HANGMAN_BOARD_TEXT)
+
+        assert thread.sent == [] and channel.sent == []
+        assert cog.gamble_state["hangman_thread_id"] is None
+
+    async def test_no_hangman_outstanding_means_no_thread_is_adopted(self):
+        cog, channel = _gamble_cog()
+        thread = FakeGambleThread()
+
+        await cog._handle_silas_gambling_message(_silas_message(thread), HANGMAN_BOARD_TEXT)
+
+        assert thread.sent == []
+        assert cog.gamble_state["hangman_thread_id"] is None
+
+    async def test_only_the_bound_thread_is_played(self):
+        cog, channel = _gamble_cog()
+        _hangman_pending(cog)
+        mine = FakeGambleThread()
+        other = FakeGambleThread(thread_id=_THREAD_ID + 1)  # also named for Gary
+
+        await cog._handle_silas_gambling_message(_silas_message(mine), HANGMAN_BOARD_TEXT)
+        await cog._handle_silas_gambling_message(_silas_message(other), HANGMAN_BOARD_TEXT)
+
+        assert len(mine.sent) == 1
+        assert other.sent == []
+        assert cog.gamble_state["hangman_thread_id"] == mine.id
+
+    async def test_a_thread_off_another_channel_is_ignored(self):
+        cog, channel = _gamble_cog()
+        _hangman_pending(cog)
+        thread = FakeGambleThread(parent_id=_GAMBLE_CHANNEL_ID + 1)
+
+        await cog._handle_silas_gambling_message(_silas_message(thread), HANGMAN_BOARD_TEXT)
+
+        assert thread.sent == []
+        assert cog.gamble_state["hangman_thread_id"] is None
+
+    async def test_finishing_the_game_releases_the_thread(self):
+        cog, channel = _gamble_cog()
+        _hangman_pending(cog)
+        thread = FakeGambleThread()
+        cog.gamble_state["hangman_thread_id"] = thread.id
+
+        await cog._handle_silas_gambling_message(_silas_message(thread), HANGMAN_WON_TEXT)
+
+        assert cog.gamble_state["hangman_active"] is False
+        assert cog.gamble_state["hangman_thread_id"] is None
+        assert cog.gamble_state["hangman_ended_at"] is not None
+        # The payout line carries a balance; it is Gary's, so it counts.
+        assert cog.gamble_state["last_known_balance"] == 10131
+        assert thread.sent == []
+
+    async def test_cooldown_refusal_releases_a_stale_thread(self):
+        cog, channel = _gamble_cog()
+        _hangman_pending(cog)
+        cog.gamble_state["hangman_thread_id"] = _THREAD_ID
+
+        await cog._handle_silas_gambling_message(_silas_message(channel), COOLDOWN_TEXT)
+
+        assert cog.gamble_state["hangman_active"] is False
+        assert cog.gamble_state["hangman_thread_id"] is None
+
+    async def test_blackjack_words_in_a_thread_are_not_a_hand(self):
+        """A `!session` table under the gamble channel shows other players'
+        hands. None of it is Gary's blackjack, which he deals in the channel."""
+        cog, channel = _gamble_cog()
+        cog.gamble_state["blackjack_active"] = True
+        _hangman_pending(cog)
+        thread = FakeGambleThread(name="New Gambling Thread")
+
+        await cog._handle_silas_gambling_message(
+            _silas_message(thread),
+            "🃏 Blackjack\n**Dealer:** J♦  🂠\n**Gary (12):** Q♠  2♠\n\nUse the buttons below, or type `hit`, `stand`, or `double`.",
+        )
+
+        assert thread.sent == [] and channel.sent == []
+        assert cog.gamble_state["blackjack_active"] is True
+
+    async def test_the_current_blackjack_prompt_still_gets_an_answer(self):
+        cog, channel = _gamble_cog()
+        cog.gamble_state["blackjack_active"] = True
+
+        await cog._handle_silas_gambling_message(
+            _silas_message(channel),
+            "🃏 Blackjack\n**Dealer:** J♦  🂠\n**Gary (16):** Q♠  6♠\n\nUse the buttons below, or type `hit`, `stand`, or `double`.",
+        )
+
+        assert channel.sent == ["hit"]
+
+    async def test_stale_game_clear_releases_the_thread(self):
+        cog, channel = _gamble_cog()
+        _ready_to_gamble(cog)
+        cog.gamble_state["hangman_active"] = True
+        cog.gamble_state["hangman_started_at"] = datetime.now(timezone.utc) - AICog.HM_ACTIVE_TIMEOUT - timedelta(minutes=1)
+        cog.gamble_state["hangman_thread_id"] = _THREAD_ID
+
+        result = await cog.run_gamble_step(bypass_cooldown=True)
+
+        assert result.startswith("Cleared stale")
+        assert cog.gamble_state["hangman_thread_id"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -242,4 +242,10 @@ Fractional shares are supported (minimum trade size 0.0001 shares). Coin balance
   reply adopts the open game and sends one probe letter to make him render the board.
   Every `!hm` site asks `_hangman_cooldown_left()` before sending, so they cannot
   disagree about whether the cooldown has expired.
+- Silas plays each hangman in a public thread under the gamble channel, named after
+  its players ("🔤 Hangman: Gary"). Gary adopts the first such thread that carries his
+  name while a `!hm` is outstanding (`hangman_thread_id` in the gamble state), guesses
+  into it, reads the board's in-place edits from it, and releases it when the game
+  ends. Other threads under the channel (`!session` tables, other players' games) are
+  ignored, and a `silas` channel rule on the gamble channel covers its threads.
 - Passive AI chances (unsolicited, Silas banter/react) default to 0% and must be enabled via `.settings passive`.

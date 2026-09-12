@@ -686,6 +686,11 @@ class GambleState:
     # `!hm`, taken from the refusal he sends rather than inferred from when we
     # think the last game ended.
     hangman_cooldown_until: datetime | None = None
+    # The thread Silas opened for the hangman Gary is playing. His games moved
+    # out of the channel into a public thread under it (one per game), so the
+    # board, its edits and Gary's guesses all live there. Bound when the first
+    # board arrives, cleared when the game ends; None for an in-channel game.
+    hangman_thread_id: int | None = None
 
     # Dict-style shims so call sites can keep using state["key"] / state.get("key").
     def __getitem__(self, key):
@@ -732,6 +737,7 @@ class GambleState:
             morning_hangman_done=bool(raw.get("morning_hangman_done", False)),
             session_id=_opt_int(raw.get("session_id")),
             hangman_cooldown_until=cls._parse_dt(raw.get("hangman_cooldown_until")),
+            hangman_thread_id=_opt_int(raw.get("hangman_thread_id")),
         )
 
     def to_json_dict(self) -> dict:
@@ -753,6 +759,7 @@ class GambleState:
             "morning_hangman_done": bool(self.morning_hangman_done),
             "session_id": (int(self.session_id) if self.session_id is not None else None),
             "hangman_cooldown_until": _iso(self.hangman_cooldown_until),
+            "hangman_thread_id": (int(self.hangman_thread_id) if self.hangman_thread_id is not None else None),
         }
 
 

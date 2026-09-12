@@ -189,6 +189,12 @@ class TestGambleState:
         state["hangman_cooldown_until"] = until
         assert shared.GambleState.from_json_dict(state.to_json_dict())["hangman_cooldown_until"] == until
 
+    def test_hangman_thread_survives_a_round_trip(self):
+        state = shared.GambleState()
+        state["hangman_thread_id"] = 100000000000000011
+        assert shared.GambleState.from_json_dict(state.to_json_dict())["hangman_thread_id"] == 100000000000000011
+        assert shared.GambleState.from_json_dict({"day": "2026-09-10"})["hangman_thread_id"] is None
+
     def test_state_written_before_the_cooldown_field_still_loads(self):
         state = shared.GambleState.from_json_dict({"day": "2026-08-07", "session_id": 161752})
         assert state["hangman_cooldown_until"] is None
