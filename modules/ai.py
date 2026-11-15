@@ -727,20 +727,24 @@ class AICog(commands.Cog):
             bet = self._compute_blackjack_bet(balance, anchor)
             if bet <= 0:
                 return f"Balance {balance} below minimum bankroll threshold."
-            await channel.send(f"!bj {bet}%")
+            # Marked before the send: Silas settles a natural in his first reply,
+            # which can be handled before the send returns.
             self.gamble_state["blackjack_active"] = True
             self.gamble_state["blackjack_started_at"] = now
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
+            await channel.send(f"!bj {bet}%")
             return f"Started blackjack with `!bj {bet}%`."
 
         # Silas sometimes silently drops the response to !bj or a hit/stand move, leaving
         # a game open indefinitely. If no activity for BJ_ACTIVE_TIMEOUT, send stand to
         # force resolution (harmless if no game is actually open on Silas's end).
         if isinstance(last_action, datetime) and now - last_action > self.BJ_ACTIVE_TIMEOUT:
-            await channel.send("stand")
+            self.gamble_state["blackjack_active"] = False
+            self.gamble_state["blackjack_started_at"] = None
             self.gamble_state["last_action_at"] = now
             self._persist_gamble_state()
+            await channel.send("stand")
             return "Stale BJ game detected; sent stand to resolve."
 
         return "Blackjack hand already active; waiting to play hit/stand."

@@ -692,6 +692,38 @@ class TestHangmanThreads:
         assert result.startswith("Cleared stale")
         assert cog.gamble_state["hangman_thread_id"] is None
 
+    async def test_a_natural_settled_during_the_send_ends_the_hand(self):
+        cog, channel = _gamble_cog()
+        _ready_to_gamble(cog)
+        cog.gamble_state["morning_hangman_done"] = True
+
+        async def send_then_silas_replies(content=None, **kwargs):
+            channel.sent.append(content)
+            await cog._handle_silas_gambling_message(
+                _silas_message(channel),
+                "🃏 Blackjack!\n**Dealer (14):** 5♦  9♦\n**Gary (21):** A♠  J♣\n\n**Gary** wins **3,087** 🪙! Balance: 13,116 🪙",
+            )
+
+        channel.send = send_then_silas_replies
+
+        await cog.run_gamble_step(bypass_cooldown=True)
+
+        assert channel.sent[0].startswith("!bj ")
+        assert cog.gamble_state["blackjack_active"] is False
+        assert cog.gamble_state["last_known_balance"] == 13116
+
+    async def test_stale_blackjack_stands_once_then_frees_the_table(self):
+        cog, channel = _gamble_cog()
+        _ready_to_gamble(cog)
+        cog.gamble_state["morning_hangman_done"] = True
+        cog.gamble_state["blackjack_active"] = True
+        cog.gamble_state["last_action_at"] = datetime.now(timezone.utc) - AICog.BJ_ACTIVE_TIMEOUT - timedelta(minutes=1)
+
+        await cog.run_gamble_step(bypass_cooldown=True)
+
+        assert channel.sent == ["stand"]
+        assert cog.gamble_state["blackjack_active"] is False
+
 
 # ---------------------------------------------------------------------------
 # Take-profit report — the numbers in it must be the ones it just wrote
